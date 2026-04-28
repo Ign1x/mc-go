@@ -31,13 +31,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
+import com.mcgo.app.status.rememberStatusDashboardState
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
 import com.mcgo.app.ui.model.formatPlayerCapacity
 import com.mcgo.app.ui.model.formatRuntime
-import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.theme.Blue500
 import com.mcgo.app.ui.theme.Gold500
 import com.mcgo.app.ui.theme.Green500
@@ -46,9 +46,7 @@ import com.mcgo.app.ui.theme.Violet500
 
 @Composable
 fun StatusScreen(modifier: Modifier = Modifier) {
-    val hero = McGoSampleRepository.heroStatus()
-    val metrics = McGoSampleRepository.dashboardMetrics()
-    val events = McGoSampleRepository.recentEvents()
+    val dashboardState = rememberStatusDashboardState()
 
     LazyColumn(
         modifier = modifier,
@@ -59,7 +57,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         }
         item {
             HeroStatusCard(
-                hero = hero,
+                hero = dashboardState.hero,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
@@ -72,13 +70,13 @@ fun StatusScreen(modifier: Modifier = Modifier) {
         }
         item {
             MetricGrid(
-                metrics = metrics,
+                metrics = dashboardState.metrics,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             EventCard(
-                events = events,
+                events = dashboardState.events,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
