@@ -12,12 +12,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material.icons.outlined.SportsEsports
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +38,7 @@ import com.mcgo.app.ui.theme.SurfaceSoft
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
+    showLeadCard: Boolean = false,
     onSectionClick: () -> Unit,
 ) {
     val sections = McGoSampleRepository.settingsSections()
@@ -47,16 +47,18 @@ fun SettingsScreen(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { Spacer(modifier = Modifier.height(8.dp)) }
-        item {
-            GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
-                Text(text = stringResource(R.string.settings_center_title), style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = stringResource(R.string.settings_center_body),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Ink600,
-                )
+        item { Spacer(modifier = Modifier.height(6.dp)) }
+        if (showLeadCard) {
+            item {
+                GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Text(text = stringResource(R.string.settings_center_title), style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.settings_center_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Ink600,
+                    )
+                }
             }
         }
         items(items = sections, key = { it.title }) { section ->
@@ -129,9 +131,9 @@ private fun SettingsCard(
 }
 
 private fun settingsIcon(icon: SettingsCategoryIcon) = when (icon) {
-    SettingsCategoryIcon.Server -> Icons.Outlined.Dns
-    SettingsCategoryIcon.GameRule -> Icons.Outlined.SportsEsports
-    SettingsCategoryIcon.Edition -> Icons.Outlined.Layers
-    SettingsCategoryIcon.App -> Icons.Outlined.Apps
-    SettingsCategoryIcon.Safety -> Icons.Outlined.Shield
+    SettingsCategoryIcon.Appearance -> Icons.Outlined.Tune
+    SettingsCategoryIcon.Notifications -> Icons.Outlined.Notifications
+    SettingsCategoryIcon.Storage -> Icons.Outlined.Folder
+    SettingsCategoryIcon.Diagnostics -> Icons.AutoMirrored.Outlined.Article
+    SettingsCategoryIcon.Labs -> Icons.Outlined.Science
 }

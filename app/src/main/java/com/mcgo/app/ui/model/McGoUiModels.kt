@@ -8,11 +8,11 @@ enum class MetricAccent {
 }
 
 enum class SettingsCategoryIcon {
-    Server,
-    GameRule,
-    Edition,
-    App,
-    Safety,
+    Appearance,
+    Notifications,
+    Storage,
+    Diagnostics,
+    Labs,
 }
 
 data class HeroStatus(

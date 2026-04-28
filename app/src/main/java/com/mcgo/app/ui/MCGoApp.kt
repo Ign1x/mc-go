@@ -1,17 +1,18 @@
 package com.mcgo.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
@@ -22,7 +23,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
+import com.mcgo.app.ui.model.McGoPage
+import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.screens.ServersScreen
 import com.mcgo.app.ui.screens.SettingsScreen
 import com.mcgo.app.ui.screens.StatusScreen
@@ -48,23 +50,19 @@ import com.mcgo.app.ui.theme.SurfaceSoftAlt
 import kotlinx.coroutines.launch
 
 private enum class McGoDestination(
+    val page: McGoPage,
     val labelRes: Int,
-    val subtitleRes: Int,
     val icon: ImageVector,
 ) {
-    Status(R.string.nav_status, R.string.nav_status_subtitle, Icons.Outlined.Speed),
-    Servers(R.string.nav_servers, R.string.nav_servers_subtitle, Icons.Outlined.Dns),
-    Settings(R.string.nav_settings, R.string.nav_settings_subtitle, Icons.Outlined.Settings),
+    Status(McGoPage.Status, R.string.nav_status, Icons.Outlined.Speed),
+    Servers(McGoPage.Servers, R.string.nav_servers, Icons.Outlined.Dns),
+    Settings(McGoPage.Settings, R.string.nav_settings, Icons.Outlined.Settings),
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MCGoApp() {
     var destination by rememberSaveable { mutableStateOf(McGoDestination.Status) }
-    val appBarColors = TopAppBarDefaults.topAppBarColors(
-        containerColor = Color.Transparent,
-        scrolledContainerColor = Color.Transparent,
-    )
+    val chrome = McGoPageChrome.forPage(destination.page)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val demoMessage = stringResource(R.string.snackbar_demo_action)
@@ -81,19 +79,24 @@ fun MCGoApp() {
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            CenterAlignedTopAppBar(
-                colors = appBarColors,
-                title = {
-                    Column {
-                        Text(text = stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            text = stringResource(destination.subtitleRes),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = stringResource(chrome.titleRes),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    text = stringResource(chrome.subtitleRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         },
         bottomBar = {
             NavigationBar(
@@ -160,10 +163,12 @@ fun MCGoApp() {
                 McGoDestination.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
                 McGoDestination.Servers -> ServersScreen(
                     modifier = Modifier.fillMaxSize(),
+                    showLeadCard = chrome.showLeadCard,
                     onActionClick = notifyPendingFeature,
                 )
                 McGoDestination.Settings -> SettingsScreen(
                     modifier = Modifier.fillMaxSize(),
+                    showLeadCard = chrome.showLeadCard,
                     onSectionClick = notifyPendingFeature,
                 )
             }

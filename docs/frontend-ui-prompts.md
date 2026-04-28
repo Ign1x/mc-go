@@ -84,25 +84,26 @@ Mobile frontend UI design, server management screen for a Minecraft hosting app.
 
 ---
 
-## 4. 设置页（开服参数与常规配置）
+## 4. 设置页（应用偏好与工具配置）
 ### 英文提示词
 ```text
-Mobile frontend UI design, settings screen for a Minecraft server hosting app. Elegant, clean, and categorized interface. The layout consists of clickable rounded cards. Categories include: Server Properties, Game Rules, Java/Bedrock Settings, and App Preferences. Each card has a sleek icon, title, and a right-pointing arrow indicating tappable sub-menus. Large rounded corners, light gray background with white cards. Premium UI/UX design. --ar 9:16 --v 6.0
+Mobile frontend UI design, settings screen for a Minecraft server hosting app. Elegant, clean, and categorized interface. The layout consists of clickable rounded cards. Categories include: Appearance, Notifications, Downloads & Storage, Diagnostics, and Experimental Features. Each card has a sleek icon, title, and a right-pointing arrow indicating tappable sub-menus. Large rounded corners, light gray background with white cards. Premium UI/UX design. --ar 9:16 --v 6.0
 ```
 
 ### 中文释义
-移动端前端 UI 设计，Minecraft 服务器开服应用的设置界面。优雅、干净且分类明确。布局由可点击的圆角卡片组成。类别包括：
-- Server Properties（服务器属性）
-- Game Rules（游戏规则）
-- Java / Bedrock Settings
-- App Preferences（应用偏好）
+移动端前端 UI 设计，Minecraft 手机开服应用的设置界面。优雅、干净且分类明确。布局由可点击的圆角卡片组成。类别更偏应用与工具层，而不是开服参数，例如：
+- Appearance（界面与外观）
+- Notifications（通知与提醒）
+- Downloads & Storage（下载与存储）
+- Diagnostics（日志与诊断）
+- Experimental Features（实验性功能）
 
 每个卡片配有精致图标、标题，以及指向右侧的箭头，表示可点击进入子菜单。整体使用浅灰背景与白色卡片。
 
 ### 细化建议
-- 常用项可置顶，例如端口、最大玩家数、内存分配
+- 首屏更聚焦主题、提醒、缓存与日志等常用偏好
 - 高级项折叠，避免首屏信息过载
-- 可加入导入 / 导出配置与一键模板功能
+- 可加入导出日志、缓存清理、实验功能开关等入口
 
 ---
 

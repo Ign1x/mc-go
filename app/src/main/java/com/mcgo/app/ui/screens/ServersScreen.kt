@@ -44,25 +44,27 @@ import com.mcgo.app.ui.theme.SurfaceSoft
 @Composable
 fun ServersScreen(
     modifier: Modifier = Modifier,
+    showLeadCard: Boolean = false,
     onActionClick: () -> Unit,
 ) {
     val servers = McGoSampleRepository.serverCards()
-    val onlineCount = servers.count { it.isOnline }
 
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { Spacer(modifier = Modifier.height(8.dp)) }
-        item {
-            GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
-                Text(text = stringResource(R.string.servers_overview_title), style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = stringResource(R.string.servers_overview_body, servers.size, onlineCount),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Ink600,
-                )
+        item { Spacer(modifier = Modifier.height(6.dp)) }
+        if (showLeadCard) {
+            item {
+                GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Text(text = stringResource(R.string.servers_overview_title), style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.servers_overview_body, servers.size, servers.count { it.isOnline }),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Ink600,
+                    )
+                }
             }
         }
         items(items = servers, key = { it.name }) { server ->

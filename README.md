@@ -11,14 +11,14 @@
 当前已完成 **前端首版**，包含 3 个底部导航主页面：
 1. **Status / 状态**：手机作为服务器时的性能状态监控
 2. **Servers / 服务器**：Minecraft 实例管理
-3. **Settings / 设置**：开服参数与应用配置
+3. **Settings / 设置**：应用偏好与工具配置
 
 ## 当前前端技术方案
 - **Android UI**：Kotlin + Jetpack Compose + Material 3
 - **最低系统支持**：Android 8.0（API 26）
 - **编译 / 目标 API**：Android 16 / API 36
 - **构建 JDK**：Java 21（Kotlin / Java 字节码目标 17，兼顾新工具链与稳定兼容）
-- **当前版本**：`versionCode 1` / `versionName 0.1.0`
+- **当前版本**：`versionCode 2` / `versionName 0.1.1`
 
 ## 已初始化文件
 - `docs/frontend-ui-prompts.md`：MC-GO 前端设计提示词整理版

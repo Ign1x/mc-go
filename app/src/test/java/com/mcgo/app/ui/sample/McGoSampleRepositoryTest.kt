@@ -23,14 +23,15 @@ class McGoSampleRepositoryTest {
     }
 
     @Test
-    fun settingsSections_coverTheMainConfigurationAreas() {
+    fun settingsSections_focusOnAppLevelPreferencesInsteadOfServerProperties() {
         val sectionTitles = McGoSampleRepository.settingsSections().map { it.title }
 
-        assertThat(sectionTitles).containsAtLeast(
-            "Server Properties",
-            "Game Rules",
-            "Java / Bedrock",
-            "App Preferences"
-        )
+        assertThat(sectionTitles).containsExactly(
+            "界面与外观",
+            "通知与提醒",
+            "下载与存储",
+            "日志与诊断",
+            "实验性功能"
+        ).inOrder()
     }
 }
