@@ -1,0 +1,32 @@
+<resources>
+    <string name="app_name">MC-GO</string>
+    <string name="nav_status">状态</string>
+    <string name="nav_servers">服务器</string>
+    <string name="nav_settings">设置</string>
+    <string name="nav_status_subtitle">手机作为 Minecraft Java 主机的实时仪表盘</string>
+    <string name="nav_servers_subtitle">实例列表、玩家容量与一键操作</string>
+    <string name="nav_settings_subtitle">开服参数、Java 运行时与应用偏好</string>
+    <string name="action_create_server">创建服务器</string>
+    <string name="snackbar_demo_action">前端演示版：该操作将在 Rust 后端接入后启用</string>
+    <string name="status_section_title">实时性能</string>
+    <string name="status_section_subtitle">CPU、内存、网络与电池电流一屏掌握</string>
+    <string name="status_hero_sentence">本机正在充当 Java 版服务器 · 已运行 %1$s</string>
+    <string name="status_kpi_online_players">在线玩家</string>
+    <string name="status_kpi_capacity">最大容量</string>
+    <string name="status_kpi_health">当前状态</string>
+    <string name="status_kpi_health_value">健康</string>
+    <string name="recent_events_title">最近事件</string>
+    <string name="servers_overview_title">实例总览</string>
+    <string name="servers_overview_body">共 %1$d 个实例，当前 %2$d 个在线，支持一键启动 / 停止 / 编辑。</string>
+    <string name="server_meta_players">玩家</string>
+    <string name="server_meta_port">端口</string>
+    <string name="server_meta_memory">内存</string>
+    <string name="server_action_console">控制台</string>
+    <string name="server_action_stop">停止</string>
+    <string name="server_action_start">启动</string>
+    <string name="server_action_edit">编辑</string>
+    <string name="server_status_online">在线</string>
+    <string name="server_status_offline">离线</string>
+    <string name="settings_center_title">参数中心</string>
+    <string name="settings_center_body">把常用开服参数放到首层，方便在手机上快速完成管理。</string>
+</resources>
