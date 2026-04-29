@@ -62,8 +62,6 @@ data class AppearanceSettingsState(
     val selectedAccent: String,
     val fontScaleOptions: List<String>,
     val selectedFontScale: String,
-    val motionOptions: List<String>,
-    val selectedMotionMode: String,
     val cardTransparencyPercent: Int,
     val toggles: List<AppearanceToggleState>,
 )

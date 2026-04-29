@@ -1,6 +1,8 @@
 package com.mcgo.app.ui.screens
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -33,6 +35,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,28 +46,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.AccentPreset
 import com.mcgo.app.ui.model.AppearancePreferences
+import com.mcgo.app.ui.model.AppearanceSettingsState
 import com.mcgo.app.ui.model.FontScalePreference
-import com.mcgo.app.ui.model.MotionPreference
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsDestination
 import com.mcgo.app.ui.model.SettingsNavigationState
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.sample.McGoSampleRepository
-import com.mcgo.app.ui.theme.Blue500
-import com.mcgo.app.ui.theme.Gold500
-import com.mcgo.app.ui.theme.Green500
-import com.mcgo.app.ui.theme.Ink600
-import com.mcgo.app.ui.theme.Ink900
-import com.mcgo.app.ui.theme.MistBackground
-import com.mcgo.app.ui.theme.SurfaceSoft
-import com.mcgo.app.ui.theme.SurfaceSoftAlt
-import com.mcgo.app.ui.theme.Violet500
 
 @Composable
 fun SettingsScreen(
@@ -125,7 +121,7 @@ private fun SettingsOverview(
 private fun AppearanceDetailScreen(
     section: SettingsSectionState,
     appearancePreferences: AppearancePreferences,
-    appearanceOptions: com.mcgo.app.ui.model.AppearanceSettingsState,
+    appearanceOptions: AppearanceSettingsState,
     onNavigateBack: () -> Unit,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     modifier: Modifier = Modifier,
@@ -166,6 +162,7 @@ private fun AppearanceDetailScreen(
             AccentChoiceCard(
                 options = appearanceOptions.accentOptions,
                 selectedOption = appearancePreferences.accentPreset.label,
+                preferDarkPreview = appearancePreferences.themeMode.resolvesToDark(isSystemInDarkTheme()),
                 onOptionSelected = {
                     onAppearancePreferencesChange(
                         appearancePreferences.copy(accentPreset = AccentPreset.fromLabel(it)),
@@ -180,36 +177,8 @@ private fun AppearanceDetailScreen(
                 options = appearanceOptions.fontScaleOptions,
                 selectedOption = appearancePreferences.fontScale.label,
                 onOptionSelected = {
-                    val selectedFontScale = FontScalePreference.fromLabel(it)
                     onAppearancePreferencesChange(
-                        appearancePreferences.copy(
-                            fontScale = selectedFontScale,
-                            compactTypography = selectedFontScale == FontScalePreference.Compact,
-                        ),
-                    )
-                },
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
-        item {
-            ChoiceChipCard(
-                title = "动效强度",
-                options = appearanceOptions.motionOptions,
-                selectedOption = appearancePreferences.motionPreference.label,
-                onOptionSelected = {
-                    onAppearancePreferencesChange(
-                        appearancePreferences.copy(motionPreference = MotionPreference.fromLabel(it)),
-                    )
-                },
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
-        item {
-            TransparencySliderCard(
-                value = appearancePreferences.cardTransparencyPercent,
-                onValueChange = {
-                    onAppearancePreferencesChange(
-                        appearancePreferences.copy(cardTransparencyPercent = it),
+                        appearancePreferences.copy(fontScale = FontScalePreference.fromLabel(it)),
                     )
                 },
                 modifier = Modifier.padding(horizontal = 20.dp),
@@ -225,13 +194,16 @@ private fun AppearanceDetailScreen(
                 onDynamicBackgroundChange = {
                     onAppearancePreferencesChange(appearancePreferences.copy(dynamicBackground = it))
                 },
-                compactTypographyEnabled = appearancePreferences.compactTypography,
-                onCompactTypographyChange = { enabled ->
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item {
+            TransparencySliderCard(
+                value = appearancePreferences.cardTransparencyPercent,
+                enabled = appearancePreferences.transparentCards,
+                onValueChange = {
                     onAppearancePreferencesChange(
-                        appearancePreferences.copy(
-                            compactTypography = enabled,
-                            fontScale = if (enabled) FontScalePreference.Compact else FontScalePreference.Standard,
-                        ),
+                        appearancePreferences.copy(cardTransparencyPercent = it),
                     )
                 },
                 modifier = Modifier.padding(horizontal = 20.dp),
@@ -279,7 +251,7 @@ private fun AppearanceDetailHeader(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = Ink600,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -290,17 +262,27 @@ private fun AppearancePreviewCard(
     appearancePreferences: AppearancePreferences,
     modifier: Modifier = Modifier,
 ) {
-    val accentColor = accentColor(appearancePreferences.accentPreset.label)
-    val isDarkPreview = appearancePreferences.themeMode == ThemeModePreference.Dark
-    val previewBackground = when (appearancePreferences.themeMode) {
-        ThemeModePreference.Dark -> Ink900.copy(alpha = 0.92f)
-        ThemeModePreference.FollowSystem -> SurfaceSoftAlt
-        ThemeModePreference.Light -> MistBackground
+    val systemDarkTheme = isSystemInDarkTheme()
+    val accentColor = accentColorForOption(
+        option = appearancePreferences.accentPreset.label,
+        preferDarkPreview = appearancePreferences.themeMode.resolvesToDark(systemDarkTheme),
+    )
+    val isDarkPreview = appearancePreferences.themeMode.resolvesToDark(systemDarkTheme)
+    val previewBackground = when {
+        isDarkPreview -> Color(0xFF121A2B)
+        appearancePreferences.themeMode == ThemeModePreference.FollowSystem -> MaterialTheme.colorScheme.surfaceVariant
+        else -> Color(0xFFF5F8FF)
     }
-    val previewTextColor = if (isDarkPreview) Color.White else Ink900
-    val previewSubtleColor = if (isDarkPreview) Color.White.copy(alpha = 0.7f) else Ink600
-    val previewCardColor = if (appearancePreferences.transparentCards) {
-        Color.White.copy(alpha = appearancePreferences.cardContainerAlpha())
+    val previewTextColor = if (isDarkPreview) Color.White else Color(0xFF182033)
+    val previewSubtleColor = if (isDarkPreview) Color.White.copy(alpha = 0.72f) else Color(0xFF61708E)
+    val previewCardColor = if (isDarkPreview) {
+        if (appearancePreferences.transparentCards) {
+            Color(0xFF243149).copy(alpha = appearancePreferences.cardContainerAlpha().coerceIn(0.62f, 0.96f))
+        } else {
+            Color(0xFF243149)
+        }
+    } else if (appearancePreferences.transparentCards) {
+        Color.White.copy(alpha = appearancePreferences.cardContainerAlpha().coerceIn(0.08f, 1f))
     } else {
         Color.White
     }
@@ -316,16 +298,16 @@ private fun AppearancePreviewCard(
                 Text(
                     text = appearancePreferences.summaryLabel(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Ink600,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Surface(
                 shape = RoundedCornerShape(999.dp),
-                color = accentColor.copy(alpha = 0.14f),
+                color = accentColor.copy(alpha = 0.16f),
                 contentColor = accentColor,
             ) {
                 Text(
-                    text = appearancePreferences.motionPreference.label,
+                    text = appearancePreferences.fontScale.label,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
@@ -342,7 +324,7 @@ private fun AppearancePreviewCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        if (appearancePreferences.dynamicBackground) accentColor.copy(alpha = appearancePreferences.backgroundAuraAlpha())
+                        if (appearancePreferences.dynamicBackground) accentColor.copy(alpha = 0.18f)
                         else Color.Transparent,
                     )
                     .padding(16.dp),
@@ -375,7 +357,7 @@ private fun AppearancePreviewCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PreviewMiniCard(
                         title = "实时性能",
-                        subtitle = "浅色背景更清爽",
+                        subtitle = if (isDarkPreview) "增强对比度" else "清爽易读",
                         accentColor = accentColor,
                         textColor = previewTextColor,
                         subtleColor = previewSubtleColor,
@@ -384,7 +366,7 @@ private fun AppearancePreviewCard(
                     )
                     PreviewMiniCard(
                         title = "界面与外观",
-                        subtitle = "小字体 · 透明卡",
+                        subtitle = "主题色更明显",
                         accentColor = accentColor,
                         textColor = previewTextColor,
                         subtleColor = previewSubtleColor,
@@ -470,6 +452,7 @@ private fun ChoiceChipCard(
 private fun AccentChoiceCard(
     options: List<String>,
     selectedOption: String,
+    preferDarkPreview: Boolean,
     onOptionSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -481,7 +464,7 @@ private fun AccentChoiceCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             options.forEach { option ->
-                val color = accentColor(option)
+                val color = accentColorForOption(option = option, preferDarkPreview = preferDarkPreview)
                 FilterChip(
                     selected = option == selectedOption,
                     onClick = { onOptionSelected(option) },
@@ -508,6 +491,7 @@ private fun AccentChoiceCard(
 @Composable
 private fun TransparencySliderCard(
     value: Int,
+    enabled: Boolean,
     onValueChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -521,7 +505,7 @@ private fun TransparencySliderCard(
             Text(
                 text = "$value%",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -529,7 +513,8 @@ private fun TransparencySliderCard(
         Slider(
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toInt()) },
-            valueRange = 50f..96f,
+            valueRange = 0f..100f,
+            enabled = enabled,
         )
     }
 }
@@ -540,8 +525,6 @@ private fun AppearanceTogglesCard(
     onTransparentCardsChange: (Boolean) -> Unit,
     dynamicBackgroundEnabled: Boolean,
     onDynamicBackgroundChange: (Boolean) -> Unit,
-    compactTypographyEnabled: Boolean,
-    onCompactTypographyChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     GlassCard(modifier = modifier) {
@@ -556,15 +539,9 @@ private fun AppearanceTogglesCard(
             )
             AppearanceToggleRow(
                 title = "动态背景",
-                subtitle = "控制背景氛围光",
+                subtitle = "让背景动起来更明显一些",
                 checked = dynamicBackgroundEnabled,
                 onCheckedChange = onDynamicBackgroundChange,
-            )
-            AppearanceToggleRow(
-                title = "紧凑字体",
-                subtitle = "整体字体更小一些",
-                checked = compactTypographyEnabled,
-                onCheckedChange = onCompactTypographyChange,
             )
         }
     }
@@ -588,7 +565,7 @@ private fun AppearanceToggleRow(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = Ink600,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Spacer(modifier = Modifier.width(12.dp))
@@ -617,7 +594,7 @@ private fun SettingsCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    color = SurfaceSoft,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(20.dp),
                 ) {
                     Icon(
@@ -632,12 +609,12 @@ private fun SettingsCard(
                     Text(
                         text = section.subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Ink600,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Surface(
                         shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                         contentColor = MaterialTheme.colorScheme.primary,
                     ) {
                         Text(
@@ -651,7 +628,7 @@ private fun SettingsCard(
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,
                 contentDescription = null,
-                tint = Ink600,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -665,10 +642,19 @@ private fun settingsIcon(icon: SettingsCategoryIcon) = when (icon) {
     SettingsCategoryIcon.Labs -> Icons.Outlined.Science
 }
 
-private fun accentColor(option: String): Color = when (option) {
-    AccentPreset.Ocean.label -> Blue500
-    AccentPreset.Forest.label -> Green500
-    AccentPreset.Amethyst.label -> Violet500
-    AccentPreset.Sunset.label -> Gold500
-    else -> Blue500
+@Composable
+private fun accentColorForOption(option: String, preferDarkPreview: Boolean): Color {
+    val context = LocalContext.current
+    return when (option) {
+        AccentPreset.Ocean.label -> Color(AccentPreset.Ocean.primaryHex)
+        AccentPreset.Forest.label -> Color(AccentPreset.Forest.primaryHex)
+        AccentPreset.Amethyst.label -> Color(AccentPreset.Amethyst.primaryHex)
+        AccentPreset.Sunset.label -> Color(AccentPreset.Sunset.primaryHex)
+        AccentPreset.System.label -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (preferDarkPreview) dynamicDarkColorScheme(context).primary else dynamicLightColorScheme(context).primary
+        } else {
+            Color(AccentPreset.System.primaryHex)
+        }
+        else -> MaterialTheme.colorScheme.primary
+    }
 }

@@ -36,10 +36,6 @@ import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.formatPlayerCapacity
 import com.mcgo.app.ui.sample.McGoSampleRepository
-import com.mcgo.app.ui.theme.Green500
-import com.mcgo.app.ui.theme.Ink600
-import com.mcgo.app.ui.theme.Red500
-import com.mcgo.app.ui.theme.SurfaceSoft
 
 @Composable
 fun ServersScreen(
@@ -62,7 +58,7 @@ fun ServersScreen(
                     Text(
                         text = stringResource(R.string.servers_overview_body, servers.size, servers.count { it.isOnline }),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Ink600,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -84,7 +80,7 @@ private fun ServerCard(
     modifier: Modifier = Modifier,
     onActionClick: () -> Unit,
 ) {
-    val statusColor = if (server.isOnline) Green500 else Red500
+    val statusColor = if (server.isOnline) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
     GlassCard(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -96,7 +92,7 @@ private fun ServerCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    color = SurfaceSoft,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(20.dp),
                 ) {
                     Icon(
@@ -111,7 +107,7 @@ private fun ServerCard(
                     Text(
                         text = "${server.edition} · ${server.worldName}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Ink600,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -194,7 +190,7 @@ private fun StatusDotBadge(text: String, color: Color) {
 @Composable
 private fun ServerMeta(title: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
-        Text(text = title, style = MaterialTheme.typography.labelMedium, color = Ink600)
+        Text(text = title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(4.dp))
         Text(text = value, style = MaterialTheme.typography.bodyMedium)
     }

@@ -8,7 +8,6 @@ import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.FontScalePreference
 import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
-import com.mcgo.app.ui.model.MotionPreference
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsSectionState
@@ -83,7 +82,7 @@ object McGoSampleRepository {
     fun settingsSections(): List<SettingsSectionState> = listOf(
         SettingsSectionState(
             title = "界面与外观",
-            subtitle = "主题、色彩、字体与动效",
+            subtitle = "主题、色彩、字体与背景",
             highlight = AppearancePreferences().summaryLabel(),
             icon = SettingsCategoryIcon.Appearance,
         ),
@@ -98,24 +97,17 @@ object McGoSampleRepository {
             selectedAccent = defaults.accentPreset.label,
             fontScaleOptions = FontScalePreference.entries.map { it.label },
             selectedFontScale = defaults.fontScale.label,
-            motionOptions = MotionPreference.entries.map { it.label },
-            selectedMotionMode = defaults.motionPreference.label,
             cardTransparencyPercent = defaults.cardTransparencyPercent,
             toggles = listOf(
                 AppearanceToggleState(
                     title = "透明卡片",
-                    subtitle = "保留轻透玻璃质感",
+                    subtitle = "控制卡片通透感",
                     enabled = defaults.transparentCards,
                 ),
                 AppearanceToggleState(
                     title = "动态背景",
-                    subtitle = "保留轻微彩色氛围光",
+                    subtitle = "控制背景动效",
                     enabled = defaults.dynamicBackground,
-                ),
-                AppearanceToggleState(
-                    title = "紧凑字体",
-                    subtitle = "整体字体更小一些",
-                    enabled = defaults.compactTypography,
                 ),
             ),
         )

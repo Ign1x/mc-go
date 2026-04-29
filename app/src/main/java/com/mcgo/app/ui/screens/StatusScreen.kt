@@ -40,11 +40,6 @@ import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
 import com.mcgo.app.ui.model.formatPlayerCapacity
 import com.mcgo.app.ui.model.formatRuntime
-import com.mcgo.app.ui.theme.Blue500
-import com.mcgo.app.ui.theme.Gold500
-import com.mcgo.app.ui.theme.Green500
-import com.mcgo.app.ui.theme.Ink600
-import com.mcgo.app.ui.theme.Violet500
 
 @Composable
 fun StatusScreen(modifier: Modifier = Modifier) {
@@ -99,7 +94,7 @@ private fun HeroStatusCard(hero: HeroStatus, modifier: Modifier = Modifier) {
             Text(
                 text = formatPlayerCapacity(hero.onlinePlayers, hero.maxPlayers),
                 style = MaterialTheme.typography.labelMedium,
-                color = Ink600,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Spacer(modifier = Modifier.height(14.dp))
@@ -112,7 +107,7 @@ private fun HeroStatusCard(hero: HeroStatus, modifier: Modifier = Modifier) {
         Text(
             text = stringResource(R.string.status_hero_sentence, formatRuntime(hero.uptimeMinutes)),
             style = MaterialTheme.typography.bodyMedium,
-            color = Ink600,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(18.dp))
         LinearProgressIndicator(
@@ -120,8 +115,8 @@ private fun HeroStatusCard(hero: HeroStatus, modifier: Modifier = Modifier) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp),
-            color = Green500,
-            trackColor = Green500.copy(alpha = 0.16f),
+            color = MaterialTheme.colorScheme.secondary,
+            trackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
         )
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -151,7 +146,7 @@ private fun SectionTitle(title: String, subtitle: String, modifier: Modifier = M
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = Ink600,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -190,7 +185,7 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
         Text(
             text = metric.title,
             style = MaterialTheme.typography.labelLarge,
-            color = Ink600,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
@@ -202,7 +197,7 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
         Text(
             text = metric.detailLabel,
             style = MaterialTheme.typography.bodySmall,
-            color = Ink600,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -286,12 +281,12 @@ private fun EventCard(events: List<String>, modifier: Modifier = Modifier) {
                 Box(
                     modifier = Modifier
                         .size(8.dp)
-                        .background(Green500, CircleShape),
+                        .background(MaterialTheme.colorScheme.secondary, CircleShape),
                 )
                 Text(
                     text = event,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Ink600,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -303,8 +298,8 @@ private fun EventCard(events: List<String>, modifier: Modifier = Modifier) {
 private fun StatusBadge(text: String) {
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = Green500.copy(alpha = 0.15f),
-        contentColor = Green500,
+        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f),
+        contentColor = MaterialTheme.colorScheme.secondary,
     ) {
         Text(
             text = text,
@@ -317,15 +312,16 @@ private fun StatusBadge(text: String) {
 @Composable
 private fun StatKpi(title: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
-        Text(text = title, style = MaterialTheme.typography.labelMedium, color = Ink600)
+        Text(text = title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(4.dp))
         Text(text = value, style = MaterialTheme.typography.titleMedium)
     }
 }
 
+@Composable
 private fun metricAccentColor(accent: MetricAccent): Color = when (accent) {
-    MetricAccent.Blue -> Blue500
-    MetricAccent.Green -> Green500
-    MetricAccent.Gold -> Gold500
-    MetricAccent.Violet -> Violet500
+    MetricAccent.Blue -> MaterialTheme.colorScheme.primary
+    MetricAccent.Green -> MaterialTheme.colorScheme.secondary
+    MetricAccent.Gold -> MaterialTheme.colorScheme.tertiary
+    MetricAccent.Violet -> MaterialTheme.colorScheme.error
 }

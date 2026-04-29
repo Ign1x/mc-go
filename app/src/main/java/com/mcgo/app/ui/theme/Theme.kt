@@ -1,9 +1,12 @@
 package com.mcgo.app.ui.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -12,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import com.mcgo.app.ui.model.AccentPreset
 import com.mcgo.app.ui.model.AppearancePreferences
 
@@ -28,7 +32,7 @@ val LocalMcGoVisualTokens = staticCompositionLocalOf {
         cardContainerColor = FrostSurface,
         cardStrokeColor = FrostStroke,
         backgroundGradient = listOf(MistBackground, CloudBackground, SurfaceSoftAlt),
-        backgroundAuraColors = listOf(Color.Transparent, Color.Transparent, Color.Transparent),
+        backgroundAuraColors = listOf(Color.Transparent, Color.Transparent, Color.Transparent, Color.Transparent),
     )
 }
 
@@ -37,45 +41,58 @@ fun McGoTheme(
     appearancePreferences: AppearancePreferences = AppearancePreferences(),
     content: @Composable () -> Unit,
 ) {
+    val context = LocalContext.current
     val systemDarkTheme = isSystemInDarkTheme()
     val darkTheme = appearancePreferences.themeMode.resolvesToDark(systemIsDark = systemDarkTheme)
-    val accentColors = remember(appearancePreferences.accentPreset) { accentColors(appearancePreferences.accentPreset) }
-    val colorScheme = remember(darkTheme, accentColors) {
-        mcGoColorScheme(
-            darkTheme = darkTheme,
-            primary = accentColors.primary,
-            secondary = accentColors.secondary,
-            tertiary = accentColors.tertiary,
-        )
+    val colorScheme = remember(context, darkTheme, appearancePreferences.accentPreset) {
+        when {
+            appearancePreferences.accentPreset == AccentPreset.System && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            }
+            else -> {
+                val accentColors = accentColors(appearancePreferences.accentPreset)
+                mcGoColorScheme(
+                    darkTheme = darkTheme,
+                    primary = accentColors.primary,
+                    secondary = accentColors.secondary,
+                    tertiary = accentColors.tertiary,
+                )
+            }
+        }
     }
     val typography = remember(appearancePreferences.effectiveTypographyScale()) {
         mcGoTypography(scale = appearancePreferences.effectiveTypographyScale())
     }
-    val visualTokens = remember(appearancePreferences, darkTheme, accentColors) {
+    val visualTokens = remember(appearancePreferences, colorScheme, darkTheme) {
         val cardAlpha = appearancePreferences.cardContainerAlpha()
-        val cardSurface = if (darkTheme) {
-            Color(0xFF182033).copy(alpha = cardAlpha.coerceIn(0.72f, 1f))
+        val cardContainer = if (appearancePreferences.transparentCards) {
+            colorScheme.surface.copy(alpha = cardAlpha)
         } else {
-            Color.White.copy(alpha = cardAlpha)
+            colorScheme.surface
         }
         val cardStroke = if (darkTheme) {
-            Color.White.copy(alpha = 0.12f)
+            colorScheme.outline.copy(alpha = if (appearancePreferences.transparentCards) 0.62f else 0.92f)
         } else {
             FrostStroke.copy(alpha = if (appearancePreferences.transparentCards) 0.7f else 1f)
         }
         val backgroundGradient = if (darkTheme) {
-            listOf(Color(0xFF0D1423), Color(0xFF111B2F), Color(0xFF18243A))
+            listOf(
+                Color(0xFF0B1020),
+                Color(0xFF10192D),
+                Color(0xFF16253F),
+            )
         } else {
             listOf(MistBackground, CloudBackground, SurfaceSoftAlt)
         }
         val auraAlpha = appearancePreferences.backgroundAuraAlpha()
         McGoVisualTokens(
-            cardContainerColor = cardSurface,
+            cardContainerColor = cardContainer,
             cardStrokeColor = cardStroke,
             backgroundGradient = backgroundGradient,
             backgroundAuraColors = listOf(
-                accentColors.primary.copy(alpha = auraAlpha),
-                accentColors.secondary.copy(alpha = auraAlpha * 0.72f),
+                colorScheme.primary.copy(alpha = auraAlpha),
+                colorScheme.tertiary.copy(alpha = auraAlpha * 0.82f),
+                colorScheme.secondary.copy(alpha = auraAlpha * 0.58f),
                 Color.Transparent,
             ),
         )
@@ -117,6 +134,11 @@ private fun accentColors(preset: AccentPreset): AccentColors = when (preset) {
         secondary = Red500,
         tertiary = Blue500,
     )
+    AccentPreset.System -> AccentColors(
+        primary = Color(AccentPreset.System.primaryHex),
+        secondary = Color(AccentPreset.System.secondaryHex),
+        tertiary = Color(AccentPreset.System.tertiaryHex),
+    )
 }
 
 private fun mcGoColorScheme(
@@ -129,15 +151,18 @@ private fun mcGoColorScheme(
         primary = primary,
         secondary = secondary,
         tertiary = tertiary,
-        background = Color(0xFF0D1423),
-        surface = Color(0xFF141F33),
-        surfaceVariant = Color(0xFF1D2940),
+        background = Color(0xFF0B1020),
+        surface = Color(0xFF172238),
+        surfaceVariant = Color(0xFF22304A),
+        outline = Color(0xFF51627F),
+        error = Color(0xFFFF8B8B),
         onPrimary = readableOnColor(primary),
         onSecondary = readableOnColor(secondary),
         onTertiary = readableOnColor(tertiary),
         onBackground = Color(0xFFF5F7FD),
         onSurface = Color(0xFFF5F7FD),
-        onSurfaceVariant = Color(0xFFB8C5DD),
+        onSurfaceVariant = Color(0xFFD5DDF0),
+        onError = Ink900,
     )
 } else {
     lightColorScheme(
@@ -147,12 +172,15 @@ private fun mcGoColorScheme(
         background = MistBackground,
         surface = FrostSurface,
         surfaceVariant = SurfaceSoft,
+        outline = Color(0xFFBDD0F4),
+        error = Red500,
         onPrimary = readableOnColor(primary),
         onSecondary = readableOnColor(secondary),
         onTertiary = readableOnColor(tertiary),
         onBackground = Ink900,
         onSurface = Ink900,
         onSurfaceVariant = Ink600,
+        onError = Color.White,
     )
 }
 

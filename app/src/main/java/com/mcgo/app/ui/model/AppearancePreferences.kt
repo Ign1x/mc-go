@@ -49,6 +49,12 @@ enum class AccentPreset(
         primaryHex = 0xFFF2B649,
         secondaryHex = 0xFFE56060,
         tertiaryHex = 0xFF437BFF,
+    ),
+    System(
+        label = "系统颜色",
+        primaryHex = 0xFF4F6BED,
+        secondaryHex = 0xFF5E8E3E,
+        tertiaryHex = 0xFF8E5CF6,
     );
 
     companion object {
@@ -59,20 +65,10 @@ enum class AccentPreset(
 enum class FontScalePreference(val label: String, val multiplier: Float) {
     Compact("紧凑", 0.92f),
     Standard("标准", 1.0f),
-    Comfortable("舒适", 1.08f);
+    Wide("宽松", 1.10f);
 
     companion object {
         fun fromLabel(label: String): FontScalePreference = entries.firstOrNull { it.label == label } ?: Compact
-    }
-}
-
-enum class MotionPreference(val label: String, val auraAlpha: Float, val pulseScale: Float, val animationMillis: Int) {
-    Reduced("省电", 0.05f, 1.0f, 0),
-    Standard("标准", 0.11f, 1.08f, 2800),
-    Expressive("灵动", 0.18f, 1.16f, 1800);
-
-    companion object {
-        fun fromLabel(label: String): MotionPreference = entries.firstOrNull { it.label == label } ?: Standard
     }
 }
 
@@ -80,25 +76,21 @@ data class AppearancePreferences(
     val themeMode: ThemeModePreference = ThemeModePreference.Light,
     val accentPreset: AccentPreset = AccentPreset.Forest,
     val fontScale: FontScalePreference = FontScalePreference.Compact,
-    val motionPreference: MotionPreference = MotionPreference.Standard,
     val cardTransparencyPercent: Int = 82,
     val transparentCards: Boolean = true,
     val dynamicBackground: Boolean = true,
-    val compactTypography: Boolean = true,
 ) {
-    fun effectiveTypographyScale(): Float = if (compactTypography) {
-        FontScalePreference.Compact.multiplier
-    } else {
-        fontScale.multiplier
-    }
+    fun effectiveTypographyScale(): Float = fontScale.multiplier
 
     fun cardContainerAlpha(): Float = if (transparentCards) {
-        cardTransparencyPercent.coerceIn(50, 96) / 100f
+        cardTransparencyPercent.coerceIn(0, 100) / 100f
     } else {
         1f
     }
 
-    fun backgroundAuraAlpha(): Float = if (dynamicBackground) motionPreference.auraAlpha else 0f
+    fun backgroundAuraAlpha(): Float = if (dynamicBackground) 0.24f else 0f
+
+    fun backgroundMotionScale(): Float = if (dynamicBackground) 1.18f else 1f
 
     fun summaryLabel(): String = "${themeMode.label} · ${accentPreset.label}"
 }
@@ -109,26 +101,39 @@ val AppearancePreferencesSaver: Saver<AppearancePreferences, Any> = listSaver(
             it.themeMode.name,
             it.accentPreset.name,
             it.fontScale.name,
-            it.motionPreference.name,
             it.cardTransparencyPercent,
             it.transparentCards,
             it.dynamicBackground,
-            it.compactTypography,
         )
     },
-    restore = { values ->
-        AppearancePreferences(
-            themeMode = ThemeModePreference.valueOf(values[0] as String),
-            accentPreset = AccentPreset.valueOf(values[1] as String),
-            fontScale = FontScalePreference.valueOf(values[2] as String),
-            motionPreference = MotionPreference.valueOf(values[3] as String),
-            cardTransparencyPercent = values[4] as Int,
-            transparentCards = values[5] as Boolean,
-            dynamicBackground = values[6] as Boolean,
-            compactTypography = values[7] as Boolean,
-        )
-    },
+    restore = { values -> restoreAppearancePreferences(values) },
 )
+
+fun restoreAppearancePreferences(values: List<Any?>): AppearancePreferences {
+    val isLegacyPayload = values.size >= 8 && values.getOrNull(3) is String
+    val themeMode = ThemeModePreference.valueOf(values[0] as String)
+    val accentPreset = AccentPreset.valueOf(values[1] as String)
+    val legacyFontScale = when (values[2] as String) {
+        "Comfortable" -> FontScalePreference.Wide.name
+        else -> values[2] as String
+    }
+    val cardTransparencyPercent = if (isLegacyPayload) values[4] as Int else values[3] as Int
+    val transparentCards = if (isLegacyPayload) values[5] as Boolean else values[4] as Boolean
+    val dynamicBackground = if (isLegacyPayload) values[6] as Boolean else values[5] as Boolean
+    val legacyCompactTypography = if (isLegacyPayload) values[7] as Boolean else null
+    val fontScale = when {
+        legacyCompactTypography == true -> FontScalePreference.Compact
+        else -> FontScalePreference.valueOf(legacyFontScale)
+    }
+    return AppearancePreferences(
+        themeMode = themeMode,
+        accentPreset = accentPreset,
+        fontScale = fontScale,
+        cardTransparencyPercent = cardTransparencyPercent,
+        transparentCards = transparentCards,
+        dynamicBackground = dynamicBackground,
+    )
+}
 
 fun usedMemoryPercent(usedBytes: Long, totalBytes: Long): Int {
     val safeTotalBytes = totalBytes.coerceAtLeast(1L)

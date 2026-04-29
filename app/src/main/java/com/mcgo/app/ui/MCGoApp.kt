@@ -99,25 +99,26 @@ private fun MCGoAppScaffold(
     }
     val visuals = LocalMcGoVisualTokens.current
     val infiniteTransition = rememberInfiniteTransition(label = "mcgo-background")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = appearancePreferences.motionPreference.pulseScale,
+    val backgroundDrift by infiniteTransition.animateFloat(
+        initialValue = -1f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = appearancePreferences.motionPreference.animationMillis.coerceAtLeast(1),
-                easing = FastOutSlowInEasing,
-            ),
+            animation = tween(durationMillis = 5200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "mcgo-background-drift",
+    )
+    val backgroundScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = appearancePreferences.backgroundMotionScale(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 4600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "mcgo-background-scale",
     )
-    val backgroundScale = if (appearancePreferences.dynamicBackground && appearancePreferences.motionPreference.animationMillis > 0) {
-        pulseScale
-    } else {
-        1f
-    }
     val bottomBarAlpha = if (appearancePreferences.transparentCards) {
-        appearancePreferences.cardContainerAlpha().coerceIn(0.84f, 0.96f)
+        appearancePreferences.cardContainerAlpha().coerceIn(0.78f, 0.96f)
     } else {
         1f
     }
@@ -196,8 +197,22 @@ private fun MCGoAppScaffold(
                         .graphicsLayer(
                             scaleX = backgroundScale,
                             scaleY = backgroundScale,
+                            translationX = backgroundDrift * 64f,
+                            translationY = backgroundDrift * -42f,
                         )
                         .background(Brush.radialGradient(colors = visuals.backgroundAuraColors)),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = backgroundScale * 0.96f,
+                            scaleY = backgroundScale * 0.96f,
+                            translationX = backgroundDrift * -48f,
+                            translationY = backgroundDrift * 36f,
+                            alpha = 0.82f,
+                        )
+                        .background(Brush.radialGradient(colors = visuals.backgroundAuraColors.reversed())),
                 )
             }
             when (destination) {
