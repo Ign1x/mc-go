@@ -60,6 +60,7 @@ import com.mcgo.app.ui.screens.ServersScreen
 import com.mcgo.app.ui.screens.SettingsScreen
 import com.mcgo.app.ui.screens.StatusScreen
 import com.mcgo.app.ui.screens.TunnelsScreen
+import com.mcgo.app.ui.storage.ServerProfileStore
 import com.mcgo.app.ui.storage.TunnelProfileStore
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.McGoTheme
@@ -85,10 +86,15 @@ fun MCGoApp() {
     val tunnelStore = remember(context) {
         TunnelProfileStore(context.filesDir.toPath().resolve("tunnel_profiles.properties"))
     }
+    val serverStore = remember(context) {
+        ServerProfileStore(context.filesDir.toPath().resolve("server_profiles.properties"))
+    }
     var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
         mutableStateOf(AppearancePreferences())
     }
-    var servers by remember { mutableStateOf(McGoSampleRepository.serverCards()) }
+    var servers by remember(serverStore) {
+        mutableStateOf(serverStore.load().ifEmpty { McGoSampleRepository.serverCards() })
+    }
     var tunnels by remember(tunnelStore) { mutableStateOf(tunnelStore.load()) }
 
     McGoTheme(appearancePreferences = appearancePreferences) {
@@ -99,7 +105,11 @@ fun MCGoApp() {
             onAppearancePreferencesChange = { appearancePreferences = it },
             onServersChange = { servers = it },
             onTunnelsChange = { tunnels = it },
-            onPersistTunnels = { tunnelStore.save(it) },
+            onTunnelsChangeAndPersist = {
+                tunnels = it
+                tunnelStore.save(it)
+            },
+            onPersistServers = { serverStore.save(it) },
         )
     }
 }
@@ -112,10 +122,12 @@ private fun MCGoAppScaffold(
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     onServersChange: (List<ServerCardState>) -> Unit,
     onTunnelsChange: (List<TunnelProfile>) -> Unit,
-    onPersistTunnels: (List<TunnelProfile>) -> Unit,
+    onTunnelsChangeAndPersist: (List<TunnelProfile>) -> Unit,
+    onPersistServers: (List<ServerCardState>) -> Unit,
 ) {
     var destination by rememberSaveable { mutableStateOf(McGoDestination.Status) }
     var showTunnelComposer by remember { mutableStateOf(false) }
+    var showServerComposer by remember { mutableStateOf(false) }
     var editingTunnelId by rememberSaveable { mutableStateOf<String?>(null) }
     val chrome = McGoPageChrome.forPage(destination.page)
     val snackbarHostState = remember { SnackbarHostState() }
@@ -179,6 +191,9 @@ private fun MCGoAppScaffold(
             showTunnelComposer = false
             editingTunnelId = null
         }
+        if (destination != McGoDestination.Servers) {
+            showServerComposer = false
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -238,7 +253,7 @@ private fun MCGoAppScaffold(
             floatingActionButton = {
                 when (destination) {
                     McGoDestination.Servers -> ExtendedFloatingActionButton(
-                        onClick = notifyUnavailableFeature,
+                        onClick = { showServerComposer = true },
                         text = { Text(stringResource(R.string.action_create_server)) },
                         icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -271,11 +286,22 @@ private fun MCGoAppScaffold(
                         servers = servers,
                         availableTunnels = tunnels,
                         showLeadCard = chrome.showLeadCard,
-                        onStartServer = { serverName, tunnelId, startupPort ->
+                        showCreateServer = showServerComposer,
+                        onDismissCreateServer = { showServerComposer = false },
+                        onCreateServer = { server ->
+                            val updatedServers = servers + server
+                            onServersChange(updatedServers)
+                            onPersistServers(updatedServers)
+                            scope.launch {
+                                snackbarHostState.showSnackbar("已创建 ${server.name}")
+                            }
+                        },
+                        onStartServer = { serverId, tunnelId, startupPort ->
                             val tunnel = tunnels.firstOrNull { it.id == tunnelId }
+                            val targetServer = servers.firstOrNull { it.id == serverId }
                             onServersChange(
                                 servers.map { server ->
-                                    if (server.name != serverName) {
+                                    if (server.id != serverId) {
                                         server
                                     } else {
                                         server.startWithTunnel(tunnel = tunnel, startupPort = startupPort)
@@ -283,19 +309,21 @@ private fun MCGoAppScaffold(
                                 },
                             )
                             scope.launch {
+                                val serverName = targetServer?.name ?: "服务器"
                                 snackbarHostState.showSnackbar(
                                     tunnel?.let { "$serverName 已通过 ${it.name} 启动" } ?: "$serverName 已启动",
                                 )
                             }
                         },
-                        onStopServer = { serverName ->
+                        onStopServer = { serverId ->
+                            val targetServer = servers.firstOrNull { it.id == serverId }
                             onServersChange(
                                 servers.map { server ->
-                                    if (server.name == serverName) server.stopServer() else server
+                                    if (server.id == serverId) server.stopServer() else server
                                 },
                             )
                             scope.launch {
-                                snackbarHostState.showSnackbar("$serverName 已停止")
+                                snackbarHostState.showSnackbar("${targetServer?.name ?: "服务器"} 已停止")
                             }
                         },
                         onActionClick = notifyUnavailableFeature,
@@ -312,8 +340,7 @@ private fun MCGoAppScaffold(
                         onSaveTunnel = { profile ->
                             val existed = tunnels.any { it.id == profile.id }
                             val updatedTunnels = upsertTunnelProfile(tunnels, profile)
-                            onTunnelsChange(updatedTunnels)
-                            onPersistTunnels(updatedTunnels)
+                            onTunnelsChangeAndPersist(updatedTunnels)
                             scope.launch {
                                 snackbarHostState.showSnackbar(
                                     if (existed) "已更新 ${profile.name}" else "已添加 ${profile.name}",
@@ -327,8 +354,7 @@ private fun MCGoAppScaffold(
                         onDeleteTunnel = { tunnelId ->
                             val tunnelName = tunnels.firstOrNull { it.id == tunnelId }?.name ?: "该隧道"
                             val updatedTunnels = removeTunnelProfile(tunnels, tunnelId)
-                            onTunnelsChange(updatedTunnels)
-                            onPersistTunnels(updatedTunnels)
+                            onTunnelsChangeAndPersist(updatedTunnels)
                             onServersChange(detachDeletedTunnel(servers, tunnelId))
                             if (editingTunnelId == tunnelId) {
                                 editingTunnelId = null

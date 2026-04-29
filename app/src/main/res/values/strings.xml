@@ -7,10 +7,10 @@
     <string name="nav_status_subtitle">查看手机作为主机时的实时性能</string>
     <string name="nav_servers_subtitle">管理实例、状态和常用操作</string>
     <string name="nav_tunnels_subtitle">管理 FRP 与其他公网映射隧道</string>
-    <string name="nav_settings_subtitle">界面外观、Java Runtime 与开服权限</string>
+    <string name="nav_settings_subtitle">界面外观、托管 JRE 与运行权限</string>
     <string name="action_create_server">创建服务器</string>
     <string name="action_add_tunnel">添加隧道</string>
-    <string name="snackbar_demo_action">请先在设置里配置 Java Runtime 与服务器目录</string>
+    <string name="snackbar_demo_action">请先在设置里配置托管 JRE 与服务器目录</string>
     <string name="status_section_title">实时性能</string>
     <string name="status_section_subtitle">CPU、内存、网络与电池电流一屏掌握</string>
     <string name="status_hero_sentence">本机正在充当 Java 版服务器 · 已运行 %1$s</string>

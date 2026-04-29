@@ -1,6 +1,16 @@
 package com.mcgo.app.ui.screens
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,6 +45,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,8 +65,10 @@ import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearanceSettingsState
 import com.mcgo.app.ui.model.FontScalePreference
 import com.mcgo.app.ui.model.JavaManagementState
-import com.mcgo.app.ui.model.JavaPermissionItem
 import com.mcgo.app.ui.model.JavaRuntimeOption
+import com.mcgo.app.ui.model.RuntimePermissionItem
+import com.mcgo.app.ui.model.RuntimePermissionState
+import com.mcgo.app.ui.model.RuntimePermissionStatus
 import com.mcgo.app.ui.model.SettingsBackActionPlacement
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsDestination
@@ -65,10 +78,21 @@ import com.mcgo.app.ui.model.SettingsNavigationState
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.defaultJavaManagementState
+import com.mcgo.app.ui.model.defaultRuntimePermissionState
 import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.resolveAccentColors
 import com.mcgo.app.ui.theme.screenTextColors
+
+
+private fun Context.isIgnoringBatteryOptimizations(): Boolean {
+    val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        powerManager.isIgnoringBatteryOptimizations(packageName)
+    } else {
+        true
+    }
+}
 
 @Composable
 fun SettingsScreen(
@@ -87,7 +111,67 @@ fun SettingsScreen(
     }
     val appearanceSection = settingsSections.first { it.icon == SettingsCategoryIcon.Appearance }
     val javaManagementSection = settingsSections.first { it.icon == SettingsCategoryIcon.JavaRuntime }
+    val runtimePermissionSection = settingsSections.first { it.icon == SettingsCategoryIcon.RuntimePermissions }
     val javaManagementState = remember { defaultJavaManagementState() }
+    val context = LocalContext.current
+    var postNotificationsGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    var serverDirectorySelected by remember { mutableStateOf(false) }
+    var batteryOptimizationIgnored by remember { mutableStateOf(context.isIgnoringBatteryOptimizations()) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        postNotificationsGranted = granted
+    }
+    val directoryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        serverDirectorySelected = uri != null
+        uri?.let {
+            context.contentResolver.takePersistableUriPermission(
+                it,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }
+    }
+    val runtimePermissionState = defaultRuntimePermissionState(
+        postNotificationsGranted = postNotificationsGranted,
+        wakeLockGranted = context.checkSelfPermission(Manifest.permission.WAKE_LOCK) == PackageManager.PERMISSION_GRANTED,
+        foregroundServiceGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            context.checkSelfPermission(Manifest.permission.FOREGROUND_SERVICE) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        },
+        serverDirectorySelected = serverDirectorySelected,
+        batteryOptimizationIgnored = batteryOptimizationIgnored,
+    )
+    val onRuntimePermissionAction: (RuntimePermissionItem) -> Unit = { item ->
+        when (item.id) {
+            "post-notifications" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            "server-directory" -> directoryPickerLauncher.launch(null)
+            "battery-optimization" -> {
+                val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Intent(
+                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:${context.packageName}"),
+                    )
+                } else {
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                }
+                context.startActivity(intent)
+                batteryOptimizationIgnored = context.isIgnoringBatteryOptimizations()
+            }
+            else -> context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+            )
+        }
+    }
     val appearanceOptions = remember { McGoSampleRepository.appearanceSettings() }
     var destination by rememberSaveable { mutableStateOf(SettingsDestination.Overview) }
     val navigationState = remember(destination) { SettingsNavigationState(destination = destination) }
@@ -102,6 +186,7 @@ fun SettingsScreen(
             sections = settingsSections,
             onOpenAppearance = { destination = navigationState.openAppearance().destination },
             onOpenJavaManagement = { destination = navigationState.openJavaManagement().destination },
+            onOpenRuntimePermissions = { destination = navigationState.openRuntimePermissions().destination },
         )
         SettingsDestination.Appearance -> AppearanceDetailScreen(
             modifier = modifier,
@@ -117,6 +202,13 @@ fun SettingsScreen(
             state = javaManagementState,
             onNavigateBack = { destination = navigationState.navigateBack().destination },
         )
+        SettingsDestination.RuntimePermissions -> RuntimePermissionDetailScreen(
+            modifier = modifier,
+            section = runtimePermissionSection,
+            state = runtimePermissionState,
+            onNavigateBack = { destination = navigationState.navigateBack().destination },
+            onPermissionAction = onRuntimePermissionAction,
+        )
     }
 }
 
@@ -125,6 +217,7 @@ private fun SettingsOverview(
     sections: List<SettingsSectionState>,
     onOpenAppearance: () -> Unit,
     onOpenJavaManagement: () -> Unit,
+    onOpenRuntimePermissions: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -140,6 +233,7 @@ private fun SettingsOverview(
                     onSectionClick = when (section.icon) {
                         SettingsCategoryIcon.Appearance -> onOpenAppearance
                         SettingsCategoryIcon.JavaRuntime -> onOpenJavaManagement
+                        SettingsCategoryIcon.RuntimePermissions -> onOpenRuntimePermissions
                         else -> onOpenAppearance
                     },
                 )
@@ -273,13 +367,43 @@ private fun JavaManagementDetailScreen(
         }
         item {
             JavaRuntimeOptionsCard(
+                title = state.sectionTitle,
                 options = state.runtimeOptions,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
+        item { Spacer(modifier = Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun RuntimePermissionDetailScreen(
+    section: SettingsSectionState,
+    state: RuntimePermissionState,
+    onNavigateBack: () -> Unit,
+    onPermissionAction: (RuntimePermissionItem) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.RuntimePermissions)
+
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item { Spacer(modifier = Modifier.height(8.dp)) }
         item {
-            JavaPermissionCard(
+            AppearanceDetailHeader(
+                title = section.title,
+                subtitle = state.summaryLabel,
+                chrome = detailChrome,
+                onNavigateBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item {
+            RuntimePermissionCard(
                 permissions = state.permissionItems,
+                onPermissionAction = onPermissionAction,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
@@ -494,13 +618,14 @@ private fun PreviewMiniCard(
 
 @Composable
 private fun JavaRuntimeOptionsCard(
+    title: String,
     options: List<JavaRuntimeOption>,
     modifier: Modifier = Modifier,
 ) {
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier) {
         Text(
-            text = "Runtime 策略",
+            text = title,
             style = MaterialTheme.typography.titleMedium,
             color = colors.primary,
         )
@@ -553,28 +678,32 @@ private fun JavaRuntimeOptionRow(option: JavaRuntimeOption) {
 }
 
 @Composable
-private fun JavaPermissionCard(
-    permissions: List<JavaPermissionItem>,
+private fun RuntimePermissionCard(
+    permissions: List<RuntimePermissionItem>,
+    onPermissionAction: (RuntimePermissionItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier) {
         Text(
-            text = "运行权限",
+            text = "权限状态",
             style = MaterialTheme.typography.titleMedium,
             color = colors.primary,
         )
         Spacer(modifier = Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             permissions.forEach { item ->
-                JavaPermissionRow(item = item)
+                RuntimePermissionRow(item = item, onPermissionAction = onPermissionAction)
             }
         }
     }
 }
 
 @Composable
-private fun JavaPermissionRow(item: JavaPermissionItem) {
+private fun RuntimePermissionRow(
+    item: RuntimePermissionItem,
+    onPermissionAction: (RuntimePermissionItem) -> Unit,
+) {
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -605,16 +734,26 @@ private fun JavaPermissionRow(item: JavaPermissionItem) {
             }
         }
         Spacer(modifier = Modifier.width(12.dp))
-        Surface(
-            shape = RoundedCornerShape(999.dp),
-            color = if (item.required) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = if (item.required) MaterialTheme.colorScheme.primary else colors.secondary,
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                text = if (item.required) "必要" else "引导",
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                style = MaterialTheme.typography.labelSmall,
-            )
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = if (item.status == RuntimePermissionStatus.Granted) MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
+                contentColor = if (item.status == RuntimePermissionStatus.Granted) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error,
+            ) {
+                Text(
+                    text = item.statusLabel,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            item.actionLabel?.let { action ->
+                TextButton(onClick = { onPermissionAction(item) }) {
+                    Text(action)
+                }
+            }
         }
     }
 }
@@ -843,6 +982,7 @@ private fun SettingsCard(
 private fun settingsIcon(icon: SettingsCategoryIcon) = when (icon) {
     SettingsCategoryIcon.Appearance -> Icons.Outlined.Tune
     SettingsCategoryIcon.JavaRuntime -> Icons.Outlined.Science
+    SettingsCategoryIcon.RuntimePermissions -> Icons.Outlined.Notifications
     SettingsCategoryIcon.Notifications -> Icons.Outlined.Notifications
     SettingsCategoryIcon.Storage -> Icons.Outlined.Folder
     SettingsCategoryIcon.Diagnostics -> Icons.AutoMirrored.Outlined.Article

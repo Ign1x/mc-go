@@ -48,6 +48,7 @@ import com.mcgo.app.R
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.formatPlayerCapacity
 
 @Composable
@@ -56,11 +57,21 @@ fun ServersScreen(
     availableTunnels: List<TunnelProfile>,
     modifier: Modifier = Modifier,
     showLeadCard: Boolean = false,
-    onStartServer: (serverName: String, tunnelId: String?, startupPort: Int) -> Unit,
-    onStopServer: (serverName: String) -> Unit,
+    showCreateServer: Boolean = false,
+    onDismissCreateServer: () -> Unit = {},
+    onCreateServer: (ServerCardState) -> Unit = {},
+    onStartServer: (serverId: String, tunnelId: String?, startupPort: Int) -> Unit,
+    onStopServer: (serverId: String) -> Unit,
     onActionClick: () -> Unit,
 ) {
     var pendingStartServer by remember { mutableStateOf<ServerCardState?>(null) }
+
+    if (showCreateServer) {
+        CreatePaperServerDialog(
+            onDismiss = onDismissCreateServer,
+            onCreate = onCreateServer,
+        )
+    }
 
     pendingStartServer?.let { server ->
         StartServerDialog(
@@ -68,7 +79,7 @@ fun ServersScreen(
             availableTunnels = availableTunnels,
             onDismiss = { pendingStartServer = null },
             onConfirm = { tunnelId, startupPort ->
-                onStartServer(server.name, tunnelId, startupPort)
+                onStartServer(server.id, tunnelId, startupPort)
                 pendingStartServer = null
             },
         )
@@ -92,13 +103,13 @@ fun ServersScreen(
                 }
             }
         }
-        items(items = servers, key = { it.name }) { server ->
+        items(items = servers, key = { it.id }) { server ->
             ServerCard(
                 server = server,
                 modifier = Modifier.padding(horizontal = 20.dp),
                 onActionClick = onActionClick,
                 onStartClick = { pendingStartServer = server },
-                onStopClick = { onStopServer(server.name) },
+                onStopClick = { onStopServer(server.id) },
             )
         }
         item { Spacer(modifier = Modifier.height(96.dp)) }
@@ -211,6 +222,97 @@ private fun ServerCard(
             )
         }
     }
+}
+
+@Composable
+private fun CreatePaperServerDialog(
+    onDismiss: () -> Unit,
+    onCreate: (ServerCardState) -> Unit,
+) {
+    var name by remember { mutableStateOf("Paper 生存服") }
+    var minecraftVersion by remember { mutableStateOf("1.21.4") }
+    var maxPlayers by remember { mutableStateOf("20") }
+    var memoryMb by remember { mutableStateOf("2048") }
+    var port by remember { mutableStateOf("25565") }
+    val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: 20
+    val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: 2048
+    val resolvedPort = port.toIntOrNull()?.coerceIn(1, 65535) ?: 25565
+    val canCreate = name.isNotBlank() && minecraftVersion.isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                enabled = canCreate,
+                onClick = {
+                    onCreate(
+                        createPaperServer(
+                            name = name,
+                            minecraftVersion = minecraftVersion,
+                            maxPlayers = resolvedMaxPlayers,
+                            memoryMb = resolvedMemoryMb,
+                            port = resolvedPort,
+                        ),
+                    )
+                    onDismiss()
+                },
+            ) {
+                Text("创建 Paper")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        title = { Text("创建原版 Paper 服务器") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "当前先支持原版 Paper。创建后会生成 Paper 启动计划，可直接从服务器列表启动。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("服务器名称") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = minecraftVersion,
+                    onValueChange = { minecraftVersion = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Minecraft 版本") },
+                    supportingText = { Text("例如 1.20.1 / 1.21.4，自动匹配托管 JRE") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = maxPlayers,
+                    onValueChange = { maxPlayers = it.filter(Char::isDigit) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("最大玩家数") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = memoryMb,
+                    onValueChange = { memoryMb = it.filter(Char::isDigit) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("内存 MB") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { port = it.filter(Char::isDigit) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("默认端口") },
+                    singleLine = true,
+                )
+            }
+        },
+    )
 }
 
 @Composable

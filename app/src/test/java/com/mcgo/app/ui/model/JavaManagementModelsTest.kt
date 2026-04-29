@@ -6,33 +6,40 @@ import kotlin.test.Test
 class JavaManagementModelsTest {
 
     @Test
-    fun defaultJavaManagementState_prefersAppManagedRuntimeInsteadOfSystemPathJava() {
+    fun defaultJavaManagementState_listsAppManagedJreVersionsForMinecraftWithoutPermissionItems() {
         val state = defaultJavaManagementState()
 
-        assertThat(state.summaryLabel).contains("应用内")
+        assertThat(state.summaryLabel).contains("JRE")
+        assertThat(state.sectionTitle).isEqualTo("托管 JRE")
+        assertThat(state.runtimeOptions.map { it.majorVersion }).containsExactly(8, 11, 17, 21, 25).inOrder()
         assertThat(state.runtimeOptions.map { it.title }).containsExactly(
-            "应用内 Java Runtime",
-            "导入 Runtime",
-            "服务器工作目录",
+            "Java 8",
+            "Java 11",
+            "Java 17",
+            "Java 21",
+            "Java 25",
         ).inOrder()
-        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("不依赖 Android 系统 PATH")
+        assertThat(state.runtimeOptions.all { it.managedByApp }).isTrue()
+        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("Minecraft")
+        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("系统 PATH")
     }
 
     @Test
-    fun defaultJavaManagementState_coversLongRunningAndroidServerShapeWithoutBroadStoragePermission() {
+    fun javaManagementCopyDoesNotExposeRuntimeStrategyOrAndroidPermissionRows() {
         val state = defaultJavaManagementState()
+        val visibleText = buildString {
+            appendLine(state.sectionTitle)
+            appendLine(state.summaryLabel)
+            state.runtimeOptions.forEach { option ->
+                appendLine(option.title)
+                appendLine(option.description)
+                appendLine(option.statusLabel)
+            }
+        }
 
-        assertThat(state.permissionItems.map { it.androidPermission }).containsAtLeast(
-            "android.permission.POST_NOTIFICATIONS",
-            "android.permission.WAKE_LOCK",
-            "android.permission.FOREGROUND_SERVICE",
-        )
-        assertThat(state.permissionItems.mapNotNull { it.androidPermission }).doesNotContain("android.permission.MANAGE_EXTERNAL_STORAGE")
-        assertThat(state.permissionItems.map { it.title }).containsAtLeast(
-            "前台服务通知",
-            "保持 CPU 唤醒",
-            "用户选择目录",
-            "电池优化白名单",
-        )
+        assertThat(visibleText).doesNotContain("Runtime 策略")
+        assertThat(visibleText).doesNotContain("POST_NOTIFICATIONS")
+        assertThat(visibleText).doesNotContain("WAKE_LOCK")
+        assertThat(visibleText).doesNotContain("FOREGROUND_SERVICE")
     }
 }

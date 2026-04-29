@@ -89,6 +89,8 @@ class TunnelModelsTest {
         assertThat(unreachable.currentLatencyMs).isEqualTo(-1)
         assertThat(unreachable.latencyLabel()).isEqualTo("不可达")
         assertThat(unreachable.healthLabel).isEqualTo("不可达")
+        assertThat(unreachable.latencyBadgeLines()).containsExactly("不可达")
+        assertThat(reachable.latencyBadgeLines()).containsExactly("42 ms", "稳定").inOrder()
     }
 
     @Test

@@ -29,6 +29,15 @@ class SettingsNavigationStateTest {
         assertThat(state.canNavigateBack).isTrue()
     }
 
+
+    @Test
+    fun openRuntimePermissions_movesIntoPermissionDetailPage() {
+        val state = SettingsNavigationState().openRuntimePermissions()
+
+        assertThat(state.destination).isEqualTo(SettingsDestination.RuntimePermissions)
+        assertThat(state.canNavigateBack).isTrue()
+    }
+
     @Test
     fun navigateBack_fromAppearanceReturnsToOverview() {
         val state = SettingsNavigationState(

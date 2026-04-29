@@ -14,7 +14,8 @@ object SettingsDetailChrome {
     fun forDestination(destination: SettingsDestination): SettingsDetailChromeState = when (destination) {
         SettingsDestination.Overview -> SettingsDetailChromeState()
         SettingsDestination.Appearance,
-        SettingsDestination.JavaManagement -> SettingsDetailChromeState(
+        SettingsDestination.JavaManagement,
+        SettingsDestination.RuntimePermissions -> SettingsDetailChromeState(
             backActionPlacement = SettingsBackActionPlacement.TopRight,
             usesCompactActionButton = true,
         )

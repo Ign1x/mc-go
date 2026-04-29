@@ -92,9 +92,15 @@ object McGoSampleRepository {
         ),
         SettingsSectionState(
             title = "Java 管理",
-            subtitle = "Runtime、工作目录与运行权限",
+            subtitle = "JRE 8/11/17/21/25 托管",
             highlight = defaultJavaManagementState().summaryLabel,
             icon = SettingsCategoryIcon.JavaRuntime,
+        ),
+        SettingsSectionState(
+            title = "运行权限",
+            subtitle = "通知、目录、唤醒与后台权限",
+            highlight = "查看状态并申请",
+            icon = SettingsCategoryIcon.RuntimePermissions,
         ),
     )
 

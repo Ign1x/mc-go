@@ -155,7 +155,7 @@ private fun TunnelCard(
                     )
                 }
             }
-            LatencyBadge(latencyLabel = tunnel.latencyLabel(), healthLabel = tunnel.healthLabel, accent = accent)
+            LatencyBadge(lines = tunnel.latencyBadgeLines(), accent = accent)
         }
         Spacer(modifier = Modifier.height(14.dp))
         Text(
@@ -257,8 +257,7 @@ private fun TunnelMetaChip(
 
 @Composable
 private fun LatencyBadge(
-    latencyLabel: String,
-    healthLabel: String,
+    lines: List<String>,
     accent: Color,
 ) {
     Surface(
@@ -270,8 +269,13 @@ private fun LatencyBadge(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(text = latencyLabel, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            Text(text = healthLabel, style = MaterialTheme.typography.labelSmall)
+            lines.forEachIndexed { index, line ->
+                Text(
+                    text = line,
+                    style = if (index == 0) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall,
+                    fontWeight = if (index == 0) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
         }
     }
 }

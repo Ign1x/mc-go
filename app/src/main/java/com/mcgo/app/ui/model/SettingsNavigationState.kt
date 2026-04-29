@@ -4,6 +4,7 @@ enum class SettingsDestination {
     Overview,
     Appearance,
     JavaManagement,
+    RuntimePermissions,
 }
 
 data class SettingsNavigationState(
@@ -15,6 +16,8 @@ data class SettingsNavigationState(
     fun openAppearance(): SettingsNavigationState = copy(destination = SettingsDestination.Appearance)
 
     fun openJavaManagement(): SettingsNavigationState = copy(destination = SettingsDestination.JavaManagement)
+
+    fun openRuntimePermissions(): SettingsNavigationState = copy(destination = SettingsDestination.RuntimePermissions)
 
     fun navigateBack(): SettingsNavigationState = copy(destination = SettingsDestination.Overview)
 }

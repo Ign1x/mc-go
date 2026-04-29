@@ -109,6 +109,11 @@ data class TunnelProfile(
         else -> "不可达"
     }
 
+    fun latencyBadgeLines(): List<String> {
+        val latency = latencyLabel()
+        return if (latency == healthLabel) listOf(latency) else listOf(latency, healthLabel)
+    }
+
     fun connectionSummary(): String {
         val secondaryLabel = when {
             remotePort != null -> "远端 $remotePort"
@@ -180,13 +185,32 @@ data class TunnelProfile(
 fun ServerCardState.startWithTunnel(
     tunnel: TunnelProfile?,
     startupPort: Int?,
+): ServerCardState = startPaperServer(tunnel = tunnel, startupPort = startupPort)
+
+fun ServerCardState.startPaperServer(
+    tunnel: TunnelProfile?,
+    startupPort: Int?,
 ): ServerCardState {
-    val resolvedPort = tunnel?.resolveStartupPort(defaultPort, startupPort) ?: defaultPort
+    val resolvedPort = tunnel?.resolveStartupPort(defaultPort, startupPort) ?: startupPort ?: defaultPort
+    val plan = PaperLaunchPlan(
+        serverJarName = "paper-$minecraftVersion.jar",
+        javaMajorVersion = javaMajorVersion,
+        arguments = listOf(
+            "java-$javaMajorVersion",
+            "-Xms${(memoryMb / 2).coerceAtLeast(512)}M",
+            "-Xmx${memoryMb}M",
+            "-jar",
+            "paper-$minecraftVersion.jar",
+            "nogui",
+        ),
+    )
     return copy(
         isOnline = true,
         port = resolvedPort,
         selectedTunnelId = tunnel?.id,
         activeTunnelLabel = tunnel?.let { "${it.name} · ${it.latencyLabel()}" },
+        launchStatus = ServerLaunchStatus.Running,
+        launchPlan = plan,
     )
 }
 
@@ -194,6 +218,7 @@ fun ServerCardState.stopServer(): ServerCardState = copy(
     isOnline = false,
     port = defaultPort,
     activeTunnelLabel = null,
+    launchStatus = ServerLaunchStatus.Stopped,
 )
 
 fun upsertTunnelProfile(
