@@ -23,16 +23,14 @@ import com.mcgo.app.ui.model.AppearancePreferences
 data class McGoVisualTokens(
     val cardContainerColor: Color,
     val cardStrokeColor: Color,
-    val backgroundGradient: List<Color>,
-    val backgroundAuraColors: List<Color>,
+    val fluidBackgroundSpec: FluidGradientSpec,
 )
 
 val LocalMcGoVisualTokens = staticCompositionLocalOf {
     McGoVisualTokens(
         cardContainerColor = FrostSurface,
         cardStrokeColor = FrostStroke,
-        backgroundGradient = listOf(MistBackground, CloudBackground, SurfaceSoftAlt),
-        backgroundAuraColors = listOf(Color.Transparent, Color.Transparent, Color.Transparent, Color.Transparent),
+        fluidBackgroundSpec = fluidGradientSpec(darkTheme = false),
     )
 }
 
@@ -66,35 +64,19 @@ fun McGoTheme(
     val visualTokens = remember(appearancePreferences, colorScheme, darkTheme) {
         val cardAlpha = appearancePreferences.cardContainerAlpha()
         val cardContainer = if (appearancePreferences.transparentCards) {
-            colorScheme.surface.copy(alpha = cardAlpha)
+            colorScheme.surface.copy(alpha = if (darkTheme) cardAlpha.coerceIn(0.74f, 0.98f) else cardAlpha)
         } else {
             colorScheme.surface
         }
         val cardStroke = if (darkTheme) {
-            colorScheme.outline.copy(alpha = if (appearancePreferences.transparentCards) 0.62f else 0.92f)
+            colorScheme.outline.copy(alpha = if (appearancePreferences.transparentCards) 0.68f else 0.92f)
         } else {
             FrostStroke.copy(alpha = if (appearancePreferences.transparentCards) 0.7f else 1f)
         }
-        val backgroundGradient = if (darkTheme) {
-            listOf(
-                Color(0xFF0B1020),
-                Color(0xFF10192D),
-                Color(0xFF16253F),
-            )
-        } else {
-            listOf(MistBackground, CloudBackground, SurfaceSoftAlt)
-        }
-        val auraAlpha = appearancePreferences.backgroundAuraAlpha()
         McGoVisualTokens(
             cardContainerColor = cardContainer,
             cardStrokeColor = cardStroke,
-            backgroundGradient = backgroundGradient,
-            backgroundAuraColors = listOf(
-                colorScheme.primary.copy(alpha = auraAlpha),
-                colorScheme.tertiary.copy(alpha = auraAlpha * 0.82f),
-                colorScheme.secondary.copy(alpha = auraAlpha * 0.58f),
-                Color.Transparent,
-            ),
+            fluidBackgroundSpec = fluidGradientSpec(darkTheme = darkTheme),
         )
     }
 

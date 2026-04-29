@@ -45,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +61,7 @@ import com.mcgo.app.ui.model.SettingsNavigationState
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.sample.McGoSampleRepository
+import com.mcgo.app.ui.theme.fluidGradientSpec
 
 @Composable
 fun SettingsScreen(
@@ -263,16 +265,16 @@ private fun AppearancePreviewCard(
     modifier: Modifier = Modifier,
 ) {
     val systemDarkTheme = isSystemInDarkTheme()
+    val isDarkPreview = appearancePreferences.themeMode.resolvesToDark(systemDarkTheme)
     val accentColor = accentColorForOption(
         option = appearancePreferences.accentPreset.label,
-        preferDarkPreview = appearancePreferences.themeMode.resolvesToDark(systemDarkTheme),
+        preferDarkPreview = isDarkPreview,
     )
-    val isDarkPreview = appearancePreferences.themeMode.resolvesToDark(systemDarkTheme)
-    val previewBackground = when {
-        isDarkPreview -> Color(0xFF121A2B)
-        appearancePreferences.themeMode == ThemeModePreference.FollowSystem -> MaterialTheme.colorScheme.surfaceVariant
-        else -> Color(0xFFF5F8FF)
+    val previewBackgroundSpec = fluidGradientSpec(darkTheme = isDarkPreview)
+    val previewBackgroundBrush = remember(previewBackgroundSpec) {
+        Brush.linearGradient(colors = previewBackgroundSpec.backdropColors())
     }
+    val previewOverlayColor = previewBackgroundSpec.overlayColor()
     val previewTextColor = if (isDarkPreview) Color.White else Color(0xFF182033)
     val previewSubtleColor = if (isDarkPreview) Color.White.copy(alpha = 0.72f) else Color(0xFF61708E)
     val previewCardColor = if (isDarkPreview) {
@@ -318,15 +320,13 @@ private fun AppearancePreviewCard(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
-            color = previewBackground,
+            color = Color.Transparent,
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        if (appearancePreferences.dynamicBackground) accentColor.copy(alpha = 0.18f)
-                        else Color.Transparent,
-                    )
+                    .background(previewBackgroundBrush)
+                    .background(previewOverlayColor)
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -539,7 +539,7 @@ private fun AppearanceTogglesCard(
             )
             AppearanceToggleRow(
                 title = "动态背景",
-                subtitle = "让背景动起来更明显一些",
+                subtitle = "柔和流体渐变，慢速呼吸感",
                 checked = dynamicBackgroundEnabled,
                 onCheckedChange = onDynamicBackgroundChange,
             )
