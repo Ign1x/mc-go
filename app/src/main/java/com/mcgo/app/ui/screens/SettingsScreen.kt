@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -226,8 +227,8 @@ private fun AppearanceDetailHeader(
     ) {
         Surface(
             shape = RoundedCornerShape(999.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            contentColor = MaterialTheme.colorScheme.primary,
             modifier = Modifier.clickable(onClick = onNavigateBack),
         ) {
             Row(
@@ -429,6 +430,7 @@ private fun ChoiceChipCard(
                     selected = option == selectedOption,
                     onClick = { onOptionSelected(option) },
                     label = { Text(option) },
+                    colors = themedSettingsChipColors(),
                 )
                 Spacer(modifier = Modifier.width(2.dp))
             }
@@ -469,6 +471,7 @@ private fun AccentChoiceCard(
                             Text(option)
                         }
                     },
+                    colors = themedSettingsChipColors(),
                 )
                 Spacer(modifier = Modifier.width(2.dp))
             }
@@ -629,6 +632,13 @@ private fun settingsIcon(icon: SettingsCategoryIcon) = when (icon) {
     SettingsCategoryIcon.Diagnostics -> Icons.AutoMirrored.Outlined.Article
     SettingsCategoryIcon.Labs -> Icons.Outlined.Science
 }
+
+@Composable
+private fun themedSettingsChipColors() = FilterChipDefaults.filterChipColors(
+    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+    selectedLabelColor = MaterialTheme.colorScheme.primary,
+    selectedLeadingIconColor = MaterialTheme.colorScheme.primary,
+)
 
 @Composable
 private fun accentColorForOption(option: String, preferDarkPreview: Boolean): Color {

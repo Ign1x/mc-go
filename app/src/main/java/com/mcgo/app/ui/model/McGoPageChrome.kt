@@ -5,6 +5,7 @@ import com.mcgo.app.R
 enum class McGoPage {
     Status,
     Servers,
+    Tunnels,
     Settings,
 }
 
@@ -24,6 +25,11 @@ object McGoPageChrome {
         McGoPage.Servers -> PageChrome(
             titleRes = R.string.nav_servers,
             subtitleRes = R.string.nav_servers_subtitle,
+            showLeadCard = false,
+        )
+        McGoPage.Tunnels -> PageChrome(
+            titleRes = R.string.nav_tunnels,
+            subtitleRes = R.string.nav_tunnels_subtitle,
             showLeadCard = false,
         )
         McGoPage.Settings -> PageChrome(

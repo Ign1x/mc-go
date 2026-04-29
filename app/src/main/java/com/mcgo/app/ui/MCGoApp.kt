@@ -12,6 +12,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
@@ -23,6 +24,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,12 +42,21 @@ import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearancePreferencesSaver
 import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
+import com.mcgo.app.ui.model.ServerCardState
+import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.simulateTunnelLatencies
+import com.mcgo.app.ui.model.startWithTunnel
+import com.mcgo.app.ui.model.stopServer
+import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.screens.ServersScreen
 import com.mcgo.app.ui.screens.SettingsScreen
 import com.mcgo.app.ui.screens.StatusScreen
+import com.mcgo.app.ui.screens.TunnelsScreen
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.McGoTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 private enum class McGoDestination(
     val page: McGoPage,
@@ -54,6 +65,7 @@ private enum class McGoDestination(
 ) {
     Status(McGoPage.Status, R.string.nav_status, Icons.Outlined.Speed),
     Servers(McGoPage.Servers, R.string.nav_servers, Icons.Outlined.Dns),
+    Tunnels(McGoPage.Tunnels, R.string.nav_tunnels, Icons.Outlined.SwapHoriz),
     Settings(McGoPage.Settings, R.string.nav_settings, Icons.Outlined.Settings),
 }
 
@@ -62,11 +74,17 @@ fun MCGoApp() {
     var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
         mutableStateOf(AppearancePreferences())
     }
+    var servers by remember { mutableStateOf(McGoSampleRepository.serverCards()) }
+    var tunnels by remember { mutableStateOf(McGoSampleRepository.tunnelProfiles()) }
 
     McGoTheme(appearancePreferences = appearancePreferences) {
         MCGoAppScaffold(
             appearancePreferences = appearancePreferences,
+            servers = servers,
+            tunnels = tunnels,
             onAppearancePreferencesChange = { appearancePreferences = it },
+            onServersChange = { servers = it },
+            onTunnelsChange = { tunnels = it },
         )
     }
 }
@@ -74,9 +92,14 @@ fun MCGoApp() {
 @Composable
 private fun MCGoAppScaffold(
     appearancePreferences: AppearancePreferences,
+    servers: List<ServerCardState>,
+    tunnels: List<TunnelProfile>,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
+    onServersChange: (List<ServerCardState>) -> Unit,
+    onTunnelsChange: (List<TunnelProfile>) -> Unit,
 ) {
     var destination by rememberSaveable { mutableStateOf(McGoDestination.Status) }
+    var showTunnelComposer by remember { mutableStateOf(false) }
     val chrome = McGoPageChrome.forPage(destination.page)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -95,6 +118,34 @@ private fun MCGoAppScaffold(
         appearancePreferences.cardContainerAlpha().coerceIn(0.78f, 0.96f)
     } else {
         1f
+    }
+    val latencyRandom = remember { Random(System.currentTimeMillis()) }
+
+    LaunchedEffect(tunnels.map { it.id to it.baseLatencyMs }) {
+        while (true) {
+            delay(2200)
+            onTunnelsChange(simulateTunnelLatencies(tunnels, latencyRandom))
+        }
+    }
+
+    LaunchedEffect(tunnels) {
+        onServersChange(
+            servers.map { server ->
+                when {
+                    !server.isOnline -> server.copy(activeTunnelLabel = null)
+                    else -> {
+                        val matchedTunnel = tunnels.firstOrNull { it.id == server.selectedTunnelId }
+                        server.copy(activeTunnelLabel = matchedTunnel?.let { "${it.name} · ${it.currentLatencyMs} ms" })
+                    }
+                }
+            },
+        )
+    }
+
+    LaunchedEffect(destination) {
+        if (destination != McGoDestination.Tunnels) {
+            showTunnelComposer = false
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -152,14 +203,22 @@ private fun MCGoAppScaffold(
                 }
             },
             floatingActionButton = {
-                if (destination == McGoDestination.Servers) {
-                    ExtendedFloatingActionButton(
+                when (destination) {
+                    McGoDestination.Servers -> ExtendedFloatingActionButton(
                         onClick = notifyUnavailableFeature,
                         text = { Text(stringResource(R.string.action_create_server)) },
                         icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     )
+                    McGoDestination.Tunnels -> ExtendedFloatingActionButton(
+                        onClick = { showTunnelComposer = true },
+                        text = { Text(stringResource(R.string.action_add_tunnel)) },
+                        icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    else -> Unit
                 }
             },
             floatingActionButtonPosition = FabPosition.End,
@@ -173,8 +232,49 @@ private fun MCGoAppScaffold(
                     McGoDestination.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
                     McGoDestination.Servers -> ServersScreen(
                         modifier = Modifier.fillMaxSize(),
+                        servers = servers,
+                        availableTunnels = tunnels,
                         showLeadCard = chrome.showLeadCard,
+                        onStartServer = { serverName, tunnelId, startupPort ->
+                            val tunnel = tunnels.firstOrNull { it.id == tunnelId }
+                            onServersChange(
+                                servers.map { server ->
+                                    if (server.name != serverName) {
+                                        server
+                                    } else {
+                                        server.startWithTunnel(tunnel = tunnel, startupPort = startupPort)
+                                    }
+                                },
+                            )
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    tunnel?.let { "$serverName 已通过 ${it.name} 启动" } ?: "$serverName 已启动",
+                                )
+                            }
+                        },
+                        onStopServer = { serverName ->
+                            onServersChange(
+                                servers.map { server ->
+                                    if (server.name == serverName) server.stopServer() else server
+                                },
+                            )
+                            scope.launch {
+                                snackbarHostState.showSnackbar("$serverName 已停止")
+                            }
+                        },
                         onActionClick = notifyUnavailableFeature,
+                    )
+                    McGoDestination.Tunnels -> TunnelsScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        tunnels = tunnels,
+                        showComposer = showTunnelComposer,
+                        onDismissComposer = { showTunnelComposer = false },
+                        onAddTunnel = { profile ->
+                            onTunnelsChange(tunnels + profile)
+                            scope.launch {
+                                snackbarHostState.showSnackbar("已添加 ${profile.name}")
+                            }
+                        },
                     )
                     McGoDestination.Settings -> SettingsScreen(
                         modifier = Modifier.fillMaxSize(),

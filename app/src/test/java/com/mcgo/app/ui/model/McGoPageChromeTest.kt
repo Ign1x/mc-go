@@ -7,16 +7,20 @@ import kotlin.test.Test
 class McGoPageChromeTest {
 
     @Test
-    fun headerForServers_usesPageLabelInsteadOfAppName() {
-        val chrome = McGoPageChrome.forPage(McGoPage.Servers)
+    fun headerForServersAndTunnels_usePageLabelsInsteadOfAppName() {
+        val serversChrome = McGoPageChrome.forPage(McGoPage.Servers)
+        val tunnelsChrome = McGoPageChrome.forPage(McGoPage.Tunnels)
 
-        assertThat(chrome.titleRes).isEqualTo(R.string.nav_servers)
-        assertThat(chrome.titleRes).isNotEqualTo(R.string.app_name)
+        assertThat(serversChrome.titleRes).isEqualTo(R.string.nav_servers)
+        assertThat(serversChrome.titleRes).isNotEqualTo(R.string.app_name)
+        assertThat(tunnelsChrome.titleRes).isEqualTo(R.string.nav_tunnels)
+        assertThat(tunnelsChrome.titleRes).isNotEqualTo(R.string.app_name)
     }
 
     @Test
     fun listPages_hideRedundantLeadCards() {
         assertThat(McGoPageChrome.forPage(McGoPage.Servers).showLeadCard).isFalse()
+        assertThat(McGoPageChrome.forPage(McGoPage.Tunnels).showLeadCard).isFalse()
         assertThat(McGoPageChrome.forPage(McGoPage.Settings).showLeadCard).isFalse()
     }
 }

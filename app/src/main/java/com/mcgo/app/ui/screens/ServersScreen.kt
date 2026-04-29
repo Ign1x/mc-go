@@ -1,7 +1,9 @@
 package com.mcgo.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,12 +22,22 @@ import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.StopCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,16 +47,32 @@ import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.ServerCardState
+import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.formatPlayerCapacity
-import com.mcgo.app.ui.sample.McGoSampleRepository
 
 @Composable
 fun ServersScreen(
+    servers: List<ServerCardState>,
+    availableTunnels: List<TunnelProfile>,
     modifier: Modifier = Modifier,
     showLeadCard: Boolean = false,
+    onStartServer: (serverName: String, tunnelId: String?, startupPort: Int) -> Unit,
+    onStopServer: (serverName: String) -> Unit,
     onActionClick: () -> Unit,
 ) {
-    val servers = McGoSampleRepository.serverCards()
+    var pendingStartServer by remember { mutableStateOf<ServerCardState?>(null) }
+
+    pendingStartServer?.let { server ->
+        StartServerDialog(
+            server = server,
+            availableTunnels = availableTunnels,
+            onDismiss = { pendingStartServer = null },
+            onConfirm = { tunnelId, startupPort ->
+                onStartServer(server.name, tunnelId, startupPort)
+                pendingStartServer = null
+            },
+        )
+    }
 
     LazyColumn(
         modifier = modifier,
@@ -68,6 +97,8 @@ fun ServersScreen(
                 server = server,
                 modifier = Modifier.padding(horizontal = 20.dp),
                 onActionClick = onActionClick,
+                onStartClick = { pendingStartServer = server },
+                onStopClick = { onStopServer(server.name) },
             )
         }
         item { Spacer(modifier = Modifier.height(96.dp)) }
@@ -79,6 +110,8 @@ private fun ServerCard(
     server: ServerCardState,
     modifier: Modifier = Modifier,
     onActionClick: () -> Unit,
+    onStartClick: () -> Unit,
+    onStopClick: () -> Unit,
 ) {
     val statusColor = if (server.isOnline) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
     GlassCard(modifier = modifier) {
@@ -109,6 +142,21 @@ private fun ServerCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    server.activeTunnelLabel?.let { tunnelLabel ->
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            contentColor = MaterialTheme.colorScheme.primary,
+                        ) {
+                            Text(
+                                text = tunnelLabel,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
                 }
             }
             StatusDotBadge(
@@ -142,7 +190,7 @@ private fun ServerCard(
                 leadingIcon = { Icon(Icons.Outlined.Dns, contentDescription = null) },
             )
             AssistChip(
-                onClick = onActionClick,
+                onClick = { if (server.isOnline) onStopClick() else onStartClick() },
                 label = {
                     Text(
                         if (server.isOnline) stringResource(R.string.server_action_stop)
@@ -163,6 +211,126 @@ private fun ServerCard(
             )
         }
     }
+}
+
+@Composable
+private fun StartServerDialog(
+    server: ServerCardState,
+    availableTunnels: List<TunnelProfile>,
+    onDismiss: () -> Unit,
+    onConfirm: (tunnelId: String?, startupPort: Int) -> Unit,
+) {
+    var selectedTunnelId by remember(server.name) { mutableStateOf(server.selectedTunnelId) }
+    val selectedTunnel = remember(selectedTunnelId, availableTunnels) {
+        availableTunnels.firstOrNull { it.id == selectedTunnelId }
+    }
+    var portInput by remember(server.name) { mutableStateOf(server.defaultPort.toString()) }
+
+    LaunchedEffect(selectedTunnelId) {
+        portInput = (selectedTunnel?.resolveStartupPort(server.defaultPort, server.defaultPort) ?: server.defaultPort).toString()
+    }
+
+    val canEditPort = selectedTunnel?.supportsCustomPortOnStart() == true
+    val resolvedPort = selectedTunnel?.resolveStartupPort(server.defaultPort, portInput.toIntOrNull()) ?: server.defaultPort
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { onConfirm(selectedTunnelId, resolvedPort) }) {
+                Text("启动实例")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        title = { Text("启动 ${server.name}") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    text = "选择要绑定的隧道。参数模板支持自定义端口；单隧道配置会沿用固定端口。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    TunnelStartupChoice(
+                        selected = selectedTunnelId == null,
+                        title = "不启用隧道",
+                        subtitle = "仅使用实例默认端口 ${server.defaultPort}",
+                        onClick = { selectedTunnelId = null },
+                    )
+                    availableTunnels.forEach { tunnel ->
+                        TunnelStartupChoice(
+                            selected = selectedTunnelId == tunnel.id,
+                            title = tunnel.name,
+                            subtitle = if (tunnel.supportsCustomPortOnStart()) {
+                                "${tunnel.kind.label} · 启动时可改端口"
+                            } else {
+                                "${tunnel.kind.label} · 固定 ${tunnel.resolveStartupPort(server.port, null)} 端口"
+                            },
+                            trailing = "${tunnel.currentLatencyMs} ms",
+                            onClick = { selectedTunnelId = tunnel.id },
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = portInput,
+                    onValueChange = { portInput = it.filter(Char::isDigit) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = canEditPort,
+                    label = { Text("开服端口") },
+                    supportingText = {
+                        Text(
+                            if (canEditPort) "当前选中的是参数模板，开服时可自定义端口"
+                            else "当前模式使用固定端口：$resolvedPort",
+                        )
+                    },
+                    singleLine = true,
+                )
+                selectedTunnel?.let { tunnel ->
+                    Text(
+                        text = tunnel.connectionSummary(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun TunnelStartupChoice(
+    selected: Boolean,
+    title: String,
+    subtitle: String,
+    trailing: String? = null,
+    onClick: () -> Unit,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(text = title, fontWeight = FontWeight.Medium)
+                Text(text = subtitle, style = MaterialTheme.typography.bodySmall)
+                trailing?.let {
+                    Text(text = it, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        },
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+            selectedLabelColor = MaterialTheme.colorScheme.primary,
+        ),
+    )
 }
 
 @Composable

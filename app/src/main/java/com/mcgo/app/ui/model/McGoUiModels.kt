@@ -36,10 +36,13 @@ data class ServerCardState(
     val edition: String,
     val worldName: String,
     val port: Int,
+    val defaultPort: Int = port,
     val onlinePlayers: Int,
     val maxPlayers: Int,
     val memoryLabel: String,
     val isOnline: Boolean,
+    val selectedTunnelId: String? = null,
+    val activeTunnelLabel: String? = null,
 )
 
 data class SettingsSectionState(
