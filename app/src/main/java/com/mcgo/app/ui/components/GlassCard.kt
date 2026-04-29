@@ -13,8 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.mcgo.app.ui.theme.FrostStroke
-import com.mcgo.app.ui.theme.FrostSurface
+import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 
 @Composable
 fun GlassCard(
@@ -23,11 +22,12 @@ fun GlassCard(
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val visuals = LocalMcGoVisualTokens.current
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = FrostSurface),
-        border = BorderStroke(1.dp, FrostStroke),
+        colors = CardDefaults.cardColors(containerColor = visuals.cardContainerColor),
+        border = BorderStroke(1.dp, visuals.cardStrokeColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(

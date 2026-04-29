@@ -1,5 +1,11 @@
 package com.mcgo.app.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,20 +39,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
+import com.mcgo.app.ui.model.AppearancePreferences
+import com.mcgo.app.ui.model.AppearancePreferencesSaver
 import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.screens.ServersScreen
 import com.mcgo.app.ui.screens.SettingsScreen
 import com.mcgo.app.ui.screens.StatusScreen
-import com.mcgo.app.ui.theme.Blue500
-import com.mcgo.app.ui.theme.CloudBackground
-import com.mcgo.app.ui.theme.Green500
-import com.mcgo.app.ui.theme.MistBackground
-import com.mcgo.app.ui.theme.SurfaceSoftAlt
+import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
+import com.mcgo.app.ui.theme.McGoTheme
 import kotlinx.coroutines.launch
 
 private enum class McGoDestination(
@@ -61,18 +67,59 @@ private enum class McGoDestination(
 
 @Composable
 fun MCGoApp() {
+    var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
+        mutableStateOf(AppearancePreferences())
+    }
+
+    McGoTheme(appearancePreferences = appearancePreferences) {
+        MCGoAppScaffold(
+            appearancePreferences = appearancePreferences,
+            onAppearancePreferencesChange = { appearancePreferences = it },
+        )
+    }
+}
+
+@Composable
+private fun MCGoAppScaffold(
+    appearancePreferences: AppearancePreferences,
+    onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
+) {
     var destination by rememberSaveable { mutableStateOf(McGoDestination.Status) }
     val chrome = McGoPageChrome.forPage(destination.page)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val demoMessage = stringResource(R.string.snackbar_demo_action)
-    val notifyPendingFeature: () -> Unit = remember(scope, snackbarHostState, demoMessage) {
+    val featureMessage = stringResource(R.string.snackbar_demo_action)
+    val notifyUnavailableFeature: () -> Unit = remember(scope, snackbarHostState, featureMessage) {
         {
             scope.launch {
-                snackbarHostState.showSnackbar(demoMessage)
+                snackbarHostState.showSnackbar(featureMessage)
             }
             Unit
         }
+    }
+    val visuals = LocalMcGoVisualTokens.current
+    val infiniteTransition = rememberInfiniteTransition(label = "mcgo-background")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = appearancePreferences.motionPreference.pulseScale,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = appearancePreferences.motionPreference.animationMillis.coerceAtLeast(1),
+                easing = FastOutSlowInEasing,
+            ),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "mcgo-background-scale",
+    )
+    val backgroundScale = if (appearancePreferences.dynamicBackground && appearancePreferences.motionPreference.animationMillis > 0) {
+        pulseScale
+    } else {
+        1f
+    }
+    val bottomBarAlpha = if (appearancePreferences.transparentCards) {
+        appearancePreferences.cardContainerAlpha().coerceIn(0.84f, 0.96f)
+    } else {
+        1f
     }
 
     Scaffold(
@@ -100,7 +147,7 @@ fun MCGoApp() {
         },
         bottomBar = {
             NavigationBar(
-                containerColor = Color.White.copy(alpha = 0.86f),
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = bottomBarAlpha),
                 tonalElevation = 0.dp,
             ) {
                 McGoDestination.entries.forEach { item ->
@@ -126,7 +173,7 @@ fun MCGoApp() {
         floatingActionButton = {
             if (destination == McGoDestination.Servers) {
                 ExtendedFloatingActionButton(
-                    onClick = notifyPendingFeature,
+                    onClick = notifyUnavailableFeature,
                     text = { Text(stringResource(R.string.action_create_server)) },
                     icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -139,35 +186,31 @@ fun MCGoApp() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(MistBackground, CloudBackground, SurfaceSoftAlt),
-                    ),
-                )
+                .background(Brush.verticalGradient(colors = visuals.backgroundGradient))
                 .padding(innerPadding),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                Blue500.copy(alpha = 0.12f),
-                                Green500.copy(alpha = 0.08f),
-                                Color.Transparent,
-                            ),
-                        ),
-                    ),
-            )
+            if (appearancePreferences.backgroundAuraAlpha() > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = backgroundScale,
+                            scaleY = backgroundScale,
+                        )
+                        .background(Brush.radialGradient(colors = visuals.backgroundAuraColors)),
+                )
+            }
             when (destination) {
                 McGoDestination.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
                 McGoDestination.Servers -> ServersScreen(
                     modifier = Modifier.fillMaxSize(),
                     showLeadCard = chrome.showLeadCard,
-                    onActionClick = notifyPendingFeature,
+                    onActionClick = notifyUnavailableFeature,
                 )
                 McGoDestination.Settings -> SettingsScreen(
                     modifier = Modifier.fillMaxSize(),
+                    appearancePreferences = appearancePreferences,
+                    onAppearancePreferencesChange = onAppearancePreferencesChange,
                 )
             }
         }

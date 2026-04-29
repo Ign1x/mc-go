@@ -1,6 +1,7 @@
 package com.mcgo.app.status
 
 import com.mcgo.app.ui.model.formatBatteryCurrent
+import com.mcgo.app.ui.model.usedMemoryPercent
 import kotlin.math.max
 
 const val GIGABYTE_BYTES: Long = 1024L * 1024L * 1024L
@@ -31,10 +32,9 @@ fun appendHistorySample(history: List<Float>, nextValue: Float, maxPoints: Int =
 fun formatRamMetric(usedBytes: Long, totalBytes: Long): FormattedMetric {
     val safeTotalBytes = totalBytes.coerceAtLeast(1L)
     val safeUsedBytes = usedBytes.coerceIn(0L, safeTotalBytes)
-    val freeBytes = (safeTotalBytes - safeUsedBytes).coerceAtLeast(0L)
     return FormattedMetric(
-        valueLabel = "${toGigabytesLabel(safeUsedBytes)} / ${toGigabytesLabel(safeTotalBytes)} GB",
-        detailLabel = "空闲 ${toGigabytesLabel(freeBytes)} GB",
+        valueLabel = "${usedMemoryPercent(safeUsedBytes, safeTotalBytes)}%",
+        detailLabel = "${toGigabytesLabel(safeUsedBytes)} / ${toGigabytesLabel(safeTotalBytes)} GB",
     )
 }
 

@@ -23,11 +23,11 @@ class PerformanceMathTest {
     }
 
     @Test
-    fun formatRamMetric_formatsUsedAndAvailableGigabytes() {
+    fun formatRamMetric_prefersCompactPercentPlusUsedCapacityDetail() {
         val formatted = formatRamMetric(usedBytes = 3L * GIGABYTE_BYTES, totalBytes = 8L * GIGABYTE_BYTES)
 
-        assertThat(formatted.valueLabel).isEqualTo("3.0 / 8.0 GB")
-        assertThat(formatted.detailLabel).isEqualTo("空闲 5.0 GB")
+        assertThat(formatted.valueLabel).isEqualTo("38%")
+        assertThat(formatted.detailLabel).isEqualTo("3.0 / 8.0 GB")
     }
 
     @Test

@@ -1,13 +1,18 @@
 package com.mcgo.app.ui.sample
 
+import com.mcgo.app.ui.model.AccentPreset
+import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearanceSettingsState
 import com.mcgo.app.ui.model.AppearanceToggleState
 import com.mcgo.app.ui.model.DashboardMetric
+import com.mcgo.app.ui.model.FontScalePreference
 import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
+import com.mcgo.app.ui.model.MotionPreference
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsSectionState
+import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.formatBatteryCurrent
 import com.mcgo.app.ui.model.formatPlayerCapacity
 
@@ -78,40 +83,43 @@ object McGoSampleRepository {
     fun settingsSections(): List<SettingsSectionState> = listOf(
         SettingsSectionState(
             title = "界面与外观",
-            subtitle = "点击进入主题、卡片透明度、动效与字体大小",
-            highlight = "点击进入详细设置",
+            subtitle = "主题、色彩、字体与动效",
+            highlight = AppearancePreferences().summaryLabel(),
             icon = SettingsCategoryIcon.Appearance,
         ),
     )
 
-    fun appearanceSettings(): AppearanceSettingsState = AppearanceSettingsState(
-        themeModes = listOf("浅色", "跟随系统", "深色"),
-        selectedThemeMode = "浅色",
-        accentOptions = listOf("科技蓝", "森林绿", "紫晶", "暖阳橙"),
-        selectedAccent = "森林绿",
-        fontScaleOptions = listOf("紧凑", "标准", "舒适"),
-        selectedFontScale = "紧凑",
-        motionOptions = listOf("省电", "标准", "灵动"),
-        selectedMotionMode = "标准",
-        cardTransparencyPercent = 82,
-        toggles = listOf(
-            AppearanceToggleState(
-                title = "透明卡片",
-                subtitle = "保留轻透玻璃质感，弱化厚重底色",
-                enabled = true,
+    fun appearanceSettings(): AppearanceSettingsState {
+        val defaults = AppearancePreferences()
+        return AppearanceSettingsState(
+            themeModes = ThemeModePreference.entries.map { it.label },
+            selectedThemeMode = defaults.themeMode.label,
+            accentOptions = AccentPreset.entries.map { it.label },
+            selectedAccent = defaults.accentPreset.label,
+            fontScaleOptions = FontScalePreference.entries.map { it.label },
+            selectedFontScale = defaults.fontScale.label,
+            motionOptions = MotionPreference.entries.map { it.label },
+            selectedMotionMode = defaults.motionPreference.label,
+            cardTransparencyPercent = defaults.cardTransparencyPercent,
+            toggles = listOf(
+                AppearanceToggleState(
+                    title = "透明卡片",
+                    subtitle = "保留轻透玻璃质感",
+                    enabled = defaults.transparentCards,
+                ),
+                AppearanceToggleState(
+                    title = "动态背景",
+                    subtitle = "保留轻微彩色氛围光",
+                    enabled = defaults.dynamicBackground,
+                ),
+                AppearanceToggleState(
+                    title = "紧凑字体",
+                    subtitle = "整体字体更小一些",
+                    enabled = defaults.compactTypography,
+                ),
             ),
-            AppearanceToggleState(
-                title = "动态背景",
-                subtitle = "保留轻微彩色氛围光，不喧宾夺主",
-                enabled = true,
-            ),
-            AppearanceToggleState(
-                title = "紧凑字体",
-                subtitle = "降低层级字号，让信息更密一点",
-                enabled = true,
-            ),
-        ),
-    )
+        )
+    }
 
     fun recentEvents(): List<String> = listOf(
         "世界自动保存已完成 · 2 分钟前",

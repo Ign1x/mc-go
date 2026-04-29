@@ -35,7 +35,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,10 +45,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.ui.components.GlassCard
+import com.mcgo.app.ui.model.AccentPreset
+import com.mcgo.app.ui.model.AppearancePreferences
+import com.mcgo.app.ui.model.FontScalePreference
+import com.mcgo.app.ui.model.MotionPreference
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsDestination
 import com.mcgo.app.ui.model.SettingsNavigationState
 import com.mcgo.app.ui.model.SettingsSectionState
+import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.theme.Blue500
 import com.mcgo.app.ui.theme.Gold500
@@ -63,19 +67,14 @@ import com.mcgo.app.ui.theme.Violet500
 
 @Composable
 fun SettingsScreen(
+    appearancePreferences: AppearancePreferences,
+    onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val appearanceSection = remember {
-        McGoSampleRepository.settingsSections().firstOrNull() ?: SettingsSectionState(
-            title = "界面与外观",
-            subtitle = "点击进入主题、卡片透明度、动效与字体大小",
-            highlight = "点击进入详细设置",
-            icon = SettingsCategoryIcon.Appearance,
-        )
+    val appearanceSection = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset) {
+        McGoSampleRepository.settingsSections().first().copy(highlight = appearancePreferences.summaryLabel())
     }
-    val appearance = remember { McGoSampleRepository.appearanceSettings() }
-    val togglesByTitle = remember(appearance) { appearance.toggles.associateBy { it.title } }
-
+    val appearanceOptions = remember { McGoSampleRepository.appearanceSettings() }
     var destination by rememberSaveable { mutableStateOf(SettingsDestination.Overview) }
     val navigationState = remember(destination) { SettingsNavigationState(destination = destination) }
 
@@ -83,55 +82,19 @@ fun SettingsScreen(
         destination = navigationState.navigateBack().destination
     }
 
-    var selectedThemeMode by rememberSaveable { mutableStateOf(appearance.selectedThemeMode) }
-    var selectedAccent by rememberSaveable { mutableStateOf(appearance.selectedAccent) }
-    var selectedFontScale by rememberSaveable { mutableStateOf(appearance.selectedFontScale) }
-    var selectedMotionMode by rememberSaveable { mutableStateOf(appearance.selectedMotionMode) }
-    var cardTransparencyPercent by rememberSaveable { mutableIntStateOf(appearance.cardTransparencyPercent) }
-    var transparentCardsEnabled by rememberSaveable { mutableStateOf(togglesByTitle["透明卡片"]?.enabled == true) }
-    var dynamicBackgroundEnabled by rememberSaveable { mutableStateOf(togglesByTitle["动态背景"]?.enabled == true) }
-    var compactTypographyEnabled by rememberSaveable { mutableStateOf(togglesByTitle["紧凑字体"]?.enabled == true) }
-
     when (navigationState.destination) {
         SettingsDestination.Overview -> SettingsOverview(
             modifier = modifier,
             section = appearanceSection,
-            onOpenAppearance = {
-                destination = navigationState.openAppearance().destination
-            },
+            onOpenAppearance = { destination = navigationState.openAppearance().destination },
         )
         SettingsDestination.Appearance -> AppearanceDetailScreen(
             modifier = modifier,
             section = appearanceSection,
-            selectedThemeMode = selectedThemeMode,
-            onThemeModeSelected = { selectedThemeMode = it },
-            selectedAccent = selectedAccent,
-            onAccentSelected = { selectedAccent = it },
-            selectedFontScale = selectedFontScale,
-            onFontScaleSelected = {
-                selectedFontScale = it
-                compactTypographyEnabled = it == "紧凑"
-            },
-            selectedMotionMode = selectedMotionMode,
-            onMotionModeSelected = { selectedMotionMode = it },
-            cardTransparencyPercent = cardTransparencyPercent,
-            onTransparencyChanged = { cardTransparencyPercent = it },
-            transparentCardsEnabled = transparentCardsEnabled,
-            onTransparentCardsChange = { transparentCardsEnabled = it },
-            dynamicBackgroundEnabled = dynamicBackgroundEnabled,
-            onDynamicBackgroundChange = { dynamicBackgroundEnabled = it },
-            compactTypographyEnabled = compactTypographyEnabled,
-            onCompactTypographyChange = {
-                compactTypographyEnabled = it
-                selectedFontScale = if (it) "紧凑" else "标准"
-            },
-            themeModes = appearance.themeModes,
-            accentOptions = appearance.accentOptions,
-            fontScaleOptions = appearance.fontScaleOptions,
-            motionOptions = appearance.motionOptions,
-            onNavigateBack = {
-                destination = navigationState.navigateBack().destination
-            },
+            appearancePreferences = appearancePreferences,
+            appearanceOptions = appearanceOptions,
+            onNavigateBack = { destination = navigationState.navigateBack().destination },
+            onAppearancePreferencesChange = onAppearancePreferencesChange,
         )
     }
 }
@@ -146,14 +109,7 @@ private fun SettingsOverview(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { Spacer(modifier = Modifier.height(6.dp)) }
-        item {
-            SettingsSectionHeader(
-                title = "设置入口",
-                subtitle = "一级页先只放一个卡片，点进去再做详细外观设置。",
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
+        item { Spacer(modifier = Modifier.height(8.dp)) }
         item {
             SettingsCard(
                 section = section,
@@ -161,118 +117,127 @@ private fun SettingsOverview(
                 onSectionClick = onOpenAppearance,
             )
         }
-        item { Spacer(modifier = Modifier.height(40.dp)) }
+        item { Spacer(modifier = Modifier.height(24.dp)) }
     }
 }
 
 @Composable
 private fun AppearanceDetailScreen(
     section: SettingsSectionState,
-    selectedThemeMode: String,
-    onThemeModeSelected: (String) -> Unit,
-    selectedAccent: String,
-    onAccentSelected: (String) -> Unit,
-    selectedFontScale: String,
-    onFontScaleSelected: (String) -> Unit,
-    selectedMotionMode: String,
-    onMotionModeSelected: (String) -> Unit,
-    cardTransparencyPercent: Int,
-    onTransparencyChanged: (Int) -> Unit,
-    transparentCardsEnabled: Boolean,
-    onTransparentCardsChange: (Boolean) -> Unit,
-    dynamicBackgroundEnabled: Boolean,
-    onDynamicBackgroundChange: (Boolean) -> Unit,
-    compactTypographyEnabled: Boolean,
-    onCompactTypographyChange: (Boolean) -> Unit,
-    themeModes: List<String>,
-    accentOptions: List<String>,
-    fontScaleOptions: List<String>,
-    motionOptions: List<String>,
+    appearancePreferences: AppearancePreferences,
+    appearanceOptions: com.mcgo.app.ui.model.AppearanceSettingsState,
     onNavigateBack: () -> Unit,
+    onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { Spacer(modifier = Modifier.height(6.dp)) }
+        item { Spacer(modifier = Modifier.height(8.dp)) }
         item {
             AppearanceDetailHeader(
                 title = section.title,
-                subtitle = "这里再展开主题、色彩、字体、透明度和动效细项。",
+                subtitle = appearancePreferences.summaryLabel(),
                 onNavigateBack = onNavigateBack,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             AppearancePreviewCard(
-                selectedThemeMode = selectedThemeMode,
-                selectedAccent = selectedAccent,
-                selectedFontScale = selectedFontScale,
-                selectedMotionMode = selectedMotionMode,
-                cardTransparencyPercent = cardTransparencyPercent,
-                transparentCardsEnabled = transparentCardsEnabled,
-                dynamicBackgroundEnabled = dynamicBackgroundEnabled,
+                appearancePreferences = appearancePreferences,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             ChoiceChipCard(
                 title = "主题模式",
-                subtitle = "先把主题做成清爽稳定，默认保持浅色观感。",
-                options = themeModes,
-                selectedOption = selectedThemeMode,
-                onOptionSelected = onThemeModeSelected,
+                options = appearanceOptions.themeModes,
+                selectedOption = appearancePreferences.themeMode.label,
+                onOptionSelected = {
+                    onAppearancePreferencesChange(
+                        appearancePreferences.copy(themeMode = ThemeModePreference.fromLabel(it)),
+                    )
+                },
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             AccentChoiceCard(
-                options = accentOptions,
-                selectedOption = selectedAccent,
-                onOptionSelected = onAccentSelected,
+                options = appearanceOptions.accentOptions,
+                selectedOption = appearancePreferences.accentPreset.label,
+                onOptionSelected = {
+                    onAppearancePreferencesChange(
+                        appearancePreferences.copy(accentPreset = AccentPreset.fromLabel(it)),
+                    )
+                },
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             ChoiceChipCard(
                 title = "字体密度",
-                subtitle = "你偏好的小一点字体也先做进来，信息密度更高。",
-                options = fontScaleOptions,
-                selectedOption = selectedFontScale,
-                onOptionSelected = onFontScaleSelected,
+                options = appearanceOptions.fontScaleOptions,
+                selectedOption = appearancePreferences.fontScale.label,
+                onOptionSelected = {
+                    val selectedFontScale = FontScalePreference.fromLabel(it)
+                    onAppearancePreferencesChange(
+                        appearancePreferences.copy(
+                            fontScale = selectedFontScale,
+                            compactTypography = selectedFontScale == FontScalePreference.Compact,
+                        ),
+                    )
+                },
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             ChoiceChipCard(
                 title = "动效强度",
-                subtitle = "控制切页、背景氛围和微交互的存在感。",
-                options = motionOptions,
-                selectedOption = selectedMotionMode,
-                onOptionSelected = onMotionModeSelected,
+                options = appearanceOptions.motionOptions,
+                selectedOption = appearancePreferences.motionPreference.label,
+                onOptionSelected = {
+                    onAppearancePreferencesChange(
+                        appearancePreferences.copy(motionPreference = MotionPreference.fromLabel(it)),
+                    )
+                },
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             TransparencySliderCard(
-                value = cardTransparencyPercent,
-                onValueChange = onTransparencyChanged,
+                value = appearancePreferences.cardTransparencyPercent,
+                onValueChange = {
+                    onAppearancePreferencesChange(
+                        appearancePreferences.copy(cardTransparencyPercent = it),
+                    )
+                },
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             AppearanceTogglesCard(
-                transparentCardsEnabled = transparentCardsEnabled,
-                onTransparentCardsChange = onTransparentCardsChange,
-                dynamicBackgroundEnabled = dynamicBackgroundEnabled,
-                onDynamicBackgroundChange = onDynamicBackgroundChange,
-                compactTypographyEnabled = compactTypographyEnabled,
-                onCompactTypographyChange = onCompactTypographyChange,
+                transparentCardsEnabled = appearancePreferences.transparentCards,
+                onTransparentCardsChange = {
+                    onAppearancePreferencesChange(appearancePreferences.copy(transparentCards = it))
+                },
+                dynamicBackgroundEnabled = appearancePreferences.dynamicBackground,
+                onDynamicBackgroundChange = {
+                    onAppearancePreferencesChange(appearancePreferences.copy(dynamicBackground = it))
+                },
+                compactTypographyEnabled = appearancePreferences.compactTypography,
+                onCompactTypographyChange = { enabled ->
+                    onAppearancePreferencesChange(
+                        appearancePreferences.copy(
+                            compactTypography = enabled,
+                            fontScale = if (enabled) FontScalePreference.Compact else FontScalePreference.Standard,
+                        ),
+                    )
+                },
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
-        item { Spacer(modifier = Modifier.height(40.dp)) }
+        item { Spacer(modifier = Modifier.height(24.dp)) }
     }
 }
 
@@ -303,54 +268,39 @@ private fun AppearanceDetailHeader(
                     contentDescription = null,
                 )
                 Text(
-                    text = "返回设置",
+                    text = "返回",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Medium,
                 )
             }
         }
-        SettingsSectionHeader(
-            title = title,
-            subtitle = subtitle,
-        )
-    }
-}
-
-@Composable
-private fun SettingsSectionHeader(title: String, subtitle: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(text = title, style = MaterialTheme.typography.titleLarge)
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = Ink600,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(text = title, style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Ink600,
+            )
+        }
     }
 }
 
 @Composable
 private fun AppearancePreviewCard(
-    selectedThemeMode: String,
-    selectedAccent: String,
-    selectedFontScale: String,
-    selectedMotionMode: String,
-    cardTransparencyPercent: Int,
-    transparentCardsEnabled: Boolean,
-    dynamicBackgroundEnabled: Boolean,
+    appearancePreferences: AppearancePreferences,
     modifier: Modifier = Modifier,
 ) {
-    val accentColor = accentColor(selectedAccent)
-    val isDarkPreview = selectedThemeMode == "深色"
-    val previewBackground = when (selectedThemeMode) {
-        "深色" -> Ink900.copy(alpha = 0.92f)
-        "跟随系统" -> SurfaceSoftAlt
-        else -> MistBackground
+    val accentColor = accentColor(appearancePreferences.accentPreset.label)
+    val isDarkPreview = appearancePreferences.themeMode == ThemeModePreference.Dark
+    val previewBackground = when (appearancePreferences.themeMode) {
+        ThemeModePreference.Dark -> Ink900.copy(alpha = 0.92f)
+        ThemeModePreference.FollowSystem -> SurfaceSoftAlt
+        ThemeModePreference.Light -> MistBackground
     }
     val previewTextColor = if (isDarkPreview) Color.White else Ink900
     val previewSubtleColor = if (isDarkPreview) Color.White.copy(alpha = 0.7f) else Ink600
-    val previewCardColor = if (transparentCardsEnabled) {
-        Color.White.copy(alpha = (cardTransparencyPercent.coerceIn(50, 96) / 100f))
+    val previewCardColor = if (appearancePreferences.transparentCards) {
+        Color.White.copy(alpha = appearancePreferences.cardContainerAlpha())
     } else {
         Color.White
     }
@@ -364,7 +314,7 @@ private fun AppearancePreviewCard(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(text = "当前预览", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "$selectedThemeMode · $selectedAccent · $selectedFontScale · 透明度 $cardTransparencyPercent%",
+                    text = appearancePreferences.summaryLabel(),
                     style = MaterialTheme.typography.bodySmall,
                     color = Ink600,
                 )
@@ -375,7 +325,7 @@ private fun AppearancePreviewCard(
                 contentColor = accentColor,
             ) {
                 Text(
-                    text = selectedMotionMode,
+                    text = appearancePreferences.motionPreference.label,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
@@ -391,7 +341,10 @@ private fun AppearancePreviewCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(if (dynamicBackgroundEnabled) accentColor.copy(alpha = 0.08f) else Color.Transparent)
+                    .background(
+                        if (appearancePreferences.dynamicBackground) accentColor.copy(alpha = appearancePreferences.backgroundAuraAlpha())
+                        else Color.Transparent,
+                    )
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -408,7 +361,7 @@ private fun AppearancePreviewCard(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "Status · Servers · Settings",
+                            text = "${appearancePreferences.fontScale.label} · ${appearancePreferences.cardTransparencyPercent}%",
                             style = MaterialTheme.typography.labelSmall,
                             color = previewSubtleColor,
                         )
@@ -422,7 +375,7 @@ private fun AppearancePreviewCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PreviewMiniCard(
                         title = "实时性能",
-                        subtitle = "固定卡片高度",
+                        subtitle = "浅色背景更清爽",
                         accentColor = accentColor,
                         textColor = previewTextColor,
                         subtleColor = previewSubtleColor,
@@ -431,7 +384,7 @@ private fun AppearancePreviewCard(
                     )
                     PreviewMiniCard(
                         title = "界面与外观",
-                        subtitle = "点卡片再进详细页",
+                        subtitle = "小字体 · 透明卡",
                         accentColor = accentColor,
                         textColor = previewTextColor,
                         subtleColor = previewSubtleColor,
@@ -489,7 +442,6 @@ private fun PreviewMiniCard(
 @Composable
 private fun ChoiceChipCard(
     title: String,
-    subtitle: String,
     options: List<String>,
     selectedOption: String,
     onOptionSelected: (String) -> Unit,
@@ -497,13 +449,7 @@ private fun ChoiceChipCard(
 ) {
     GlassCard(modifier = modifier) {
         Text(text = title, style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = Ink600,
-        )
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -529,13 +475,7 @@ private fun AccentChoiceCard(
 ) {
     GlassCard(modifier = modifier) {
         Text(text = "主题色彩", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "做得更有颜色一点，但仍然保持轻量、干净、好读。",
-            style = MaterialTheme.typography.bodySmall,
-            color = Ink600,
-        )
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -577,14 +517,7 @@ private fun TransparencySliderCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(text = "卡片透明度", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = "把四层卡片的通透感固定下来，避免界面太闷。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ink600,
-                )
-            }
+            Text(text = "卡片透明度", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = "$value%",
                 style = MaterialTheme.typography.titleMedium,
@@ -613,29 +546,23 @@ private fun AppearanceTogglesCard(
 ) {
     GlassCard(modifier = modifier) {
         Text(text = "细节开关", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "先把你刚提到的观感偏好落成真正可调的界面。",
-            style = MaterialTheme.typography.bodySmall,
-            color = Ink600,
-        )
         Spacer(modifier = Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
             AppearanceToggleRow(
                 title = "透明卡片",
-                subtitle = "保留浅色玻璃质感，弱化纯白大底。",
+                subtitle = "控制卡片的通透感",
                 checked = transparentCardsEnabled,
                 onCheckedChange = onTransparentCardsChange,
             )
             AppearanceToggleRow(
                 title = "动态背景",
-                subtitle = "让背景有轻微流动氛围，但不过度抢眼。",
+                subtitle = "控制背景氛围光",
                 checked = dynamicBackgroundEnabled,
                 onCheckedChange = onDynamicBackgroundChange,
             )
             AppearanceToggleRow(
                 title = "紧凑字体",
-                subtitle = "整体字体更小一些，页面信息密度更高。",
+                subtitle = "整体字体更小一些",
                 checked = compactTypographyEnabled,
                 onCheckedChange = onCompactTypographyChange,
             )
@@ -739,9 +666,9 @@ private fun settingsIcon(icon: SettingsCategoryIcon) = when (icon) {
 }
 
 private fun accentColor(option: String): Color = when (option) {
-    "科技蓝" -> Blue500
-    "森林绿" -> Green500
-    "紫晶" -> Violet500
-    "暖阳橙" -> Gold500
+    AccentPreset.Ocean.label -> Blue500
+    AccentPreset.Forest.label -> Green500
+    AccentPreset.Amethyst.label -> Violet500
+    AccentPreset.Sunset.label -> Gold500
     else -> Blue500
 }
