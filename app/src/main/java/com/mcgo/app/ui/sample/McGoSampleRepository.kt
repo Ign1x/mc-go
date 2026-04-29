@@ -12,12 +12,9 @@ import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
-import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
-import com.mcgo.app.ui.model.TunnelProtocol
 import com.mcgo.app.ui.model.formatBatteryCurrent
 import com.mcgo.app.ui.model.formatPlayerCapacity
-import com.mcgo.app.ui.model.importTunnelProfile
 
 object McGoSampleRepository {
 
@@ -70,8 +67,6 @@ object McGoSampleRepository {
             maxPlayers = 10,
             memoryLabel = "1.5 GB RAM",
             isOnline = true,
-            selectedTunnelId = "sample-frp-manual",
-            activeTunnelLabel = "家庭 FRP · 38 ms",
         ),
         ServerCardState(
             name = "Modpack Test",
@@ -85,45 +80,7 @@ object McGoSampleRepository {
         ),
     )
 
-    fun tunnelProfiles(): List<TunnelProfile> {
-        val imported = importTunnelProfile(
-            rawConfig = """
-                serverAddr = "frp-cloud.example.com"
-                serverPort = 7000
-
-                [[proxies]]
-                name = "cloud-single"
-                type = "tcp"
-                localPort = 25570
-                remotePort = 38080
-            """.trimIndent(),
-            fallbackName = "Cloud Single",
-        ).copy(
-            id = "sample-frp-single",
-            baseLatencyMs = 24,
-            currentLatencyMs = 24,
-            healthLabel = "超快",
-        )
-        return listOf(
-            TunnelProfile.manualServer(
-                name = "家庭 FRP",
-                kind = TunnelKind.Frp,
-                serverAddress = "frp.home-lab",
-                remotePort = 38001,
-                protocol = TunnelProtocol.Tcp,
-                baseLatencyMs = 38,
-            ).copy(id = "sample-frp-manual"),
-            TunnelProfile.manualServer(
-                name = "Playit 节点",
-                kind = TunnelKind.Playit,
-                serverAddress = "playit.gg",
-                remotePort = 25565,
-                protocol = TunnelProtocol.Tcp,
-                baseLatencyMs = 62,
-            ).copy(id = "sample-playit-manual"),
-            imported,
-        )
-    }
+    fun tunnelProfiles(): List<TunnelProfile> = emptyList()
 
     fun settingsSections(): List<SettingsSectionState> = listOf(
         SettingsSectionState(
@@ -161,7 +118,7 @@ object McGoSampleRepository {
 
     fun recentEvents(): List<String> = listOf(
         "世界自动保存已完成 · 2 分钟前",
-        "Cloud Single 当前延迟 24 ms",
+        "等待添加首个隧道模板",
         "Creative Plot 当前负载 ${formatPlayerCapacity(2, 10)}",
     )
 }

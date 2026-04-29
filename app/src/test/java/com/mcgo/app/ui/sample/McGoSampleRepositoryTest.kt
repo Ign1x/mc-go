@@ -33,13 +33,10 @@ class McGoSampleRepositoryTest {
     }
 
     @Test
-    fun tunnelProfiles_mixManualAndImportedPresetsWithLatency() {
+    fun tunnelProfiles_startEmptyUntilUserAddsOwnEntries() {
         val tunnels = McGoSampleRepository.tunnelProfiles()
 
-        assertThat(tunnels).hasSize(3)
-        assertThat(tunnels.any { it.source == com.mcgo.app.ui.model.TunnelSource.ManualServer }).isTrue()
-        assertThat(tunnels.any { it.source == com.mcgo.app.ui.model.TunnelSource.PastedConfig }).isTrue()
-        assertThat(tunnels.map { it.currentLatencyMs }).containsExactly(38, 62, 24).inOrder()
+        assertThat(tunnels).isEmpty()
     }
 
     @Test

@@ -44,9 +44,12 @@ import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.detachDeletedTunnel
+import com.mcgo.app.ui.model.removeTunnelProfile
 import com.mcgo.app.ui.model.simulateTunnelLatencies
 import com.mcgo.app.ui.model.startWithTunnel
 import com.mcgo.app.ui.model.stopServer
+import com.mcgo.app.ui.model.upsertTunnelProfile
 import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.screens.ServersScreen
 import com.mcgo.app.ui.screens.SettingsScreen
@@ -100,6 +103,7 @@ private fun MCGoAppScaffold(
 ) {
     var destination by rememberSaveable { mutableStateOf(McGoDestination.Status) }
     var showTunnelComposer by remember { mutableStateOf(false) }
+    var editingTunnelId by rememberSaveable { mutableStateOf<String?>(null) }
     val chrome = McGoPageChrome.forPage(destination.page)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -145,6 +149,7 @@ private fun MCGoAppScaffold(
     LaunchedEffect(destination) {
         if (destination != McGoDestination.Tunnels) {
             showTunnelComposer = false
+            editingTunnelId = null
         }
     }
 
@@ -212,7 +217,10 @@ private fun MCGoAppScaffold(
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     )
                     McGoDestination.Tunnels -> ExtendedFloatingActionButton(
-                        onClick = { showTunnelComposer = true },
+                        onClick = {
+                            editingTunnelId = null
+                            showTunnelComposer = true
+                        },
                         text = { Text(stringResource(R.string.action_add_tunnel)) },
                         icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -268,11 +276,34 @@ private fun MCGoAppScaffold(
                         modifier = Modifier.fillMaxSize(),
                         tunnels = tunnels,
                         showComposer = showTunnelComposer,
-                        onDismissComposer = { showTunnelComposer = false },
-                        onAddTunnel = { profile ->
-                            onTunnelsChange(tunnels + profile)
+                        editingTunnelId = editingTunnelId,
+                        onDismissComposer = {
+                            showTunnelComposer = false
+                            editingTunnelId = null
+                        },
+                        onSaveTunnel = { profile ->
+                            val existed = tunnels.any { it.id == profile.id }
+                            onTunnelsChange(upsertTunnelProfile(tunnels, profile))
                             scope.launch {
-                                snackbarHostState.showSnackbar("已添加 ${profile.name}")
+                                snackbarHostState.showSnackbar(
+                                    if (existed) "已更新 ${profile.name}" else "已添加 ${profile.name}",
+                                )
+                            }
+                        },
+                        onEditTunnel = { tunnelId ->
+                            editingTunnelId = tunnelId
+                            showTunnelComposer = true
+                        },
+                        onDeleteTunnel = { tunnelId ->
+                            val tunnelName = tunnels.firstOrNull { it.id == tunnelId }?.name ?: "该隧道"
+                            onTunnelsChange(removeTunnelProfile(tunnels, tunnelId))
+                            onServersChange(detachDeletedTunnel(servers, tunnelId))
+                            if (editingTunnelId == tunnelId) {
+                                editingTunnelId = null
+                                showTunnelComposer = false
+                            }
+                            scope.launch {
+                                snackbarHostState.showSnackbar("已删除 $tunnelName")
                             }
                         },
                     )
