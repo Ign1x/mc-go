@@ -14,6 +14,14 @@ class SettingsDetailChromeTest {
     }
 
     @Test
+    fun javaManagementDetail_placesBackActionAtTopRight() {
+        val chrome = SettingsDetailChrome.forDestination(SettingsDestination.JavaManagement)
+
+        assertThat(chrome.backActionPlacement).isEqualTo(SettingsBackActionPlacement.TopRight)
+        assertThat(chrome.usesCompactActionButton).isTrue()
+    }
+
+    @Test
     fun overview_omitsBackAction() {
         val chrome = SettingsDetailChrome.forDestination(SettingsDestination.Overview)
 

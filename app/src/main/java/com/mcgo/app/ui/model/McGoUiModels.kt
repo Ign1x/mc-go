@@ -9,6 +9,7 @@ enum class MetricAccent {
 
 enum class SettingsCategoryIcon {
     Appearance,
+    JavaRuntime,
     Notifications,
     Storage,
     Diagnostics,

@@ -53,6 +53,9 @@ import com.mcgo.app.ui.model.AccentPreset
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearanceSettingsState
 import com.mcgo.app.ui.model.FontScalePreference
+import com.mcgo.app.ui.model.JavaManagementState
+import com.mcgo.app.ui.model.JavaPermissionItem
+import com.mcgo.app.ui.model.JavaRuntimeOption
 import com.mcgo.app.ui.model.SettingsBackActionPlacement
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsDestination
@@ -61,9 +64,11 @@ import com.mcgo.app.ui.model.SettingsDetailChromeState
 import com.mcgo.app.ui.model.SettingsNavigationState
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
+import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.resolveAccentColors
+import com.mcgo.app.ui.theme.screenTextColors
 
 @Composable
 fun SettingsScreen(
@@ -71,9 +76,18 @@ fun SettingsScreen(
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val appearanceSection = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset) {
-        McGoSampleRepository.settingsSections().first().copy(highlight = appearancePreferences.summaryLabel())
+    val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.fontScale, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground) {
+        McGoSampleRepository.settingsSections().map { section ->
+            if (section.icon == SettingsCategoryIcon.Appearance) {
+                section.copy(highlight = appearancePreferences.summaryLabel())
+            } else {
+                section
+            }
+        }
     }
+    val appearanceSection = settingsSections.first { it.icon == SettingsCategoryIcon.Appearance }
+    val javaManagementSection = settingsSections.first { it.icon == SettingsCategoryIcon.JavaRuntime }
+    val javaManagementState = remember { defaultJavaManagementState() }
     val appearanceOptions = remember { McGoSampleRepository.appearanceSettings() }
     var destination by rememberSaveable { mutableStateOf(SettingsDestination.Overview) }
     val navigationState = remember(destination) { SettingsNavigationState(destination = destination) }
@@ -85,8 +99,9 @@ fun SettingsScreen(
     when (navigationState.destination) {
         SettingsDestination.Overview -> SettingsOverview(
             modifier = modifier,
-            section = appearanceSection,
+            sections = settingsSections,
             onOpenAppearance = { destination = navigationState.openAppearance().destination },
+            onOpenJavaManagement = { destination = navigationState.openJavaManagement().destination },
         )
         SettingsDestination.Appearance -> AppearanceDetailScreen(
             modifier = modifier,
@@ -96,13 +111,20 @@ fun SettingsScreen(
             onNavigateBack = { destination = navigationState.navigateBack().destination },
             onAppearancePreferencesChange = onAppearancePreferencesChange,
         )
+        SettingsDestination.JavaManagement -> JavaManagementDetailScreen(
+            modifier = modifier,
+            section = javaManagementSection,
+            state = javaManagementState,
+            onNavigateBack = { destination = navigationState.navigateBack().destination },
+        )
     }
 }
 
 @Composable
 private fun SettingsOverview(
-    section: SettingsSectionState,
+    sections: List<SettingsSectionState>,
     onOpenAppearance: () -> Unit,
+    onOpenJavaManagement: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -110,12 +132,18 @@ private fun SettingsOverview(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { Spacer(modifier = Modifier.height(8.dp)) }
-        item {
-            SettingsCard(
-                section = section,
-                modifier = Modifier.padding(horizontal = 20.dp),
-                onSectionClick = onOpenAppearance,
-            )
+        sections.forEach { section ->
+            item {
+                SettingsCard(
+                    section = section,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                    onSectionClick = when (section.icon) {
+                        SettingsCategoryIcon.Appearance -> onOpenAppearance
+                        SettingsCategoryIcon.JavaRuntime -> onOpenJavaManagement
+                        else -> onOpenAppearance
+                    },
+                )
+            }
         }
         item { Spacer(modifier = Modifier.height(24.dp)) }
     }
@@ -221,6 +249,45 @@ private fun AppearanceDetailScreen(
 }
 
 @Composable
+private fun JavaManagementDetailScreen(
+    section: SettingsSectionState,
+    state: JavaManagementState,
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.JavaManagement)
+
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+        item {
+            AppearanceDetailHeader(
+                title = section.title,
+                subtitle = state.summaryLabel,
+                chrome = detailChrome,
+                onNavigateBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item {
+            JavaRuntimeOptionsCard(
+                options = state.runtimeOptions,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item {
+            JavaPermissionCard(
+                permissions = state.permissionItems,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item { Spacer(modifier = Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
 private fun AppearanceDetailHeader(
     title: String,
     subtitle: String,
@@ -228,6 +295,7 @@ private fun AppearanceDetailHeader(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     Box(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -235,11 +303,15 @@ private fun AppearanceDetailHeader(
                 .padding(end = 56.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(text = title, style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = colors.primary,
+            )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.secondary,
             )
         }
         if (chrome.backActionPlacement == SettingsBackActionPlacement.TopRight && chrome.usesCompactActionButton) {
@@ -290,11 +362,15 @@ private fun AppearancePreviewCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(text = "当前预览", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "当前预览",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = previewTextColor,
+                )
                 Text(
                     text = appearancePreferences.summaryLabel(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = previewSubtleColor,
                 )
             }
             Surface(
@@ -315,6 +391,7 @@ private fun AppearancePreviewCard(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             color = Color.Transparent,
+            contentColor = previewTextColor,
         ) {
             Column(
                 modifier = Modifier
@@ -416,6 +493,133 @@ private fun PreviewMiniCard(
 }
 
 @Composable
+private fun JavaRuntimeOptionsCard(
+    options: List<JavaRuntimeOption>,
+    modifier: Modifier = Modifier,
+) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
+    GlassCard(modifier = modifier) {
+        Text(
+            text = "Runtime 策略",
+            style = MaterialTheme.typography.titleMedium,
+            color = colors.primary,
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            options.forEach { option ->
+                JavaRuntimeOptionRow(option = option)
+            }
+        }
+    }
+}
+
+@Composable
+private fun JavaRuntimeOptionRow(option: JavaRuntimeOption) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            contentColor = MaterialTheme.colorScheme.primary,
+        ) {
+            Text(
+                text = option.statusLabel,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = option.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = option.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.secondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun JavaPermissionCard(
+    permissions: List<JavaPermissionItem>,
+    modifier: Modifier = Modifier,
+) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
+    GlassCard(modifier = modifier) {
+        Text(
+            text = "运行权限",
+            style = MaterialTheme.typography.titleMedium,
+            color = colors.primary,
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            permissions.forEach { item ->
+                JavaPermissionRow(item = item)
+            }
+        }
+    }
+}
+
+@Composable
+private fun JavaPermissionRow(item: JavaPermissionItem) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = item.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.secondary,
+            )
+            item.androidPermission?.let { permission ->
+                Text(
+                    text = permission,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.disabled,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = if (item.required) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = if (item.required) MaterialTheme.colorScheme.primary else colors.secondary,
+        ) {
+            Text(
+                text = if (item.required) "必要" else "引导",
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
 private fun ChoiceChipCard(
     title: String,
     options: List<String>,
@@ -423,8 +627,9 @@ private fun ChoiceChipCard(
     onOptionSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier) {
-        Text(text = title, style = MaterialTheme.typography.titleMedium)
+        Text(text = title, style = MaterialTheme.typography.titleMedium, color = colors.primary)
         Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -451,8 +656,9 @@ private fun AccentChoiceCard(
     onOptionSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier) {
-        Text(text = "主题色彩", style = MaterialTheme.typography.titleMedium)
+        Text(text = "主题色彩", style = MaterialTheme.typography.titleMedium, color = colors.primary)
         Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -491,17 +697,18 @@ private fun TransparencySliderCard(
     onValueChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = "卡片透明度", style = MaterialTheme.typography.titleMedium)
+            Text(text = "卡片透明度", style = MaterialTheme.typography.titleMedium, color = colors.primary)
             Text(
                 text = "$value%",
                 style = MaterialTheme.typography.titleMedium,
-                color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (enabled) MaterialTheme.colorScheme.primary else colors.secondary,
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -523,8 +730,9 @@ private fun AppearanceTogglesCard(
     onDynamicBackgroundChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier) {
-        Text(text = "细节开关", style = MaterialTheme.typography.titleMedium)
+        Text(text = "细节开关", style = MaterialTheme.typography.titleMedium, color = colors.primary)
         Spacer(modifier = Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
             AppearanceToggleRow(
@@ -550,18 +758,19 @@ private fun AppearanceToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.titleSmall)
+            Text(text = title, style = MaterialTheme.typography.titleSmall, color = colors.primary)
             Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.secondary,
             )
         }
         Spacer(modifier = Modifier.width(12.dp))
@@ -578,6 +787,7 @@ private fun SettingsCard(
     modifier: Modifier = Modifier,
     onSectionClick: () -> Unit,
 ) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier.clickable(onClick = onSectionClick)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -601,11 +811,11 @@ private fun SettingsCard(
                     )
                 }
                 Column {
-                    Text(text = section.title, style = MaterialTheme.typography.titleMedium)
+                    Text(text = section.title, style = MaterialTheme.typography.titleMedium, color = colors.primary)
                     Text(
                         text = section.subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.secondary,
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Surface(
@@ -632,6 +842,7 @@ private fun SettingsCard(
 
 private fun settingsIcon(icon: SettingsCategoryIcon) = when (icon) {
     SettingsCategoryIcon.Appearance -> Icons.Outlined.Tune
+    SettingsCategoryIcon.JavaRuntime -> Icons.Outlined.Science
     SettingsCategoryIcon.Notifications -> Icons.Outlined.Notifications
     SettingsCategoryIcon.Storage -> Icons.Outlined.Folder
     SettingsCategoryIcon.Diagnostics -> Icons.AutoMirrored.Outlined.Article

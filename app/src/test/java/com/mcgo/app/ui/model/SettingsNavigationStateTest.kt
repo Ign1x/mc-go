@@ -22,6 +22,14 @@ class SettingsNavigationStateTest {
     }
 
     @Test
+    fun openJavaManagement_movesIntoJavaDetailPage() {
+        val state = SettingsNavigationState().openJavaManagement()
+
+        assertThat(state.destination).isEqualTo(SettingsDestination.JavaManagement)
+        assertThat(state.canNavigateBack).isTrue()
+    }
+
+    @Test
     fun navigateBack_fromAppearanceReturnsToOverview() {
         val state = SettingsNavigationState(
             destination = SettingsDestination.Appearance,

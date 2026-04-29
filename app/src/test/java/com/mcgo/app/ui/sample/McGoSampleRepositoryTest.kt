@@ -24,12 +24,12 @@ class McGoSampleRepositoryTest {
     }
 
     @Test
-    fun settingsSections_topLevelOnlyShowsAppearanceEntry() {
+    fun settingsSections_topLevelShowsAppearanceAndJavaManagementOnly() {
         val sections = McGoSampleRepository.settingsSections()
 
-        assertThat(sections).hasSize(1)
-        assertThat(sections.single().title).isEqualTo("界面与外观")
-        assertThat(sections.single().subtitle).contains("主题")
+        assertThat(sections.map { it.title }).containsExactly("界面与外观", "Java 管理").inOrder()
+        assertThat(sections.first().subtitle).contains("主题")
+        assertThat(sections.last().subtitle).contains("Runtime")
     }
 
     @Test

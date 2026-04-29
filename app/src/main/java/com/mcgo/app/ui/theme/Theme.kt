@@ -34,6 +34,19 @@ data class McGoVisualTokens(
     val fluidBackgroundSpec: FluidGradientSpec,
 )
 
+@Immutable
+data class ScreenTextColors(
+    val primary: Color,
+    val secondary: Color,
+    val disabled: Color,
+)
+
+internal fun screenTextColors(tokens: McGoVisualTokens): ScreenTextColors = ScreenTextColors(
+    primary = tokens.primaryTextColor,
+    secondary = tokens.secondaryTextColor,
+    disabled = tokens.disabledTextColor,
+)
+
 val LocalMcGoVisualTokens = staticCompositionLocalOf {
     McGoVisualTokens(
         cardContainerColor = FrostSurface,

@@ -13,7 +13,8 @@ data class SettingsDetailChromeState(
 object SettingsDetailChrome {
     fun forDestination(destination: SettingsDestination): SettingsDetailChromeState = when (destination) {
         SettingsDestination.Overview -> SettingsDetailChromeState()
-        SettingsDestination.Appearance -> SettingsDetailChromeState(
+        SettingsDestination.Appearance,
+        SettingsDestination.JavaManagement -> SettingsDetailChromeState(
             backActionPlacement = SettingsBackActionPlacement.TopRight,
             usesCompactActionButton = true,
         )

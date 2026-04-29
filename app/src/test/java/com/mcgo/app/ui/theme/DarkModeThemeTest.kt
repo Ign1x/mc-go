@@ -85,6 +85,35 @@ class DarkModeThemeTest {
     }
 
     @Test
+    fun darkScreenTextSpecs_useReadableTokensForTransparentHeadersAndMetricAreas() {
+        val preferences = AppearancePreferences(
+            themeMode = ThemeModePreference.Dark,
+            accentPreset = AccentPreset.Forest,
+            cardTransparencyPercent = 64,
+            transparentCards = true,
+            dynamicBackground = true,
+        )
+        val tokens = buildMcGoVisualTokens(
+            appearancePreferences = preferences,
+            colorScheme = mcGoColorScheme(
+                darkTheme = true,
+                primary = ForestDarkPrimary,
+                secondary = ForestDarkSecondary,
+                tertiary = ForestDarkTertiary,
+            ),
+            darkTheme = true,
+        )
+
+        val statusColors = screenTextColors(tokens)
+        val settingsColors = screenTextColors(tokens)
+
+        assertThat(statusColors.primary).isEqualTo(DarkTextPrimary)
+        assertThat(statusColors.secondary).isEqualTo(DarkTextSecondary)
+        assertThat(settingsColors.primary).isNotEqualTo(Ink900)
+        assertThat(settingsColors.secondary).isNotEqualTo(Ink600)
+    }
+
+    @Test
     fun darkAccentPalette_isSofterThanLightPreset() {
         val lightAccent = accentColors(AccentPreset.Ocean, darkTheme = false)
         val darkAccent = accentColors(AccentPreset.Ocean, darkTheme = true)

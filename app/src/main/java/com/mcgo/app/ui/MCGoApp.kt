@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
@@ -59,6 +60,7 @@ import com.mcgo.app.ui.screens.ServersScreen
 import com.mcgo.app.ui.screens.SettingsScreen
 import com.mcgo.app.ui.screens.StatusScreen
 import com.mcgo.app.ui.screens.TunnelsScreen
+import com.mcgo.app.ui.storage.TunnelProfileStore
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.McGoTheme
 import kotlinx.coroutines.Dispatchers
@@ -79,11 +81,15 @@ private enum class McGoDestination(
 
 @Composable
 fun MCGoApp() {
+    val context = LocalContext.current
+    val tunnelStore = remember(context) {
+        TunnelProfileStore(context.filesDir.toPath().resolve("tunnel_profiles.properties"))
+    }
     var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
         mutableStateOf(AppearancePreferences())
     }
     var servers by remember { mutableStateOf(McGoSampleRepository.serverCards()) }
-    var tunnels by remember { mutableStateOf(McGoSampleRepository.tunnelProfiles()) }
+    var tunnels by remember(tunnelStore) { mutableStateOf(tunnelStore.load()) }
 
     McGoTheme(appearancePreferences = appearancePreferences) {
         MCGoAppScaffold(
@@ -93,6 +99,7 @@ fun MCGoApp() {
             onAppearancePreferencesChange = { appearancePreferences = it },
             onServersChange = { servers = it },
             onTunnelsChange = { tunnels = it },
+            onPersistTunnels = { tunnelStore.save(it) },
         )
     }
 }
@@ -105,6 +112,7 @@ private fun MCGoAppScaffold(
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     onServersChange: (List<ServerCardState>) -> Unit,
     onTunnelsChange: (List<TunnelProfile>) -> Unit,
+    onPersistTunnels: (List<TunnelProfile>) -> Unit,
 ) {
     var destination by rememberSaveable { mutableStateOf(McGoDestination.Status) }
     var showTunnelComposer by remember { mutableStateOf(false) }
@@ -303,7 +311,9 @@ private fun MCGoAppScaffold(
                         },
                         onSaveTunnel = { profile ->
                             val existed = tunnels.any { it.id == profile.id }
-                            onTunnelsChange(upsertTunnelProfile(tunnels, profile))
+                            val updatedTunnels = upsertTunnelProfile(tunnels, profile)
+                            onTunnelsChange(updatedTunnels)
+                            onPersistTunnels(updatedTunnels)
                             scope.launch {
                                 snackbarHostState.showSnackbar(
                                     if (existed) "已更新 ${profile.name}" else "已添加 ${profile.name}",
@@ -316,7 +326,9 @@ private fun MCGoAppScaffold(
                         },
                         onDeleteTunnel = { tunnelId ->
                             val tunnelName = tunnels.firstOrNull { it.id == tunnelId }?.name ?: "该隧道"
-                            onTunnelsChange(removeTunnelProfile(tunnels, tunnelId))
+                            val updatedTunnels = removeTunnelProfile(tunnels, tunnelId)
+                            onTunnelsChange(updatedTunnels)
+                            onPersistTunnels(updatedTunnels)
                             onServersChange(detachDeletedTunnel(servers, tunnelId))
                             if (editingTunnelId == tunnelId) {
                                 editingTunnelId = null

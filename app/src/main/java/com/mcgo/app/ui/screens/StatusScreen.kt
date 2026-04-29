@@ -40,6 +40,8 @@ import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
 import com.mcgo.app.ui.model.formatPlayerCapacity
 import com.mcgo.app.ui.model.formatRuntime
+import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
+import com.mcgo.app.ui.theme.screenTextColors
 
 @Composable
 fun StatusScreen(modifier: Modifier = Modifier) {
@@ -85,6 +87,7 @@ fun StatusScreen(modifier: Modifier = Modifier) {
 
 @Composable
 private fun HeroStatusCard(hero: HeroStatus, modifier: Modifier = Modifier) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -94,20 +97,21 @@ private fun HeroStatusCard(hero: HeroStatus, modifier: Modifier = Modifier) {
             Text(
                 text = formatPlayerCapacity(hero.onlinePlayers, hero.maxPlayers),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.secondary,
             )
         }
         Spacer(modifier = Modifier.height(14.dp))
         Text(
             text = hero.activeServerName,
             style = MaterialTheme.typography.headlineSmall,
+            color = colors.primary,
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = stringResource(R.string.status_hero_sentence, formatRuntime(hero.uptimeMinutes)),
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.secondary,
         )
         Spacer(modifier = Modifier.height(18.dp))
         LinearProgressIndicator(
@@ -141,12 +145,13 @@ private fun HeroStatusCard(hero: HeroStatus, modifier: Modifier = Modifier) {
 
 @Composable
 private fun SectionTitle(title: String, subtitle: String, modifier: Modifier = Modifier) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     Column(modifier = modifier) {
-        Text(text = title, style = MaterialTheme.typography.titleLarge)
+        Text(text = title, style = MaterialTheme.typography.titleLarge, color = colors.primary)
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.secondary,
         )
     }
 }
@@ -178,6 +183,7 @@ private val MetricCardHeight = 214.dp
 @Composable
 private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
     val accent = metricAccentColor(metric.accent)
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(
         modifier = modifier.height(MetricCardHeight),
         contentModifier = Modifier.fillMaxHeight(),
@@ -185,19 +191,20 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
         Text(
             text = metric.title,
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.secondary,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = metric.valueLabel,
             style = MaterialTheme.typography.titleLarge,
+            color = colors.primary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = metric.detailLabel,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.secondary,
             minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -270,8 +277,9 @@ private fun MetricSparkline(points: List<Float>, accent: Color, modifier: Modifi
 
 @Composable
 private fun EventCard(events: List<String>, modifier: Modifier = Modifier) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(modifier = modifier) {
-        Text(text = stringResource(R.string.recent_events_title), style = MaterialTheme.typography.titleMedium)
+        Text(text = stringResource(R.string.recent_events_title), style = MaterialTheme.typography.titleMedium, color = colors.primary)
         Spacer(modifier = Modifier.height(10.dp))
         events.forEach { event ->
             Row(
@@ -286,7 +294,7 @@ private fun EventCard(events: List<String>, modifier: Modifier = Modifier) {
                 Text(
                     text = event,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.secondary,
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -311,10 +319,11 @@ private fun StatusBadge(text: String) {
 
 @Composable
 private fun StatKpi(title: String, value: String, modifier: Modifier = Modifier) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
     Column(modifier = modifier) {
-        Text(text = title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text = title, style = MaterialTheme.typography.labelMedium, color = colors.secondary)
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text = value, style = MaterialTheme.typography.titleMedium)
+        Text(text = value, style = MaterialTheme.typography.titleMedium, color = colors.primary)
     }
 }
 

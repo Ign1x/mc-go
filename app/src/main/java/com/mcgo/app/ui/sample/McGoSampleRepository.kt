@@ -12,6 +12,7 @@ import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
+import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.formatBatteryCurrent
 import com.mcgo.app.ui.model.formatPlayerCapacity
@@ -88,6 +89,12 @@ object McGoSampleRepository {
             subtitle = "主题、色彩、字体与背景",
             highlight = AppearancePreferences().summaryLabel(),
             icon = SettingsCategoryIcon.Appearance,
+        ),
+        SettingsSectionState(
+            title = "Java 管理",
+            subtitle = "Runtime、工作目录与运行权限",
+            highlight = defaultJavaManagementState().summaryLabel,
+            icon = SettingsCategoryIcon.JavaRuntime,
         ),
     )
 
