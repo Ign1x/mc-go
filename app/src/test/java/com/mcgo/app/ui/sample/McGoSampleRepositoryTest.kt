@@ -24,16 +24,12 @@ class McGoSampleRepositoryTest {
     }
 
     @Test
-    fun settingsSections_focusOnAppLevelPreferencesInsteadOfServerProperties() {
-        val sectionTitles = McGoSampleRepository.settingsSections().map { it.title }
+    fun settingsSections_topLevelOnlyShowsAppearanceEntry() {
+        val sections = McGoSampleRepository.settingsSections()
 
-        assertThat(sectionTitles).containsExactly(
-            "界面与外观",
-            "通知与提醒",
-            "下载与存储",
-            "日志与诊断",
-            "实验性功能"
-        ).inOrder()
+        assertThat(sections).hasSize(1)
+        assertThat(sections.single().title).isEqualTo("界面与外观")
+        assertThat(sections.single().subtitle).contains("主题")
     }
 
     @Test

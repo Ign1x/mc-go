@@ -168,8 +168,6 @@ fun MCGoApp() {
                 )
                 McGoDestination.Settings -> SettingsScreen(
                     modifier = Modifier.fillMaxSize(),
-                    showLeadCard = chrome.showLeadCard,
-                    onSectionClick = notifyPendingFeature,
                 )
             }
         }

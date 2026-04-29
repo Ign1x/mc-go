@@ -1,5 +1,6 @@
 package com.mcgo.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -14,11 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Folder
@@ -46,6 +47,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.SettingsCategoryIcon
+import com.mcgo.app.ui.model.SettingsDestination
+import com.mcgo.app.ui.model.SettingsNavigationState
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.theme.Blue500
@@ -61,14 +64,24 @@ import com.mcgo.app.ui.theme.Violet500
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
-    showLeadCard: Boolean = false,
-    onSectionClick: () -> Unit,
 ) {
-    val sections = remember { McGoSampleRepository.settingsSections() }
-    val appearanceSection = sections.first()
-    val otherSections = sections.drop(1)
+    val appearanceSection = remember {
+        McGoSampleRepository.settingsSections().firstOrNull() ?: SettingsSectionState(
+            title = "界面与外观",
+            subtitle = "点击进入主题、卡片透明度、动效与字体大小",
+            highlight = "点击进入详细设置",
+            icon = SettingsCategoryIcon.Appearance,
+        )
+    }
     val appearance = remember { McGoSampleRepository.appearanceSettings() }
     val togglesByTitle = remember(appearance) { appearance.toggles.associateBy { it.title } }
+
+    var destination by rememberSaveable { mutableStateOf(SettingsDestination.Overview) }
+    val navigationState = remember(destination) { SettingsNavigationState(destination = destination) }
+
+    BackHandler(enabled = navigationState.canNavigateBack) {
+        destination = navigationState.navigateBack().destination
+    }
 
     var selectedThemeMode by rememberSaveable { mutableStateOf(appearance.selectedThemeMode) }
     var selectedAccent by rememberSaveable { mutableStateOf(appearance.selectedAccent) }
@@ -79,6 +92,56 @@ fun SettingsScreen(
     var dynamicBackgroundEnabled by rememberSaveable { mutableStateOf(togglesByTitle["动态背景"]?.enabled == true) }
     var compactTypographyEnabled by rememberSaveable { mutableStateOf(togglesByTitle["紧凑字体"]?.enabled == true) }
 
+    when (navigationState.destination) {
+        SettingsDestination.Overview -> SettingsOverview(
+            modifier = modifier,
+            section = appearanceSection,
+            onOpenAppearance = {
+                destination = navigationState.openAppearance().destination
+            },
+        )
+        SettingsDestination.Appearance -> AppearanceDetailScreen(
+            modifier = modifier,
+            section = appearanceSection,
+            selectedThemeMode = selectedThemeMode,
+            onThemeModeSelected = { selectedThemeMode = it },
+            selectedAccent = selectedAccent,
+            onAccentSelected = { selectedAccent = it },
+            selectedFontScale = selectedFontScale,
+            onFontScaleSelected = {
+                selectedFontScale = it
+                compactTypographyEnabled = it == "紧凑"
+            },
+            selectedMotionMode = selectedMotionMode,
+            onMotionModeSelected = { selectedMotionMode = it },
+            cardTransparencyPercent = cardTransparencyPercent,
+            onTransparencyChanged = { cardTransparencyPercent = it },
+            transparentCardsEnabled = transparentCardsEnabled,
+            onTransparentCardsChange = { transparentCardsEnabled = it },
+            dynamicBackgroundEnabled = dynamicBackgroundEnabled,
+            onDynamicBackgroundChange = { dynamicBackgroundEnabled = it },
+            compactTypographyEnabled = compactTypographyEnabled,
+            onCompactTypographyChange = {
+                compactTypographyEnabled = it
+                selectedFontScale = if (it) "紧凑" else "标准"
+            },
+            themeModes = appearance.themeModes,
+            accentOptions = appearance.accentOptions,
+            fontScaleOptions = appearance.fontScaleOptions,
+            motionOptions = appearance.motionOptions,
+            onNavigateBack = {
+                destination = navigationState.navigateBack().destination
+            },
+        )
+    }
+}
+
+@Composable
+private fun SettingsOverview(
+    section: SettingsSectionState,
+    onOpenAppearance: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -86,8 +149,58 @@ fun SettingsScreen(
         item { Spacer(modifier = Modifier.height(6.dp)) }
         item {
             SettingsSectionHeader(
-                title = appearanceSection.title,
-                subtitle = appearanceSection.subtitle,
+                title = "设置入口",
+                subtitle = "一级页先只放一个卡片，点进去再做详细外观设置。",
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item {
+            SettingsCard(
+                section = section,
+                modifier = Modifier.padding(horizontal = 20.dp),
+                onSectionClick = onOpenAppearance,
+            )
+        }
+        item { Spacer(modifier = Modifier.height(40.dp)) }
+    }
+}
+
+@Composable
+private fun AppearanceDetailScreen(
+    section: SettingsSectionState,
+    selectedThemeMode: String,
+    onThemeModeSelected: (String) -> Unit,
+    selectedAccent: String,
+    onAccentSelected: (String) -> Unit,
+    selectedFontScale: String,
+    onFontScaleSelected: (String) -> Unit,
+    selectedMotionMode: String,
+    onMotionModeSelected: (String) -> Unit,
+    cardTransparencyPercent: Int,
+    onTransparencyChanged: (Int) -> Unit,
+    transparentCardsEnabled: Boolean,
+    onTransparentCardsChange: (Boolean) -> Unit,
+    dynamicBackgroundEnabled: Boolean,
+    onDynamicBackgroundChange: (Boolean) -> Unit,
+    compactTypographyEnabled: Boolean,
+    onCompactTypographyChange: (Boolean) -> Unit,
+    themeModes: List<String>,
+    accentOptions: List<String>,
+    fontScaleOptions: List<String>,
+    motionOptions: List<String>,
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item { Spacer(modifier = Modifier.height(6.dp)) }
+        item {
+            AppearanceDetailHeader(
+                title = section.title,
+                subtitle = "这里再展开主题、色彩、字体、透明度和动效细项。",
+                onNavigateBack = onNavigateBack,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
@@ -107,17 +220,17 @@ fun SettingsScreen(
             ChoiceChipCard(
                 title = "主题模式",
                 subtitle = "先把主题做成清爽稳定，默认保持浅色观感。",
-                options = appearance.themeModes,
+                options = themeModes,
                 selectedOption = selectedThemeMode,
-                onOptionSelected = { selectedThemeMode = it },
+                onOptionSelected = onThemeModeSelected,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             AccentChoiceCard(
-                options = appearance.accentOptions,
+                options = accentOptions,
                 selectedOption = selectedAccent,
-                onOptionSelected = { selectedAccent = it },
+                onOptionSelected = onAccentSelected,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
@@ -125,12 +238,9 @@ fun SettingsScreen(
             ChoiceChipCard(
                 title = "字体密度",
                 subtitle = "你偏好的小一点字体也先做进来，信息密度更高。",
-                options = appearance.fontScaleOptions,
+                options = fontScaleOptions,
                 selectedOption = selectedFontScale,
-                onOptionSelected = {
-                    selectedFontScale = it
-                    compactTypographyEnabled = it == "紧凑"
-                },
+                onOptionSelected = onFontScaleSelected,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
@@ -138,48 +248,71 @@ fun SettingsScreen(
             ChoiceChipCard(
                 title = "动效强度",
                 subtitle = "控制切页、背景氛围和微交互的存在感。",
-                options = appearance.motionOptions,
+                options = motionOptions,
                 selectedOption = selectedMotionMode,
-                onOptionSelected = { selectedMotionMode = it },
+                onOptionSelected = onMotionModeSelected,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             TransparencySliderCard(
                 value = cardTransparencyPercent,
-                onValueChange = { cardTransparencyPercent = it },
+                onValueChange = onTransparencyChanged,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
         item {
             AppearanceTogglesCard(
                 transparentCardsEnabled = transparentCardsEnabled,
-                onTransparentCardsChange = { transparentCardsEnabled = it },
+                onTransparentCardsChange = onTransparentCardsChange,
                 dynamicBackgroundEnabled = dynamicBackgroundEnabled,
-                onDynamicBackgroundChange = { dynamicBackgroundEnabled = it },
+                onDynamicBackgroundChange = onDynamicBackgroundChange,
                 compactTypographyEnabled = compactTypographyEnabled,
-                onCompactTypographyChange = {
-                    compactTypographyEnabled = it
-                    selectedFontScale = if (it) "紧凑" else "标准"
-                },
+                onCompactTypographyChange = onCompactTypographyChange,
                 modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
-        item {
-            SettingsSectionHeader(
-                title = "更多偏好",
-                subtitle = if (showLeadCard) "更多工具项后面再接真实逻辑。" else "通知、存储、诊断和 Labs 继续保留入口。",
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
-        items(items = otherSections, key = { it.title }) { section ->
-            SettingsCard(
-                section = section,
-                modifier = Modifier.padding(horizontal = 20.dp),
-                onSectionClick = onSectionClick,
             )
         }
         item { Spacer(modifier = Modifier.height(40.dp)) }
+    }
+}
+
+@Composable
+private fun AppearanceDetailHeader(
+    title: String,
+    subtitle: String,
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.clickable(onClick = onNavigateBack),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = null,
+                )
+                Text(
+                    text = "返回设置",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+        SettingsSectionHeader(
+            title = title,
+            subtitle = subtitle,
+        )
     }
 }
 
@@ -298,7 +431,7 @@ private fun AppearancePreviewCard(
                     )
                     PreviewMiniCard(
                         title = "界面与外观",
-                        subtitle = "小字体 + 透明卡",
+                        subtitle = "点卡片再进详细页",
                         accentColor = accentColor,
                         textColor = previewTextColor,
                         subtleColor = previewSubtleColor,

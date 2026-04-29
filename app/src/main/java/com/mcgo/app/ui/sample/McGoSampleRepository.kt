@@ -78,33 +78,9 @@ object McGoSampleRepository {
     fun settingsSections(): List<SettingsSectionState> = listOf(
         SettingsSectionState(
             title = "界面与外观",
-            subtitle = "主题、卡片透明度、动效与字体大小",
-            highlight = "浅色 · 透明卡片",
+            subtitle = "点击进入主题、卡片透明度、动效与字体大小",
+            highlight = "点击进入详细设置",
             icon = SettingsCategoryIcon.Appearance,
-        ),
-        SettingsSectionState(
-            title = "通知与提醒",
-            subtitle = "启动提醒、异常通知、后台保活提示",
-            highlight = "仅重要提醒",
-            icon = SettingsCategoryIcon.Notifications,
-        ),
-        SettingsSectionState(
-            title = "下载与存储",
-            subtitle = "服务端包、地图缓存、备份目录管理",
-            highlight = "自动清理旧缓存",
-            icon = SettingsCategoryIcon.Storage,
-        ),
-        SettingsSectionState(
-            title = "日志与诊断",
-            subtitle = "日志级别、导出、问题反馈与诊断",
-            highlight = "支持导出调试日志",
-            icon = SettingsCategoryIcon.Diagnostics,
-        ),
-        SettingsSectionState(
-            title = "实验性功能",
-            subtitle = "预览特性、兼容选项与实验开关",
-            highlight = "Labs 已启用",
-            icon = SettingsCategoryIcon.Labs,
         ),
     )
 
