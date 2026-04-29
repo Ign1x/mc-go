@@ -6,7 +6,7 @@ import kotlin.test.Test
 class TunnelModelsTest {
 
     @Test
-    fun importTunnelProfile_detectsFrpTomlAndExtractsSingleTunnelPorts() {
+    fun importTunnelProfile_detectsFrpTomlAndBuildsServiceEndpointFromServerPort() {
         val rawConfig = """
             serverAddr = "frp.example.com"
             serverPort = 7000
@@ -27,40 +27,68 @@ class TunnelModelsTest {
         assertThat(imported.source).isEqualTo(TunnelSource.PastedConfig)
         assertThat(imported.format).isEqualTo(TunnelConfigFormat.Toml)
         assertThat(imported.name).isEqualTo("creative-plot")
+        assertThat(imported.serverAddress).isEqualTo("frp.example.com:7000")
         assertThat(imported.localPort).isEqualTo(25565)
         assertThat(imported.remotePort).isEqualTo(37001)
         assertThat(imported.rawConfigText).isEqualTo(rawConfig)
+        assertThat(imported.currentLatencyMs).isEqualTo(0)
+        assertThat(imported.healthLabel).isEqualTo("检测中")
         assertThat(imported.supportsCustomPortOnStart()).isFalse()
     }
 
     @Test
-    fun manualServerTunnel_usesCredentialAndPortRangeInsteadOfProtocol() {
+    fun manualServerTunnel_usesEndpointWithPortAndStartsWithPendingRealLatency() {
         val profile = TunnelProfile.manualServer(
             name = "家庭 FRP",
             kind = TunnelKind.Frp,
-            serverAddress = "frp.home",
+            serverAddress = "frp.home:7000",
             credentialValue = "secret-token",
             portRange = "38000-38100",
-            baseLatencyMs = 42,
         )
 
         assertThat(profile.credentialValue).isEqualTo("secret-token")
         assertThat(profile.portRange).isEqualTo("38000-38100")
-        assertThat(profile.connectionSummary()).isEqualTo("frp.home · 端口范围 38000-38100")
+        assertThat(profile.connectionSummary()).isEqualTo("frp.home:7000 · 端口范围 38000-38100")
+        assertThat(profile.currentLatencyMs).isEqualTo(0)
+        assertThat(profile.healthLabel).isEqualTo("检测中")
         assertThat(profile.detailSummary()).contains("Token")
         assertThat(profile.supportsCustomPortOnStart()).isTrue()
         assertThat(profile.resolveStartupPort(serverPort = 25565, customPort = 25577)).isEqualTo(25577)
     }
 
     @Test
-    fun manualTunnelFieldSpec_matchesDifferentTunnelKinds() {
+    fun manualTunnelFieldSpec_requiresEndpointWithPortForDifferentTunnelKinds() {
         val frpSpec = manualTunnelFieldSpec(TunnelKind.Frp)
         val npsSpec = manualTunnelFieldSpec(TunnelKind.Nps)
 
+        assertThat(frpSpec.addressLabel).isEqualTo("服务端地址（IP/域名:端口）")
+        assertThat(frpSpec.addressHint).contains("frp.example.com:7000")
         assertThat(frpSpec.credentialLabel).isEqualTo("Token")
         assertThat(frpSpec.portRangeLabel).isEqualTo("可分配端口范围")
+        assertThat(npsSpec.addressLabel).isEqualTo("服务端地址（IP/域名:端口）")
         assertThat(npsSpec.credentialLabel).isEqualTo("VKey")
         assertThat(npsSpec.portRangeLabel).contains("端口")
+    }
+
+    @Test
+    fun latencyProbeResult_updatesHealthLabelsWithoutFakeSimulation() {
+        val profile = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "token-1",
+            portRange = "39001-39020",
+        )
+
+        val reachable = profile.withLatencyResult(42)
+        val unreachable = profile.withLatencyResult(null)
+
+        assertThat(reachable.currentLatencyMs).isEqualTo(42)
+        assertThat(reachable.latencyLabel()).isEqualTo("42 ms")
+        assertThat(reachable.healthLabel).isEqualTo("稳定")
+        assertThat(unreachable.currentLatencyMs).isEqualTo(-1)
+        assertThat(unreachable.latencyLabel()).isEqualTo("不可达")
+        assertThat(unreachable.healthLabel).isEqualTo("不可达")
     }
 
     @Test
@@ -71,12 +99,12 @@ class TunnelModelsTest {
             kind = TunnelKind.Frp,
             source = TunnelSource.PastedConfig,
             format = TunnelConfigFormat.Json,
-            serverAddress = "frp.cloud",
+            serverAddress = "frp.cloud:7000",
             remotePort = 39002,
             localPort = 25590,
-            baseLatencyMs = 56,
-            currentLatencyMs = 56,
-            healthLabel = "稳定",
+            baseLatencyMs = 0,
+            currentLatencyMs = 0,
+            healthLabel = "检测中",
             rawConfigPreview = "{...}",
             rawConfigText = "{...}",
             detail = "来自粘贴配置",
@@ -87,14 +115,44 @@ class TunnelModelsTest {
     }
 
     @Test
+    fun latencyResults_mergeIntoLatestTunnelStateWithoutOverwritingEdits() {
+        val original = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "old-token",
+            portRange = "38000-38100",
+        ).copy(id = "frp-home")
+        val edited = original.copy(
+            name = "家庭 FRP 主线",
+            credentialValue = "new-token",
+            portRange = "39000-39100",
+        )
+
+        val merged = applyTunnelLatencyResults(
+            profiles = listOf(edited),
+            results = listOf(TunnelLatencyResult(tunnelId = original.id, serverAddress = original.serverAddress, latencyMs = 36)),
+        )
+        val ignoredStaleEndpoint = applyTunnelLatencyResults(
+            profiles = listOf(edited.copy(serverAddress = "frp-new.home:7000")),
+            results = listOf(TunnelLatencyResult(tunnelId = original.id, serverAddress = original.serverAddress, latencyMs = 36)),
+        )
+
+        assertThat(merged.single().name).isEqualTo("家庭 FRP 主线")
+        assertThat(merged.single().credentialValue).isEqualTo("new-token")
+        assertThat(merged.single().portRange).isEqualTo("39000-39100")
+        assertThat(merged.single().currentLatencyMs).isEqualTo(36)
+        assertThat(ignoredStaleEndpoint.single().currentLatencyMs).isEqualTo(0)
+    }
+
+    @Test
     fun upsertAndDeleteTunnelProfile_supportEditingAndClearingServerSelections() {
         val original = TunnelProfile.manualServer(
             name = "家庭 FRP",
             kind = TunnelKind.Frp,
-            serverAddress = "frp.home",
+            serverAddress = "frp.home:7000",
             credentialValue = "old-token",
             portRange = "38000-38100",
-            baseLatencyMs = 42,
         ).copy(id = "frp-home")
         val updated = original.copy(name = "家庭 FRP 主线", credentialValue = "new-token")
         val server = ServerCardState(
@@ -139,10 +197,9 @@ class TunnelModelsTest {
         val tunnel = TunnelProfile.manualServer(
             name = "家庭 FRP",
             kind = TunnelKind.Frp,
-            serverAddress = "frp.home",
+            serverAddress = "frp.home:7000",
             credentialValue = "token-1",
             portRange = "39001-39020",
-            baseLatencyMs = 42,
         )
 
         val started = server.startWithTunnel(tunnel = tunnel, startupPort = 25579)

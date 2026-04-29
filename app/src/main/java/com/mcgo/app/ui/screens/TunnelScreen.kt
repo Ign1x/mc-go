@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.mcgo.app.network.parseTcpEndpoint
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
@@ -84,12 +85,6 @@ fun TunnelsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { Spacer(modifier = Modifier.height(8.dp)) }
-        item {
-            TunnelOverviewCard(
-                tunnels = tunnels,
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
         if (tunnels.isEmpty()) {
             item {
                 GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
@@ -119,28 +114,6 @@ fun TunnelsScreen(
             }
         }
         item { Spacer(modifier = Modifier.height(96.dp)) }
-    }
-}
-
-@Composable
-private fun TunnelOverviewCard(
-    tunnels: List<TunnelProfile>,
-    modifier: Modifier = Modifier,
-) {
-    val manualCount = tunnels.count { it.source == TunnelSource.ManualServer }
-    val configCount = tunnels.count { it.source == TunnelSource.PastedConfig }
-    GlassCard(modifier = modifier) {
-        Text(text = "隧道列表", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = if (tunnels.isEmpty()) {
-                "当前还没有隧道。添加后可以在这里看延迟、编辑参数或删除。"
-            } else {
-                "参数模板 $manualCount 个 · 单隧道配置 $configCount 个 · 支持后续编辑与删除"
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -182,7 +155,7 @@ private fun TunnelCard(
                     )
                 }
             }
-            LatencyBadge(latencyMs = tunnel.currentLatencyMs, healthLabel = tunnel.healthLabel, accent = accent)
+            LatencyBadge(latencyLabel = tunnel.latencyLabel(), healthLabel = tunnel.healthLabel, accent = accent)
         }
         Spacer(modifier = Modifier.height(14.dp))
         Text(
@@ -284,7 +257,7 @@ private fun TunnelMetaChip(
 
 @Composable
 private fun LatencyBadge(
-    latencyMs: Int,
+    latencyLabel: String,
     healthLabel: String,
     accent: Color,
 ) {
@@ -297,7 +270,7 @@ private fun LatencyBadge(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(text = "$latencyMs ms", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text(text = latencyLabel, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             Text(text = healthLabel, style = MaterialTheme.typography.labelSmall)
         }
     }
@@ -342,7 +315,8 @@ private fun TunnelComposerDialog(
         }
     }
     val isManualMode = mode == TunnelSource.ManualServer.name
-    val canSaveManual = manualAddress.isNotBlank() && manualCredential.isNotBlank() && manualPortRange.isNotBlank()
+    val manualEndpoint = remember(manualAddress) { parseTcpEndpoint(manualAddress) }
+    val canSaveManual = manualEndpoint != null && manualCredential.isNotBlank() && manualPortRange.isNotBlank()
     val canSaveImport = importPreview != null
 
     AlertDialog(
@@ -417,7 +391,15 @@ private fun TunnelComposerDialog(
                         onValueChange = { manualAddress = it },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text(manualSpec.addressLabel) },
-                        supportingText = { Text(manualSpec.addressHint) },
+                        supportingText = {
+                            Text(
+                                if (manualAddress.isBlank() || manualEndpoint != null) {
+                                    manualSpec.addressHint
+                                } else {
+                                    "必须填写可连接的 IP/域名:端口，例如 frp.example.com:7000"
+                                },
+                            )
+                        },
                         singleLine = true,
                     )
                     OutlinedTextField(
@@ -436,23 +418,6 @@ private fun TunnelComposerDialog(
                         supportingText = { Text(manualSpec.portRangeHint) },
                         singleLine = true,
                     )
-                    GlassCard {
-                        Text(text = "保存后效果", style = MaterialTheme.typography.titleSmall)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = listOfNotNull(
-                                manualAddress.takeIf { it.isNotBlank() },
-                                manualPortRange.takeIf { it.isNotBlank() }?.let { "端口范围 $it" },
-                            ).joinToString(" · ").ifBlank { "待填写连接信息" },
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "${selectedKind.label} 参数模板 · ${manualSpec.credentialLabel} 会被保存，开服时可继续改端口",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 } else {
                     OutlinedTextField(
                         value = importAlias,
@@ -538,6 +503,8 @@ private fun tunnelIcon(kind: TunnelKind) = when (kind) {
 
 @Composable
 private fun latencyColor(latencyMs: Int): Color = when {
+    latencyMs < 0 -> MaterialTheme.colorScheme.error
+    latencyMs == 0 -> MaterialTheme.colorScheme.onSurfaceVariant
     latencyMs <= 35 -> MaterialTheme.colorScheme.secondary
     latencyMs <= 70 -> MaterialTheme.colorScheme.primary
     latencyMs <= 110 -> MaterialTheme.colorScheme.tertiary

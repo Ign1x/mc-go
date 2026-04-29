@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -37,6 +38,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
+import com.mcgo.app.network.measureTcpLatency
+import com.mcgo.app.network.parseTcpEndpoint
 import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearancePreferencesSaver
@@ -44,9 +47,10 @@ import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.TunnelLatencyResult
+import com.mcgo.app.ui.model.applyTunnelLatencyResults
 import com.mcgo.app.ui.model.detachDeletedTunnel
 import com.mcgo.app.ui.model.removeTunnelProfile
-import com.mcgo.app.ui.model.simulateTunnelLatencies
 import com.mcgo.app.ui.model.startWithTunnel
 import com.mcgo.app.ui.model.stopServer
 import com.mcgo.app.ui.model.upsertTunnelProfile
@@ -57,9 +61,10 @@ import com.mcgo.app.ui.screens.StatusScreen
 import com.mcgo.app.ui.screens.TunnelsScreen
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.McGoTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.random.Random
+import kotlinx.coroutines.withContext
 
 private enum class McGoDestination(
     val page: McGoPage,
@@ -123,12 +128,27 @@ private fun MCGoAppScaffold(
     } else {
         1f
     }
-    val latencyRandom = remember { Random(System.currentTimeMillis()) }
+    val latestTunnels by rememberUpdatedState(tunnels)
 
-    LaunchedEffect(tunnels.map { it.id to it.baseLatencyMs }) {
+    LaunchedEffect(tunnels.map { it.id to it.serverAddress }) {
         while (true) {
-            delay(2200)
-            onTunnelsChange(simulateTunnelLatencies(tunnels, latencyRandom))
+            val tunnelSnapshot = latestTunnels
+            if (tunnelSnapshot.isNotEmpty()) {
+                val measuredResults = withContext(Dispatchers.IO) {
+                    tunnelSnapshot.map { profile ->
+                        val latencyMs = parseTcpEndpoint(profile.serverAddress)?.let { endpoint ->
+                            measureTcpLatency(endpoint)
+                        }
+                        TunnelLatencyResult(
+                            tunnelId = profile.id,
+                            serverAddress = profile.serverAddress,
+                            latencyMs = latencyMs,
+                        )
+                    }
+                }
+                onTunnelsChange(applyTunnelLatencyResults(latestTunnels, measuredResults))
+            }
+            delay(5000)
         }
     }
 
@@ -139,7 +159,7 @@ private fun MCGoAppScaffold(
                     !server.isOnline -> server.copy(activeTunnelLabel = null)
                     else -> {
                         val matchedTunnel = tunnels.firstOrNull { it.id == server.selectedTunnelId }
-                        server.copy(activeTunnelLabel = matchedTunnel?.let { "${it.name} · ${it.currentLatencyMs} ms" })
+                        server.copy(activeTunnelLabel = matchedTunnel?.let { "${it.name} · ${it.latencyLabel()}" })
                     }
                 }
             },

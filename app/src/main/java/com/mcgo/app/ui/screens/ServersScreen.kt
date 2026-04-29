@@ -275,7 +275,7 @@ private fun StartServerDialog(
                             } else {
                                 "${tunnel.kind.label} · 固定 ${tunnel.resolveStartupPort(server.port, null)} 端口"
                             },
-                            trailing = "${tunnel.currentLatencyMs} ms",
+                            trailing = tunnel.latencyLabel(),
                             onClick = { selectedTunnelId = tunnel.id },
                         )
                     }

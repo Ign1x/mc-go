@@ -1,8 +1,7 @@
 package com.mcgo.app.ui.model
 
-import kotlin.random.Random
-
-private const val DefaultManualLatency = 46
+private const val PendingLatencyMs = 0
+private const val UnreachableLatencyMs = -1
 
 enum class TunnelKind(val label: String) {
     Frp("FRP"),
@@ -35,40 +34,40 @@ data class TunnelManualFieldSpec(
 
 fun manualTunnelFieldSpec(kind: TunnelKind): TunnelManualFieldSpec = when (kind) {
     TunnelKind.Frp -> TunnelManualFieldSpec(
-        addressLabel = "FRP 服务地址",
-        addressHint = "例如 frp.example.com",
+        addressLabel = "服务端地址（IP/域名:端口）",
+        addressHint = "例如 1.2.3.4:7000 / frp.example.com:7000",
         credentialLabel = "Token",
         credentialHint = "填写服务端分配的 token",
         portRangeLabel = "可分配端口范围",
         portRangeHint = "例如 38000-38100",
     )
     TunnelKind.Nps -> TunnelManualFieldSpec(
-        addressLabel = "NPS 服务地址",
-        addressHint = "例如 nps.example.com",
+        addressLabel = "服务端地址（IP/域名:端口）",
+        addressHint = "例如 1.2.3.4:8024 / nps.example.com:8024",
         credentialLabel = "VKey",
         credentialHint = "填写客户端对应的 vkey",
         portRangeLabel = "映射端口范围",
         portRangeHint = "例如 39000-39100",
     )
     TunnelKind.Playit -> TunnelManualFieldSpec(
-        addressLabel = "Playit 节点 / 区域",
-        addressHint = "例如 hk.playit.gg",
+        addressLabel = "服务端地址（IP/域名:端口）",
+        addressHint = "例如 playit.gg:443 / 节点域名:端口",
         credentialLabel = "Agent Key",
         credentialHint = "填写 Playit agent key",
         portRangeLabel = "预留端口范围",
         portRangeHint = "例如 25565-25585",
     )
     TunnelKind.Tailscale -> TunnelManualFieldSpec(
-        addressLabel = "Tailnet / 出口节点",
-        addressHint = "例如 home-tailnet / exit-node",
+        addressLabel = "服务端地址（IP/域名:端口）",
+        addressHint = "例如 100.x.y.z:41641 / tailnet 节点:端口",
         credentialLabel = "Auth Key",
         credentialHint = "填写 tailscale auth key 或设备授权信息",
         portRangeLabel = "可用端口范围",
         portRangeHint = "例如 25565-25600",
     )
     TunnelKind.Custom -> TunnelManualFieldSpec(
-        addressLabel = "服务器地址",
-        addressHint = "填写隧道服务地址或节点名",
+        addressLabel = "服务端地址（IP/域名:端口）",
+        addressHint = "例如 tunnel.example.com:443",
         credentialLabel = "凭据 / 备注",
         credentialHint = "可填写 token、key 或简单备注",
         portRangeLabel = "端口范围",
@@ -87,9 +86,9 @@ data class TunnelProfile(
     val localPort: Int? = null,
     val credentialValue: String? = null,
     val portRange: String? = null,
-    val baseLatencyMs: Int,
-    val currentLatencyMs: Int,
-    val healthLabel: String,
+    val baseLatencyMs: Int = PendingLatencyMs,
+    val currentLatencyMs: Int = PendingLatencyMs,
+    val healthLabel: String = latencyHealthLabel(PendingLatencyMs),
     val rawConfigPreview: String? = null,
     val rawConfigText: String? = null,
     val detail: String? = null,
@@ -104,7 +103,11 @@ data class TunnelProfile(
 
     fun startupModeLabel(): String = source.label
 
-    fun latencyLabel(): String = "${currentLatencyMs} ms"
+    fun latencyLabel(): String = when {
+        currentLatencyMs > 0 -> "${currentLatencyMs} ms"
+        currentLatencyMs == PendingLatencyMs -> "检测中"
+        else -> "不可达"
+    }
 
     fun connectionSummary(): String {
         val secondaryLabel = when {
@@ -131,10 +134,13 @@ data class TunnelProfile(
 
     fun formatLabel(): String? = format?.label
 
-    fun withLatency(latencyMs: Int): TunnelProfile = copy(
-        currentLatencyMs = latencyMs,
-        healthLabel = latencyHealthLabel(latencyMs),
-    )
+    fun withLatencyResult(latencyMs: Int?): TunnelProfile {
+        val resolvedLatency = latencyMs?.coerceAtLeast(1) ?: UnreachableLatencyMs
+        return copy(
+            currentLatencyMs = resolvedLatency,
+            healthLabel = latencyHealthLabel(resolvedLatency),
+        )
+    }
 
     companion object {
         fun manualServer(
@@ -143,7 +149,7 @@ data class TunnelProfile(
             serverAddress: String,
             credentialValue: String,
             portRange: String,
-            baseLatencyMs: Int = defaultLatencyForKind(kind),
+            baseLatencyMs: Int = PendingLatencyMs,
         ): TunnelProfile {
             val spec = manualTunnelFieldSpec(kind)
             val resolvedAddress = serverAddress.ifBlank { "未填写地址" }
@@ -158,8 +164,8 @@ data class TunnelProfile(
                 credentialValue = credentialValue,
                 portRange = portRange,
                 baseLatencyMs = baseLatencyMs,
-                currentLatencyMs = baseLatencyMs,
-                healthLabel = latencyHealthLabel(baseLatencyMs),
+                currentLatencyMs = PendingLatencyMs,
+                healthLabel = latencyHealthLabel(PendingLatencyMs),
                 detail = buildList {
                     add("${kind.label} 参数模板")
                     if (credentialValue.isNotBlank()) add("${spec.credentialLabel} 已保存")
@@ -180,7 +186,7 @@ fun ServerCardState.startWithTunnel(
         isOnline = true,
         port = resolvedPort,
         selectedTunnelId = tunnel?.id,
-        activeTunnelLabel = tunnel?.let { "${it.name} · ${it.currentLatencyMs} ms" },
+        activeTunnelLabel = tunnel?.let { "${it.name} · ${it.latencyLabel()}" },
     )
 }
 
@@ -207,6 +213,27 @@ fun removeTunnelProfile(
     tunnelId: String,
 ): List<TunnelProfile> = profiles.filterNot { it.id == tunnelId }
 
+data class TunnelLatencyResult(
+    val tunnelId: String,
+    val serverAddress: String,
+    val latencyMs: Int?,
+)
+
+fun applyTunnelLatencyResults(
+    profiles: List<TunnelProfile>,
+    results: List<TunnelLatencyResult>,
+): List<TunnelProfile> {
+    val resultsByTunnel = results.associateBy { it.tunnelId }
+    return profiles.map { profile ->
+        val result = resultsByTunnel[profile.id]
+        if (result != null && result.serverAddress == profile.serverAddress) {
+            profile.withLatencyResult(result.latencyMs)
+        } else {
+            profile
+        }
+    }
+}
+
 fun detachDeletedTunnel(
     servers: List<ServerCardState>,
     tunnelId: String,
@@ -231,44 +258,40 @@ fun importTunnelProfile(
     val resolvedName = extractString(cleanedConfig, listOf("name", "proxy_name", "tunnel_name"))
         ?.takeIf { it.isNotBlank() }
         ?: fallbackName.ifBlank { "导入隧道" }
-    val serverAddress = extractString(
+    val serverHost = extractString(
         cleanedConfig,
         listOf("serverAddr", "server_addr", "server_address", "host", "server"),
     )?.takeIf { it.isNotBlank() } ?: "待解析地址"
+    val serverPort = extractInt(cleanedConfig, listOf("serverPort", "server_port", "server-port", "port"))
     val remotePort = extractInt(cleanedConfig, listOf("remotePort", "remote_port", "remote", "bind_port"))
     val localPort = extractInt(cleanedConfig, listOf("localPort", "local_port", "local", "listen_port"))
-    val baseLatencyMs = (defaultLatencyForKind(kind) - 12).coerceAtLeast(18)
     return TunnelProfile(
         id = createTunnelId(resolvedName, TunnelSource.PastedConfig),
         name = resolvedName,
         kind = kind,
         source = TunnelSource.PastedConfig,
         format = format,
-        serverAddress = serverAddress,
+        serverAddress = combineHostAndPort(serverHost, serverPort),
         remotePort = remotePort,
         localPort = localPort,
         credentialValue = extractString(cleanedConfig, listOf("token", "auth_token", "vkey", "secret_key")),
         portRange = extractPortRange(cleanedConfig),
-        baseLatencyMs = baseLatencyMs,
-        currentLatencyMs = baseLatencyMs,
-        healthLabel = latencyHealthLabel(baseLatencyMs),
+        baseLatencyMs = PendingLatencyMs,
+        currentLatencyMs = PendingLatencyMs,
+        healthLabel = latencyHealthLabel(PendingLatencyMs),
         rawConfigPreview = cleanedConfig.lineSequence().take(4).joinToString("\n"),
         rawConfigText = cleanedConfig,
         detail = "${kind.label} ${format.label} 配置 · 启动时作为单隧道使用",
     )
 }
 
-fun simulateTunnelLatencies(
-    profiles: List<TunnelProfile>,
-    random: Random = Random.Default,
-): List<TunnelProfile> = profiles.map { profile ->
-    val variance = when {
-        profile.baseLatencyMs <= 30 -> 5
-        profile.baseLatencyMs <= 60 -> 8
-        else -> 12
+private fun combineHostAndPort(host: String, port: Int?): String {
+    val trimmedHost = host.trim()
+    if (trimmedHost.isBlank() || port == null) return trimmedHost
+    if (Regex("^\\[[^]]+]:\\d+$").matches(trimmedHost) || Regex("^[^:]+:\\d+$").matches(trimmedHost)) {
+        return trimmedHost
     }
-    val nextLatency = (profile.baseLatencyMs + random.nextInt(-variance, variance + 1)).coerceAtLeast(14)
-    profile.withLatency(nextLatency)
+    return "$trimmedHost:$port"
 }
 
 private fun detectTunnelConfigFormat(rawConfig: String): TunnelConfigFormat {
@@ -334,15 +357,9 @@ private fun extractPortRange(rawConfig: String): String? {
     return null
 }
 
-private fun defaultLatencyForKind(kind: TunnelKind): Int = when (kind) {
-    TunnelKind.Frp -> 38
-    TunnelKind.Nps -> 54
-    TunnelKind.Playit -> 62
-    TunnelKind.Tailscale -> 28
-    TunnelKind.Custom -> DefaultManualLatency
-}
-
 private fun latencyHealthLabel(latencyMs: Int): String = when {
+    latencyMs < 0 -> "不可达"
+    latencyMs == PendingLatencyMs -> "检测中"
     latencyMs <= 35 -> "超快"
     latencyMs <= 70 -> "稳定"
     latencyMs <= 110 -> "可用"
