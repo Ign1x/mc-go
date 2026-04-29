@@ -53,8 +53,11 @@ import com.mcgo.app.ui.model.AccentPreset
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearanceSettingsState
 import com.mcgo.app.ui.model.FontScalePreference
+import com.mcgo.app.ui.model.SettingsBackActionPlacement
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsDestination
+import com.mcgo.app.ui.model.SettingsDetailChrome
+import com.mcgo.app.ui.model.SettingsDetailChromeState
 import com.mcgo.app.ui.model.SettingsNavigationState
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
@@ -127,6 +130,8 @@ private fun AppearanceDetailScreen(
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.Appearance)
+
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -136,6 +141,7 @@ private fun AppearanceDetailScreen(
             AppearanceDetailHeader(
                 title = section.title,
                 subtitle = appearancePreferences.summaryLabel(),
+                chrome = detailChrome,
                 onNavigateBack = onNavigateBack,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
@@ -218,42 +224,41 @@ private fun AppearanceDetailScreen(
 private fun AppearanceDetailHeader(
     title: String,
     subtitle: String,
+    chrome: SettingsDetailChromeState,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Surface(
-            shape = RoundedCornerShape(999.dp),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-            contentColor = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.clickable(onClick = onNavigateBack),
+    Box(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = 56.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = null,
-                )
-                Text(
-                    text = "返回",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text = title, style = MaterialTheme.typography.titleLarge)
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (chrome.backActionPlacement == SettingsBackActionPlacement.TopRight && chrome.usesCompactActionButton) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                contentColor = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(40.dp)
+                    .clickable(onClick = onNavigateBack),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "返回上一级",
+                    )
+                }
+            }
         }
     }
 }
