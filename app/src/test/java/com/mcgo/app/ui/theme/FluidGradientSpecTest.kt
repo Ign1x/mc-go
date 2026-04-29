@@ -27,6 +27,10 @@ class FluidGradientSpecTest {
         }
         assertThat(spec.blurRadiusDp).isAtLeast(160f)
         assertThat(spec.overlayAlpha).isEqualTo(0.12f)
+        assertThat(spec.noiseOverlay.opacity).isAtLeast(0.03f)
+        assertThat(spec.noiseOverlay.opacity).isAtMost(0.05f)
+        assertThat(spec.noiseOverlay.blendModeName).isAnyOf("Overlay", "Multiply")
+        assertThat(spec.noiseOverlay.tileSizePx).isAtLeast(64)
     }
 
     @Test
@@ -45,5 +49,9 @@ class FluidGradientSpecTest {
         ).inOrder()
         assertThat(spec.blobs.map { it.durationMillis }).containsExactly(12_000, 14_000, 15_000).inOrder()
         assertThat(spec.overlayAlpha).isEqualTo(0.18f)
+        assertThat(spec.noiseOverlay.opacity).isAtLeast(0.03f)
+        assertThat(spec.noiseOverlay.opacity).isAtMost(0.05f)
+        assertThat(spec.noiseOverlay.blendModeName).isAnyOf("Overlay", "Multiply")
+        assertThat(spec.noiseOverlay.tileSizePx).isAtLeast(64)
     }
 }

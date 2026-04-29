@@ -20,11 +20,20 @@ data class FluidGradientBlobSpec(
 }
 
 @Immutable
+data class FluidGradientNoiseOverlaySpec(
+    val opacity: Float,
+    val tileSizePx: Int,
+    val seed: Int,
+    val blendModeName: String,
+)
+
+@Immutable
 data class FluidGradientSpec(
     val backdropHexes: List<Long>,
     val overlayHex: Long,
     val overlayAlpha: Float,
     val blurRadiusDp: Float,
+    val noiseOverlay: FluidGradientNoiseOverlaySpec,
     val blobs: List<FluidGradientBlobSpec>,
 ) {
     fun backdropColors(): List<Color> = backdropHexes.map(::Color)
@@ -38,6 +47,13 @@ fun fluidGradientSpec(darkTheme: Boolean): FluidGradientSpec = if (darkTheme) {
     LightFluidGradientSpec
 }
 
+private val DitherNoiseOverlaySpec = FluidGradientNoiseOverlaySpec(
+    opacity = 0.04f,
+    tileSizePx = 64,
+    seed = 20_260_429,
+    blendModeName = "Overlay",
+)
+
 private val LightFluidGradientSpec = FluidGradientSpec(
     backdropHexes = listOf(
         0xFFF8F4EE,
@@ -47,6 +63,7 @@ private val LightFluidGradientSpec = FluidGradientSpec(
     overlayHex = 0xFFFFFFFF,
     overlayAlpha = 0.12f,
     blurRadiusDp = 220f,
+    noiseOverlay = DitherNoiseOverlaySpec,
     blobs = listOf(
         FluidGradientBlobSpec(
             colorHex = 0xFFD8E8FF,
@@ -95,6 +112,7 @@ private val DarkFluidGradientSpec = FluidGradientSpec(
     overlayHex = 0xFF1A1A1C,
     overlayAlpha = 0.18f,
     blurRadiusDp = 220f,
+    noiseOverlay = DitherNoiseOverlaySpec,
     blobs = listOf(
         FluidGradientBlobSpec(
             colorHex = 0xFF7887A0,
