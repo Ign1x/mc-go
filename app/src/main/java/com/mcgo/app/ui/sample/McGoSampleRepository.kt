@@ -1,5 +1,7 @@
 package com.mcgo.app.ui.sample
 
+import com.mcgo.app.ui.model.AppearanceSettingsState
+import com.mcgo.app.ui.model.AppearanceToggleState
 import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
@@ -12,10 +14,10 @@ import com.mcgo.app.ui.model.formatPlayerCapacity
 object McGoSampleRepository {
 
     fun heroStatus(): HeroStatus = HeroStatus(
-        activeServerName = "Vanilla Survival",
+        activeServerName = "Creative Plot",
         uptimeMinutes = 127,
-        onlinePlayers = 5,
-        maxPlayers = 20,
+        onlinePlayers = 2,
+        maxPlayers = 10,
         statusLabel = "运行中",
     )
 
@@ -51,16 +53,6 @@ object McGoSampleRepository {
     )
 
     fun serverCards(): List<ServerCardState> = listOf(
-        ServerCardState(
-            name = "Vanilla Survival",
-            edition = "Java 1.21.5",
-            worldName = "Seed Harbor",
-            port = 25565,
-            onlinePlayers = 5,
-            maxPlayers = 20,
-            memoryLabel = "2.5 GB RAM",
-            isOnline = true,
-        ),
         ServerCardState(
             name = "Creative Plot",
             edition = "Java 1.20.6",
@@ -116,9 +108,38 @@ object McGoSampleRepository {
         ),
     )
 
+    fun appearanceSettings(): AppearanceSettingsState = AppearanceSettingsState(
+        themeModes = listOf("浅色", "跟随系统", "深色"),
+        selectedThemeMode = "浅色",
+        accentOptions = listOf("科技蓝", "森林绿", "紫晶", "暖阳橙"),
+        selectedAccent = "森林绿",
+        fontScaleOptions = listOf("紧凑", "标准", "舒适"),
+        selectedFontScale = "紧凑",
+        motionOptions = listOf("省电", "标准", "灵动"),
+        selectedMotionMode = "标准",
+        cardTransparencyPercent = 82,
+        toggles = listOf(
+            AppearanceToggleState(
+                title = "透明卡片",
+                subtitle = "保留轻透玻璃质感，弱化厚重底色",
+                enabled = true,
+            ),
+            AppearanceToggleState(
+                title = "动态背景",
+                subtitle = "保留轻微彩色氛围光，不喧宾夺主",
+                enabled = true,
+            ),
+            AppearanceToggleState(
+                title = "紧凑字体",
+                subtitle = "降低层级字号，让信息更密一点",
+                enabled = true,
+            ),
+        ),
+    )
+
     fun recentEvents(): List<String> = listOf(
         "世界自动保存已完成 · 2 分钟前",
         "公网映射正常 · 当前延迟 38 ms",
-        "Vanilla Survival 当前负载 ${formatPlayerCapacity(5, 20)}",
+        "Creative Plot 当前负载 ${formatPlayerCapacity(2, 10)}",
     )
 }

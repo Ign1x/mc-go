@@ -1,6 +1,7 @@
 package com.mcgo.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +19,8 @@ import com.mcgo.app.ui.theme.FrostSurface
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
+    contentModifier: Modifier = Modifier,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
@@ -30,7 +33,9 @@ fun GlassCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(18.dp)
+                .then(contentModifier),
+            verticalArrangement = verticalArrangement,
             content = content,
         )
     }

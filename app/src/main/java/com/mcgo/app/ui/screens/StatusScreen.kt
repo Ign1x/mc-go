@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
 import com.mcgo.app.status.rememberStatusDashboardState
@@ -176,10 +178,15 @@ private fun MetricGrid(metrics: List<DashboardMetric>, modifier: Modifier = Modi
     }
 }
 
+private val MetricCardHeight = 214.dp
+
 @Composable
 private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
     val accent = metricAccentColor(metric.accent)
-    GlassCard(modifier = modifier) {
+    GlassCard(
+        modifier = modifier.height(MetricCardHeight),
+        contentModifier = Modifier.fillMaxHeight(),
+    ) {
         Text(
             text = metric.title,
             style = MaterialTheme.typography.labelLarge,
@@ -189,13 +196,18 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
         Text(
             text = metric.valueLabel,
             style = MaterialTheme.typography.titleLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = metric.detailLabel,
             style = MaterialTheme.typography.bodySmall,
             color = Ink600,
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.weight(1f))
         MetricSparkline(
             points = metric.trendValues,
             accent = accent,
