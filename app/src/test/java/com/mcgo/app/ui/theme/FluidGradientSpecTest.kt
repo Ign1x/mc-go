@@ -34,14 +34,14 @@ class FluidGradientSpecTest {
         val spec = fluidGradientSpec(darkTheme = true)
 
         assertThat(spec.backdropHexes).containsExactly(
-            0xFF0C1320,
-            0xFF10192A,
-            0xFF141C2D,
+            0xFF1C1C1E,
+            0xFF1E1E1E,
+            0xFF252525,
         ).inOrder()
         assertThat(spec.blobs.map { it.colorHex }.distinct()).containsExactly(
-            0xFF7D97BE,
-            0xFF8D84B5,
-            0xFFC5BAA8,
+            0xFF7887A0,
+            0xFF877EA1,
+            0xFFB2A796,
         ).inOrder()
         assertThat(spec.blobs.map { it.durationMillis }).containsExactly(12_000, 14_000, 15_000).inOrder()
         assertThat(spec.overlayAlpha).isEqualTo(0.18f)

@@ -26,7 +26,10 @@ fun GlassCard(
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = visuals.cardContainerColor),
+        colors = CardDefaults.cardColors(
+            containerColor = visuals.cardContainerColor,
+            contentColor = visuals.cardContentColor,
+        ),
         border = BorderStroke(1.dp, visuals.cardStrokeColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {

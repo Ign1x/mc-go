@@ -88,16 +88,16 @@ private val LightFluidGradientSpec = FluidGradientSpec(
 
 private val DarkFluidGradientSpec = FluidGradientSpec(
     backdropHexes = listOf(
-        0xFF0C1320,
-        0xFF10192A,
-        0xFF141C2D,
+        0xFF1C1C1E,
+        0xFF1E1E1E,
+        0xFF252525,
     ),
-    overlayHex = 0xFF060B14,
+    overlayHex = 0xFF1A1A1C,
     overlayAlpha = 0.18f,
     blurRadiusDp = 220f,
     blobs = listOf(
         FluidGradientBlobSpec(
-            colorHex = 0xFF7D97BE,
+            colorHex = 0xFF7887A0,
             startXFraction = 0.16f,
             startYFraction = 0.20f,
             endXFraction = 0.82f,
@@ -105,10 +105,10 @@ private val DarkFluidGradientSpec = FluidGradientSpec(
             startRadiusFraction = 0.46f,
             endRadiusFraction = 0.56f,
             durationMillis = 12_000,
-            alpha = 0.22f,
+            alpha = 0.20f,
         ),
         FluidGradientBlobSpec(
-            colorHex = 0xFF8D84B5,
+            colorHex = 0xFF877EA1,
             startXFraction = 0.84f,
             startYFraction = 0.34f,
             endXFraction = 0.24f,
@@ -117,10 +117,10 @@ private val DarkFluidGradientSpec = FluidGradientSpec(
             endRadiusFraction = 0.54f,
             durationMillis = 14_000,
             delayMillis = 900,
-            alpha = 0.20f,
+            alpha = 0.18f,
         ),
         FluidGradientBlobSpec(
-            colorHex = 0xFFC5BAA8,
+            colorHex = 0xFFB2A796,
             startXFraction = 0.30f,
             startYFraction = 0.84f,
             endXFraction = 0.74f,
@@ -129,7 +129,7 @@ private val DarkFluidGradientSpec = FluidGradientSpec(
             endRadiusFraction = 0.58f,
             durationMillis = 15_000,
             delayMillis = 1600,
-            alpha = 0.16f,
+            alpha = 0.14f,
         ),
     ),
 )

@@ -1,6 +1,5 @@
 package com.mcgo.app.ui.screens
 
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
@@ -35,8 +34,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +58,8 @@ import com.mcgo.app.ui.model.SettingsNavigationState
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.sample.McGoSampleRepository
-import com.mcgo.app.ui.theme.fluidGradientSpec
+import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
+import com.mcgo.app.ui.theme.resolveAccentColors
 
 @Composable
 fun SettingsScreen(
@@ -264,29 +262,19 @@ private fun AppearancePreviewCard(
     appearancePreferences: AppearancePreferences,
     modifier: Modifier = Modifier,
 ) {
-    val systemDarkTheme = isSystemInDarkTheme()
-    val isDarkPreview = appearancePreferences.themeMode.resolvesToDark(systemDarkTheme)
-    val accentColor = accentColorForOption(
-        option = appearancePreferences.accentPreset.label,
-        preferDarkPreview = isDarkPreview,
-    )
-    val previewBackgroundSpec = fluidGradientSpec(darkTheme = isDarkPreview)
+    val visuals = LocalMcGoVisualTokens.current
+    val accentColor = MaterialTheme.colorScheme.primary
+    val previewBackgroundSpec = visuals.fluidBackgroundSpec
     val previewBackgroundBrush = remember(previewBackgroundSpec) {
         Brush.linearGradient(colors = previewBackgroundSpec.backdropColors())
     }
     val previewOverlayColor = previewBackgroundSpec.overlayColor()
-    val previewTextColor = if (isDarkPreview) Color.White else Color(0xFF182033)
-    val previewSubtleColor = if (isDarkPreview) Color.White.copy(alpha = 0.72f) else Color(0xFF61708E)
-    val previewCardColor = if (isDarkPreview) {
-        if (appearancePreferences.transparentCards) {
-            Color(0xFF243149).copy(alpha = appearancePreferences.cardContainerAlpha().coerceIn(0.62f, 0.96f))
-        } else {
-            Color(0xFF243149)
-        }
-    } else if (appearancePreferences.transparentCards) {
-        Color.White.copy(alpha = appearancePreferences.cardContainerAlpha().coerceIn(0.08f, 1f))
+    val previewTextColor = visuals.primaryTextColor
+    val previewSubtleColor = visuals.secondaryTextColor
+    val previewCardColor = if (appearancePreferences.transparentCards) {
+        visuals.cardContainerColor
     } else {
-        Color.White
+        MaterialTheme.colorScheme.surface
     }
 
     GlassCard(modifier = modifier) {
@@ -357,7 +345,7 @@ private fun AppearancePreviewCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PreviewMiniCard(
                         title = "实时性能",
-                        subtitle = if (isDarkPreview) "增强对比度" else "清爽易读",
+                        subtitle = "深色下保持清晰可读",
                         accentColor = accentColor,
                         textColor = previewTextColor,
                         subtleColor = previewSubtleColor,
@@ -366,7 +354,7 @@ private fun AppearancePreviewCard(
                     )
                     PreviewMiniCard(
                         title = "界面与外观",
-                        subtitle = "主题色更明显",
+                        subtitle = "主题色更柔和",
                         accentColor = accentColor,
                         textColor = previewTextColor,
                         subtleColor = previewSubtleColor,
@@ -645,16 +633,10 @@ private fun settingsIcon(icon: SettingsCategoryIcon) = when (icon) {
 @Composable
 private fun accentColorForOption(option: String, preferDarkPreview: Boolean): Color {
     val context = LocalContext.current
-    return when (option) {
-        AccentPreset.Ocean.label -> Color(AccentPreset.Ocean.primaryHex)
-        AccentPreset.Forest.label -> Color(AccentPreset.Forest.primaryHex)
-        AccentPreset.Amethyst.label -> Color(AccentPreset.Amethyst.primaryHex)
-        AccentPreset.Sunset.label -> Color(AccentPreset.Sunset.primaryHex)
-        AccentPreset.System.label -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (preferDarkPreview) dynamicDarkColorScheme(context).primary else dynamicLightColorScheme(context).primary
-        } else {
-            Color(AccentPreset.System.primaryHex)
-        }
-        else -> MaterialTheme.colorScheme.primary
-    }
+    val preset = AccentPreset.fromLabel(option)
+    return resolveAccentColors(
+        context = context,
+        preset = preset,
+        darkTheme = preferDarkPreview,
+    ).primary
 }
