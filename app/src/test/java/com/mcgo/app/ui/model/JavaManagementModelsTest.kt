@@ -21,9 +21,10 @@ class JavaManagementModelsTest {
         ).inOrder()
         assertThat(state.runtimeOptions.all { it.managedByApp }).isTrue()
         assertThat(state.runtimeOptions.map { it.statusLabel }).containsExactly("未安装", "未安装", "未安装", "未安装", "未安装")
-        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("安装", "安装", "安装", "安装", "安装")
+        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("下载安装", "导入文件", "下载安装", "下载安装", "导入文件")
         assertThat(state.runtimeOptions.map { it.deleteActionLabel }).containsExactly(null, null, null, null, null)
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("Minecraft")
+        assertThat(state.runtimeOptions.filter { it.onlineInstallAvailable }.map { it.majorVersion }).containsExactly(8, 17, 21).inOrder()
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("系统 PATH")
     }
 

@@ -135,6 +135,6 @@ private fun httpGet(url: String): String {
     connection.connectTimeout = 10_000
     connection.readTimeout = 20_000
     connection.requestMethod = "GET"
-    connection.setRequestProperty("User-Agent", "MC-GO/0.2.7")
+    connection.setRequestProperty("User-Agent", "MC-GO/0.2.8")
     return connection.inputStream.bufferedReader().use { it.readText() }
 }

@@ -48,28 +48,7 @@ object McGoSampleRepository {
         ),
     )
 
-    fun serverCards(): List<ServerCardState> = listOf(
-        ServerCardState(
-            name = "Creative Plot",
-            edition = "Java 1.20.6",
-            worldName = "Sky Blocks",
-            port = 25566,
-            onlinePlayers = 2,
-            maxPlayers = 10,
-            memoryLabel = "1.5 GB RAM",
-            isOnline = true,
-        ),
-        ServerCardState(
-            name = "Modpack Test",
-            edition = "Forge 1.20.1",
-            worldName = "Redstone Lab",
-            port = 25567,
-            onlinePlayers = 0,
-            maxPlayers = 8,
-            memoryLabel = "3.0 GB RAM",
-            isOnline = false,
-        ),
-    )
+    fun serverCards(): List<ServerCardState> = emptyList()
 
     fun tunnelProfiles(): List<TunnelProfile> = emptyList()
 

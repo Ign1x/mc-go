@@ -13,13 +13,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Brightness4
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -89,6 +93,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -116,7 +122,7 @@ fun MCGoApp() {
         mutableStateOf(AppearancePreferences())
     }
     var servers by remember(serverStore) {
-        mutableStateOf(serverStore.load().ifEmpty { McGoSampleRepository.serverCards() })
+        mutableStateOf(serverStore.load())
     }
     var tunnels by remember(tunnelStore) { mutableStateOf(tunnelStore.load()) }
     val paperVersions by produceState(initialValue = fallbackPaperVersions()) {
@@ -231,6 +237,21 @@ private fun MCGoAppScaffold(
         }
     }
 
+    val onDownloadJava: (Int) -> Unit = remember(appContext, scope, snackbarHostState) {
+        { majorVersion ->
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { downloadAndInstallPojavRuntime(appContext, majorVersion) }
+                }
+                result.onSuccess {
+                    installedJavaVersions = scanInstalledJavaVersions(appContext.filesDir.toPath())
+                    snackbarHostState.showSnackbar("Java $majorVersion 托管 JRE 已下载安装")
+                }.onFailure { error ->
+                    snackbarHostState.showSnackbar(error.userFacingInstallMessage(majorVersion))
+                }
+            }
+        }
+    }
     val onInstallJavaArchive: (Int, Uri) -> Unit = remember(appContext, scope, snackbarHostState) {
         { majorVersion, uri ->
             scope.launch {
@@ -302,16 +323,17 @@ private fun MCGoAppScaffold(
                         )
                     }
                     if (destination == McGoDestination.Settings) {
-                        TextButton(
+                        IconButton(
                             modifier = Modifier.align(Alignment.TopEnd),
                             onClick = { onAppearancePreferencesChange(appearancePreferences.copy(themeMode = appearancePreferences.themeMode.next())) },
                         ) {
-                            Text(
-                                text = when (appearancePreferences.themeMode) {
-                                    ThemeModePreference.FollowSystem -> "跟随"
-                                    ThemeModePreference.Light -> "浅色"
-                                    ThemeModePreference.Dark -> "深色"
+                            Icon(
+                                imageVector = when (appearancePreferences.themeMode) {
+                                    ThemeModePreference.FollowSystem -> Icons.Outlined.Brightness4
+                                    ThemeModePreference.Light -> Icons.Outlined.WbSunny
+                                    ThemeModePreference.Dark -> Icons.Outlined.DarkMode
                                 },
+                                contentDescription = "切换主题：${appearancePreferences.themeMode.label}",
                             )
                         }
                     }
@@ -416,14 +438,26 @@ private fun MCGoAppScaffold(
                         },
                         onStopServer = { serverId ->
                             val targetServer = servers.firstOrNull { it.id == serverId }
-                            onServersChange(
-                                servers.map { server ->
-                                    if (server.id == serverId) server.stopServer() else server
-                                },
-                            )
+                            val updatedServers = servers.map { server ->
+                                if (server.id == serverId) server.stopServer() else server
+                            }
+                            onServersChange(updatedServers)
+                            onPersistServers(updatedServers)
                             PaperServerService.stop(appContext)
                             scope.launch {
                                 snackbarHostState.showSnackbar("${targetServer?.name ?: "服务器"} 已停止")
+                            }
+                        },
+                        onDeleteServer = { serverId ->
+                            val targetServer = servers.firstOrNull { it.id == serverId }
+                            if (targetServer?.isOnline == true) {
+                                PaperServerService.stop(appContext)
+                            }
+                            val updatedServers = servers.filterNot { it.id == serverId }
+                            onServersChange(updatedServers)
+                            onPersistServers(updatedServers)
+                            scope.launch {
+                                snackbarHostState.showSnackbar("已删除 ${targetServer?.name ?: "服务器"}")
                             }
                         },
                         onActionClick = notifyUnavailableFeature,
@@ -470,6 +504,7 @@ private fun MCGoAppScaffold(
                         appearancePreferences = appearancePreferences,
                         onAppearancePreferencesChange = onAppearancePreferencesChange,
                         javaManagementState = javaManagementState,
+                        onDownloadJava = onDownloadJava,
                         onInstallJavaArchive = onInstallJavaArchive,
                         onDeleteJava = onDeleteJava,
                     )
@@ -479,6 +514,52 @@ private fun MCGoAppScaffold(
     }
 }
 
+
+private fun downloadAndInstallPojavRuntime(
+    context: Context,
+    majorVersion: Int,
+): Path {
+    if (majorVersion !in setOf(8, 17, 21)) {
+        throw JavaRuntimeInstallException("Java $majorVersion 暂无可验证在线安装包，请导入 Android JRE tar.xz/txz 包")
+    }
+    val tempFile = Files.createTempFile(context.cacheDir.toPath(), "mcgo-pojav-runtime-", ".apk")
+    try {
+        downloadFileToPath(PojavLauncherApkUrl, tempFile)
+        return installPojavRuntimeFromApk(
+            apkPath = tempFile,
+            filesDir = context.filesDir.toPath(),
+            majorVersion = majorVersion,
+        )
+    } finally {
+        Files.deleteIfExists(tempFile)
+    }
+}
+
+private fun downloadFileToPath(url: String, target: Path) {
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        connectTimeout = 20_000
+        readTimeout = 60_000
+        requestMethod = "GET"
+        setRequestProperty("User-Agent", "MC-GO/0.2.8")
+    }
+    try {
+        val statusCode = connection.responseCode
+        if (statusCode !in 200..299) {
+            throw JavaRuntimeInstallException("下载 JRE 失败：HTTP $statusCode")
+        }
+        connection.inputStream.use { input ->
+            Files.copy(input, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    } catch (error: JavaRuntimeInstallException) {
+        throw error
+    } catch (error: Exception) {
+        throw JavaRuntimeInstallException("下载 JRE 失败", error)
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private const val PojavLauncherApkUrl = "https://github.com/PojavLauncherTeam/PojavLauncher/releases/download/gladiolus/PojavLauncher.apk"
 
 private fun installJavaRuntimeFromUri(
     context: Context,

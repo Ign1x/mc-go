@@ -99,6 +99,7 @@ fun SettingsScreen(
     appearancePreferences: AppearancePreferences,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     javaManagementState: JavaManagementState = defaultJavaManagementState(),
+    onDownloadJava: (Int) -> Unit = {},
     onInstallJavaArchive: (Int, Uri) -> Unit = { _, _ -> },
     onDeleteJava: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -217,7 +218,8 @@ fun SettingsScreen(
             section = javaManagementSection,
             state = javaManagementState,
             onNavigateBack = { destination = navigationState.navigateBack().destination },
-            onInstallJava = requestJavaArchive,
+            onDownloadJava = onDownloadJava,
+            onImportJava = requestJavaArchive,
             onDeleteJava = onDeleteJava,
         )
         SettingsDestination.RuntimePermissions -> RuntimePermissionDetailScreen(
@@ -365,7 +367,8 @@ private fun JavaManagementDetailScreen(
     section: SettingsSectionState,
     state: JavaManagementState,
     onNavigateBack: () -> Unit,
-    onInstallJava: (Int) -> Unit,
+    onDownloadJava: (Int) -> Unit,
+    onImportJava: (Int) -> Unit,
     onDeleteJava: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -389,7 +392,8 @@ private fun JavaManagementDetailScreen(
             JavaRuntimeOptionsCard(
                 title = state.sectionTitle,
                 options = state.runtimeOptions,
-                onInstall = onInstallJava,
+                onDownload = onDownloadJava,
+                onImport = onImportJava,
                 onDelete = onDeleteJava,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
@@ -642,7 +646,8 @@ private fun PreviewMiniCard(
 private fun JavaRuntimeOptionsCard(
     title: String,
     options: List<JavaRuntimeOption>,
-    onInstall: (Int) -> Unit,
+    onDownload: (Int) -> Unit,
+    onImport: (Int) -> Unit,
     onDelete: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -656,7 +661,7 @@ private fun JavaRuntimeOptionsCard(
         Spacer(modifier = Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             options.forEach { option ->
-                JavaRuntimeOptionRow(option = option, onInstall = onInstall, onDelete = onDelete)
+                JavaRuntimeOptionRow(option = option, onDownload = onDownload, onImport = onImport, onDelete = onDelete)
             }
         }
     }
@@ -665,7 +670,8 @@ private fun JavaRuntimeOptionsCard(
 @Composable
 private fun JavaRuntimeOptionRow(
     option: JavaRuntimeOption,
-    onInstall: (Int) -> Unit,
+    onDownload: (Int) -> Unit,
+    onImport: (Int) -> Unit,
     onDelete: (Int) -> Unit,
 ) {
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
@@ -704,7 +710,11 @@ private fun JavaRuntimeOptionRow(
         }
         Spacer(modifier = Modifier.width(8.dp))
         option.primaryActionLabel?.let { action ->
-            TextButton(onClick = { onInstall(option.majorVersion) }) {
+            TextButton(
+                onClick = {
+                    if (option.onlineInstallAvailable) onDownload(option.majorVersion) else onImport(option.majorVersion)
+                },
+            ) {
                 Text(action)
             }
         }

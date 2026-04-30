@@ -13,14 +13,8 @@ class McGoSampleRepositoryTest {
     }
 
     @Test
-    fun serverCards_removeVanillaSurvivalPresetButKeepMixedStatuses() {
-        val servers = McGoSampleRepository.serverCards()
-
-        assertThat(servers).hasSize(2)
-        assertThat(servers.map { it.name }).doesNotContain("Vanilla Survival")
-        assertThat(servers.any { it.isOnline }).isTrue()
-        assertThat(servers.any { !it.isOnline }).isTrue()
-        assertThat(servers.first().name).isEqualTo("Creative Plot")
+    fun serverCards_startEmptyUntilUserCreatesOwnServers() {
+        assertThat(McGoSampleRepository.serverCards()).isEmpty()
     }
 
     @Test

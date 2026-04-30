@@ -20,12 +20,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -65,6 +68,7 @@ fun ServersScreen(
     onCreateServer: (ServerCardState) -> Unit = {},
     onStartServer: (serverId: String, tunnelId: String?, startupPort: Int) -> Unit,
     onStopServer: (serverId: String) -> Unit,
+    onDeleteServer: (serverId: String) -> Unit,
     onActionClick: () -> Unit,
 ) {
     var pendingStartServer by remember { mutableStateOf<ServerCardState?>(null) }
@@ -101,6 +105,7 @@ fun ServersScreen(
                 onActionClick = onActionClick,
                 onStartClick = { pendingStartServer = server },
                 onStopClick = { onStopServer(server.id) },
+                onDeleteClick = { onDeleteServer(server.id) },
             )
         }
         item { Spacer(modifier = Modifier.height(96.dp)) }
@@ -114,6 +119,7 @@ private fun ServerCard(
     onActionClick: () -> Unit,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit,
+    onDeleteClick: () -> Unit,
 ) {
     val statusColor = if (server.isOnline) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
     GlassCard(modifier = modifier) {
@@ -211,10 +217,16 @@ private fun ServerCard(
                 label = { Text(stringResource(R.string.server_action_edit)) },
                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
             )
+            AssistChip(
+                onClick = onDeleteClick,
+                label = { Text("删除") },
+                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+            )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreatePaperServerDialog(
     paperVersions: List<String>,
@@ -275,19 +287,24 @@ private fun CreatePaperServerDialog(
                     label = { Text("服务器名称") },
                     singleLine = true,
                 )
-                Box(modifier = Modifier.fillMaxWidth()) {
+                ExposedDropdownMenuBox(
+                    expanded = versionMenuExpanded,
+                    onExpandedChange = { versionMenuExpanded = !versionMenuExpanded },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     OutlinedTextField(
                         value = minecraftVersion,
                         onValueChange = {},
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { versionMenuExpanded = true },
+                            .menuAnchor()
+                            .fillMaxWidth(),
                         readOnly = true,
                         label = { Text("Minecraft 版本") },
                         supportingText = { Text("从 Paper 官方版本列表选择，包含历史版本") },
                         singleLine = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = versionMenuExpanded) },
                     )
-                    DropdownMenu(
+                    ExposedDropdownMenu(
                         expanded = versionMenuExpanded,
                         onDismissRequest = { versionMenuExpanded = false },
                     ) {
