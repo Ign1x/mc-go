@@ -8,15 +8,12 @@ import android.net.TrafficStats
 import android.os.BatteryManager
 import android.os.SystemClock
 import com.mcgo.app.ui.model.DashboardMetric
-import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
 import kotlin.math.roundToInt
 import java.io.File
 
 data class StatusDashboardState(
-    val hero: HeroStatus,
     val metrics: List<DashboardMetric>,
-    val events: List<String>,
 )
 
 private enum class SampleState {
@@ -78,7 +75,7 @@ class DevicePerformanceMonitor(private val context: Context) {
         previousNetworkSnapshot = readNetworkSnapshot()
     }
 
-    fun readDashboardState(heroTemplate: HeroStatus): StatusDashboardState {
+    fun readDashboardState(): StatusDashboardState {
         val cpuReading = readCpuReading()
         val ramStats = readRamStats()
         val networkReading = readNetworkReading()
@@ -91,7 +88,8 @@ class DevicePerformanceMonitor(private val context: Context) {
             networkHistory = appendHistorySample(networkHistory, combinedMbps, historyLength)
         }
         batteryStats.currentMilliAmps?.let {
-            batteryHistory = appendHistorySample(batteryHistory, it.toFloat() / 1000f, historyLength)
+            val normalizedCurrent = if (batteryStats.isCharging) kotlin.math.abs(it) else -kotlin.math.abs(it)
+            batteryHistory = appendHistorySample(batteryHistory, normalizedCurrent.toFloat() / 1000f, historyLength)
         }
 
         val cpuMetric = buildCpuMetric(cpuReading)
@@ -99,24 +97,8 @@ class DevicePerformanceMonitor(private val context: Context) {
         val networkMetric = buildNetworkMetric(networkReading)
         val batteryMetric = buildBatteryMetric(batteryStats)
 
-        val events = listOf(
-            when (cpuReading.state) {
-                SampleState.Ready -> "CPU 使用率 ${cpuReading.usagePercent?.roundToInt() ?: 0}% · ${ramMetric.valueLabel}"
-                SampleState.WarmingUp -> "CPU 正在建立首个采样窗口"
-                SampleState.Unavailable -> "CPU 统计暂不可用"
-            },
-            when (networkReading.state) {
-                SampleState.Ready -> "网络吞吐 ${networkMetric.detailLabel} Mbps"
-                SampleState.WarmingUp -> "网络吞吐正在等待下一次采样"
-                SampleState.Unavailable -> "当前设备不提供网络吞吐统计"
-            },
-            "电池状态 ${batteryMetric.detailLabel}",
-        )
-
         return StatusDashboardState(
-            hero = heroTemplate,
             metrics = listOf(cpuMetric, ramMetric, networkMetric, batteryMetric),
-            events = events,
         )
     }
 

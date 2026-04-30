@@ -98,6 +98,9 @@ private fun Context.isIgnoringBatteryOptimizations(): Boolean {
 fun SettingsScreen(
     appearancePreferences: AppearancePreferences,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
+    javaManagementState: JavaManagementState = defaultJavaManagementState(),
+    onInstallJavaArchive: (Int, Uri) -> Unit = { _, _ -> },
+    onDeleteJava: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.fontScale, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground) {
@@ -112,7 +115,6 @@ fun SettingsScreen(
     val appearanceSection = settingsSections.first { it.icon == SettingsCategoryIcon.Appearance }
     val javaManagementSection = settingsSections.first { it.icon == SettingsCategoryIcon.JavaRuntime }
     val runtimePermissionSection = settingsSections.first { it.icon == SettingsCategoryIcon.RuntimePermissions }
-    val javaManagementState = remember { defaultJavaManagementState() }
     val context = LocalContext.current
     var postNotificationsGranted by remember {
         mutableStateOf(
@@ -137,6 +139,20 @@ fun SettingsScreen(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
         }
+    }
+    var pendingJavaInstallVersion by rememberSaveable { mutableStateOf<Int?>(null) }
+    val javaArchivePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val version = pendingJavaInstallVersion
+        pendingJavaInstallVersion = null
+        if (uri != null && version != null) {
+            onInstallJavaArchive(version, uri)
+        }
+    }
+    val requestJavaArchive: (Int) -> Unit = { version ->
+        pendingJavaInstallVersion = version
+        javaArchivePickerLauncher.launch(arrayOf("application/vnd.android.package-archive", "application/x-xz", "application/octet-stream"))
     }
     val runtimePermissionState = defaultRuntimePermissionState(
         postNotificationsGranted = postNotificationsGranted,
@@ -201,6 +217,8 @@ fun SettingsScreen(
             section = javaManagementSection,
             state = javaManagementState,
             onNavigateBack = { destination = navigationState.navigateBack().destination },
+            onInstallJava = requestJavaArchive,
+            onDeleteJava = onDeleteJava,
         )
         SettingsDestination.RuntimePermissions -> RuntimePermissionDetailScreen(
             modifier = modifier,
@@ -347,6 +365,8 @@ private fun JavaManagementDetailScreen(
     section: SettingsSectionState,
     state: JavaManagementState,
     onNavigateBack: () -> Unit,
+    onInstallJava: (Int) -> Unit,
+    onDeleteJava: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.JavaManagement)
@@ -369,6 +389,8 @@ private fun JavaManagementDetailScreen(
             JavaRuntimeOptionsCard(
                 title = state.sectionTitle,
                 options = state.runtimeOptions,
+                onInstall = onInstallJava,
+                onDelete = onDeleteJava,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
@@ -620,6 +642,8 @@ private fun PreviewMiniCard(
 private fun JavaRuntimeOptionsCard(
     title: String,
     options: List<JavaRuntimeOption>,
+    onInstall: (Int) -> Unit,
+    onDelete: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
@@ -632,14 +656,18 @@ private fun JavaRuntimeOptionsCard(
         Spacer(modifier = Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             options.forEach { option ->
-                JavaRuntimeOptionRow(option = option)
+                JavaRuntimeOptionRow(option = option, onInstall = onInstall, onDelete = onDelete)
             }
         }
     }
 }
 
 @Composable
-private fun JavaRuntimeOptionRow(option: JavaRuntimeOption) {
+private fun JavaRuntimeOptionRow(
+    option: JavaRuntimeOption,
+    onInstall: (Int) -> Unit,
+    onDelete: (Int) -> Unit,
+) {
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -673,6 +701,17 @@ private fun JavaRuntimeOptionRow(option: JavaRuntimeOption) {
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.secondary,
             )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        option.primaryActionLabel?.let { action ->
+            TextButton(onClick = { onInstall(option.majorVersion) }) {
+                Text(action)
+            }
+        }
+        option.deleteActionLabel?.let { action ->
+            TextButton(onClick = { onDelete(option.majorVersion) }) {
+                Text(action, color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }
@@ -734,9 +773,9 @@ private fun RuntimePermissionRow(
             }
         }
         Spacer(modifier = Modifier.width(12.dp))
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
                 shape = RoundedCornerShape(999.dp),

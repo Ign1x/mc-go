@@ -20,6 +20,9 @@ class JavaManagementModelsTest {
             "Java 25",
         ).inOrder()
         assertThat(state.runtimeOptions.all { it.managedByApp }).isTrue()
+        assertThat(state.runtimeOptions.map { it.statusLabel }).containsExactly("未安装", "未安装", "未安装", "未安装", "未安装")
+        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("安装", "安装", "安装", "安装", "安装")
+        assertThat(state.runtimeOptions.map { it.deleteActionLabel }).containsExactly(null, null, null, null, null)
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("Minecraft")
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("系统 PATH")
     }
@@ -38,8 +41,24 @@ class JavaManagementModelsTest {
         }
 
         assertThat(visibleText).doesNotContain("Runtime 策略")
+        assertThat(visibleText).doesNotContain("内置")
+        assertThat(visibleText).doesNotContain("主线")
+        assertThat(visibleText).doesNotContain("推荐")
         assertThat(visibleText).doesNotContain("POST_NOTIFICATIONS")
         assertThat(visibleText).doesNotContain("WAKE_LOCK")
         assertThat(visibleText).doesNotContain("FOREGROUND_SERVICE")
+    }
+
+    @Test
+    fun installedJreRowsShowDeleteWithoutInstallAction() {
+        val state = defaultJavaManagementState(installedVersions = setOf(17, 21))
+        val java17 = state.runtimeOptions.single { it.majorVersion == 17 }
+        val java21 = state.runtimeOptions.single { it.majorVersion == 21 }
+
+        assertThat(java17.statusLabel).isEqualTo("已安装")
+        assertThat(java17.primaryActionLabel).isNull()
+        assertThat(java17.deleteActionLabel).isEqualTo("删除")
+        assertThat(java21.statusLabel).isEqualTo("已安装")
+        assertThat(java21.deleteActionLabel).isEqualTo("删除")
     }
 }

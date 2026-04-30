@@ -18,9 +18,9 @@ class McGoPageChromeTest {
     }
 
     @Test
-    fun listPages_hideRedundantLeadCards() {
-        assertThat(McGoPageChrome.forPage(McGoPage.Servers).showLeadCard).isFalse()
-        assertThat(McGoPageChrome.forPage(McGoPage.Tunnels).showLeadCard).isFalse()
-        assertThat(McGoPageChrome.forPage(McGoPage.Settings).showLeadCard).isFalse()
+    fun pagesExposeOnlyHeaderCopyWithoutLeadCardFlags() {
+        assertThat(McGoPageChrome.forPage(McGoPage.Servers).subtitleRes).isEqualTo(R.string.nav_servers_subtitle)
+        assertThat(McGoPageChrome.forPage(McGoPage.Tunnels).subtitleRes).isEqualTo(R.string.nav_tunnels_subtitle)
+        assertThat(McGoPageChrome.forPage(McGoPage.Settings).subtitleRes).isEqualTo(R.string.nav_settings_subtitle)
     }
 }

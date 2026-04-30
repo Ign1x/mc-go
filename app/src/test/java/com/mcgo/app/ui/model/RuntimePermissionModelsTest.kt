@@ -34,6 +34,7 @@ class RuntimePermissionModelsTest {
         assertThat(notification.status).isEqualTo(RuntimePermissionStatus.NeedsRequest)
         assertThat(notification.statusLabel).isEqualTo("未授权")
         assertThat(notification.actionLabel).isEqualTo("申请")
+        assertThat(notification.actionPlacement).isEqualTo(PermissionActionPlacement.StatusRowEnd)
 
         val wakeLock = state.permissionItems.single { it.androidPermission == "android.permission.WAKE_LOCK" }
         assertThat(wakeLock.status).isEqualTo(RuntimePermissionStatus.Granted)

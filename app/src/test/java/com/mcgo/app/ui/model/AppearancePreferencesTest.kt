@@ -6,10 +6,10 @@ import kotlin.test.Test
 class AppearancePreferencesTest {
 
     @Test
-    fun defaults_matchCompactLightGlassStyleUserWants() {
+    fun defaults_matchCompactSystemGlassStyleUserWants() {
         val defaults = AppearancePreferences()
 
-        assertThat(defaults.themeMode).isEqualTo(ThemeModePreference.Light)
+        assertThat(defaults.themeMode).isEqualTo(ThemeModePreference.FollowSystem)
         assertThat(defaults.accentPreset).isEqualTo(AccentPreset.Forest)
         assertThat(defaults.fontScale).isEqualTo(FontScalePreference.Compact)
         assertThat(defaults.cardTransparencyPercent).isEqualTo(82)
@@ -17,6 +17,14 @@ class AppearancePreferencesTest {
         assertThat(defaults.dynamicBackground).isTrue()
         assertThat(defaults.backgroundAuraAlpha()).isEqualTo(0.24f)
         assertThat(defaults.backgroundMotionScale()).isEqualTo(1.18f)
+    }
+
+
+    @Test
+    fun themeModeCycle_usesFollowSystemLightDarkOrder() {
+        assertThat(ThemeModePreference.FollowSystem.next()).isEqualTo(ThemeModePreference.Light)
+        assertThat(ThemeModePreference.Light.next()).isEqualTo(ThemeModePreference.Dark)
+        assertThat(ThemeModePreference.Dark.next()).isEqualTo(ThemeModePreference.FollowSystem)
     }
 
     @Test

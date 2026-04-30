@@ -33,14 +33,6 @@ data class PaperLaunchPlan(
     val arguments: List<String>,
 )
 
-data class HeroStatus(
-    val activeServerName: String,
-    val uptimeMinutes: Int,
-    val onlinePlayers: Int,
-    val maxPlayers: Int,
-    val statusLabel: String,
-)
-
 data class DashboardMetric(
     val title: String,
     val valueLabel: String,

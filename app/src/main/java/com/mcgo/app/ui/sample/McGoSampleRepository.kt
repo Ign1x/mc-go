@@ -6,7 +6,6 @@ import com.mcgo.app.ui.model.AppearanceSettingsState
 import com.mcgo.app.ui.model.AppearanceToggleState
 import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.FontScalePreference
-import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.SettingsCategoryIcon
@@ -15,17 +14,8 @@ import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.formatBatteryCurrent
-import com.mcgo.app.ui.model.formatPlayerCapacity
 
 object McGoSampleRepository {
-
-    fun heroStatus(): HeroStatus = HeroStatus(
-        activeServerName = "Creative Plot",
-        uptimeMinutes = 127,
-        onlinePlayers = 2,
-        maxPlayers = 10,
-        statusLabel = "运行中",
-    )
 
     fun dashboardMetrics(): List<DashboardMetric> = listOf(
         DashboardMetric(
@@ -129,9 +119,4 @@ object McGoSampleRepository {
         )
     }
 
-    fun recentEvents(): List<String> = listOf(
-        "世界自动保存已完成 · 2 分钟前",
-        "等待添加首个隧道模板",
-        "Creative Plot 当前负载 ${formatPlayerCapacity(2, 10)}",
-    )
 }

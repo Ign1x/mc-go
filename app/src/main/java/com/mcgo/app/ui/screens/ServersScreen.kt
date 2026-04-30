@@ -1,6 +1,7 @@
 package com.mcgo.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.verticalScroll
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -55,8 +58,8 @@ import com.mcgo.app.ui.model.formatPlayerCapacity
 fun ServersScreen(
     servers: List<ServerCardState>,
     availableTunnels: List<TunnelProfile>,
+    paperVersions: List<String>,
     modifier: Modifier = Modifier,
-    showLeadCard: Boolean = false,
     showCreateServer: Boolean = false,
     onDismissCreateServer: () -> Unit = {},
     onCreateServer: (ServerCardState) -> Unit = {},
@@ -68,6 +71,7 @@ fun ServersScreen(
 
     if (showCreateServer) {
         CreatePaperServerDialog(
+            paperVersions = paperVersions,
             onDismiss = onDismissCreateServer,
             onCreate = onCreateServer,
         )
@@ -90,19 +94,6 @@ fun ServersScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { Spacer(modifier = Modifier.height(6.dp)) }
-        if (showLeadCard) {
-            item {
-                GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    Text(text = stringResource(R.string.servers_overview_title), style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = stringResource(R.string.servers_overview_body, servers.size, servers.count { it.isOnline }),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
         items(items = servers, key = { it.id }) { server ->
             ServerCard(
                 server = server,
@@ -226,11 +217,14 @@ private fun ServerCard(
 
 @Composable
 private fun CreatePaperServerDialog(
+    paperVersions: List<String>,
     onDismiss: () -> Unit,
     onCreate: (ServerCardState) -> Unit,
 ) {
+    val versionOptions = paperVersions.ifEmpty { listOf("1.21.4") }
     var name by remember { mutableStateOf("Paper 生存服") }
-    var minecraftVersion by remember { mutableStateOf("1.21.4") }
+    var minecraftVersion by remember(versionOptions) { mutableStateOf(versionOptions.last()) }
+    var versionMenuExpanded by remember { mutableStateOf(false) }
     var maxPlayers by remember { mutableStateOf("20") }
     var memoryMb by remember { mutableStateOf("2048") }
     var port by remember { mutableStateOf("25565") }
@@ -270,7 +264,7 @@ private fun CreatePaperServerDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = "当前先支持原版 Paper。创建后会生成 Paper 启动计划，可直接从服务器列表启动。",
+                    text = "从 Paper 官方版本列表选择历史版本，MC-GO 会准备 EULA、server.properties 与启动文件。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -281,14 +275,33 @@ private fun CreatePaperServerDialog(
                     label = { Text("服务器名称") },
                     singleLine = true,
                 )
-                OutlinedTextField(
-                    value = minecraftVersion,
-                    onValueChange = { minecraftVersion = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Minecraft 版本") },
-                    supportingText = { Text("例如 1.20.1 / 1.21.4，自动匹配托管 JRE") },
-                    singleLine = true,
-                )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = minecraftVersion,
+                        onValueChange = {},
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { versionMenuExpanded = true },
+                        readOnly = true,
+                        label = { Text("Minecraft 版本") },
+                        supportingText = { Text("从 Paper 官方版本列表选择，包含历史版本") },
+                        singleLine = true,
+                    )
+                    DropdownMenu(
+                        expanded = versionMenuExpanded,
+                        onDismissRequest = { versionMenuExpanded = false },
+                    ) {
+                        versionOptions.asReversed().forEach { version ->
+                            DropdownMenuItem(
+                                text = { Text(version) },
+                                onClick = {
+                                    minecraftVersion = version
+                                    versionMenuExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = maxPlayers,
                     onValueChange = { maxPlayers = it.filter(Char::isDigit) },
@@ -354,7 +367,7 @@ private fun StartServerDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(
-                    text = "选择要绑定的隧道。参数模板支持自定义端口；单隧道配置会沿用固定端口。",
+                    text = "选择要绑定的隧道。手动服务器参数可自定义端口；单隧道配置会沿用固定端口。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -390,7 +403,7 @@ private fun StartServerDialog(
                     label = { Text("开服端口") },
                     supportingText = {
                         Text(
-                            if (canEditPort) "当前选中的是参数模板，开服时可自定义端口"
+                            if (canEditPort) "当前选中的是服务器参数，开服时可自定义端口"
                             else "当前模式使用固定端口：$resolvedPort",
                         )
                     },

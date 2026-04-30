@@ -44,8 +44,8 @@ class McGoSampleRepositoryTest {
     fun appearanceSettings_exposeSystemColorWideDensityAndLeanToggles() {
         val appearance = McGoSampleRepository.appearanceSettings()
 
-        assertThat(appearance.themeModes).containsExactly("浅色", "跟随系统", "深色").inOrder()
-        assertThat(appearance.selectedThemeMode).isEqualTo("浅色")
+        assertThat(appearance.themeModes).containsExactly("跟随系统", "浅色", "深色").inOrder()
+        assertThat(appearance.selectedThemeMode).isEqualTo("跟随系统")
         assertThat(appearance.accentOptions).containsExactly("科技蓝", "森林绿", "紫晶", "暖阳橙", "系统颜色").inOrder()
         assertThat(appearance.selectedAccent).isEqualTo("森林绿")
         assertThat(appearance.fontScaleOptions).containsExactly("紧凑", "标准", "宽松").inOrder()

@@ -5,6 +5,10 @@ enum class RuntimePermissionStatus {
     NeedsRequest,
 }
 
+enum class PermissionActionPlacement {
+    StatusRowEnd,
+}
+
 data class RuntimePermissionItem(
     val id: String,
     val title: String,
@@ -14,6 +18,7 @@ data class RuntimePermissionItem(
     val status: RuntimePermissionStatus,
     val statusLabel: String,
     val actionLabel: String?,
+    val actionPlacement: PermissionActionPlacement = PermissionActionPlacement.StatusRowEnd,
 )
 
 data class RuntimePermissionState(

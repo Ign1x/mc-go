@@ -12,9 +12,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mcgo.app.ui.model.DashboardMetric
-import com.mcgo.app.ui.model.HeroStatus
 import com.mcgo.app.ui.model.MetricAccent
-import com.mcgo.app.ui.sample.McGoSampleRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -24,7 +22,6 @@ fun rememberStatusDashboardState(): StatusDashboardState {
     val appContext = LocalContext.current.applicationContext
     val lifecycleOwner = LocalLifecycleOwner.current
     val monitor = remember(appContext) { DevicePerformanceMonitor(appContext) }
-    val heroTemplate = remember { McGoSampleRepository.heroStatus() }
     var isStarted by remember(lifecycleOwner) {
         mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
     }
@@ -42,29 +39,23 @@ fun rememberStatusDashboardState(): StatusDashboardState {
         }
     }
 
-    val initialState = remember(heroTemplate) { placeholderDashboardState(heroTemplate) }
-    return produceState(initialValue = initialState, monitor, heroTemplate, isStarted) {
+    val initialState = remember { placeholderDashboardState() }
+    return produceState(initialValue = initialState, monitor, isStarted) {
         while (true) {
             if (isStarted) {
-                value = withContext(Dispatchers.IO) { monitor.readDashboardState(heroTemplate) }
+                value = withContext(Dispatchers.IO) { monitor.readDashboardState() }
             }
             delay(2_000L)
         }
     }.value
 }
 
-private fun placeholderDashboardState(heroTemplate: HeroStatus) = StatusDashboardState(
-    hero = heroTemplate,
+private fun placeholderDashboardState() = StatusDashboardState(
     metrics = listOf(
         placeholderMetric(title = "CPU", accent = MetricAccent.Blue),
         placeholderMetric(title = "RAM", accent = MetricAccent.Green),
         placeholderMetric(title = "Network I/O", accent = MetricAccent.Violet),
         placeholderMetric(title = "Battery Current", accent = MetricAccent.Gold),
-    ),
-    events = listOf(
-        "正在读取 CPU 与内存状态",
-        "正在等待网络吞吐采样",
-        "正在读取电池状态",
     ),
 )
 

@@ -46,6 +46,15 @@ class PerformanceMathTest {
         assertThat(formatted.detailLabel).isEqualTo("充电中 · 78%")
     }
 
+
+    @Test
+    fun formatBatteryMetric_normalizesPositiveCurrentAsDischargeWhenNotCharging() {
+        val formatted = formatBatteryMetric(currentMilliAmps = 820, batteryPercent = 54, isCharging = false)
+
+        assertThat(formatted.valueLabel).isEqualTo("-820 mA")
+        assertThat(formatted.detailLabel).isEqualTo("放电中 · 54%")
+    }
+
     @Test
     fun calculateBatteryPercent_scalesLevelAgainstBatteryScale() {
         assertThat(calculateBatteryPercent(level = 37, scale = 50)).isEqualTo(74)

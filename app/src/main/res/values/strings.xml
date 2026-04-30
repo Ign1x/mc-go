@@ -10,17 +10,9 @@
     <string name="nav_settings_subtitle">界面外观、托管 JRE 与运行权限</string>
     <string name="action_create_server">创建服务器</string>
     <string name="action_add_tunnel">添加隧道</string>
-    <string name="snackbar_demo_action">请先在设置里配置托管 JRE 与服务器目录</string>
+    <string name="snackbar_unavailable_action">请先在设置里配置托管 JRE 与服务器目录</string>
     <string name="status_section_title">实时性能</string>
     <string name="status_section_subtitle">CPU、内存、网络与电池电流一屏掌握</string>
-    <string name="status_hero_sentence">本机正在充当 Java 版服务器 · 已运行 %1$s</string>
-    <string name="status_kpi_online_players">在线玩家</string>
-    <string name="status_kpi_capacity">最大容量</string>
-    <string name="status_kpi_health">当前状态</string>
-    <string name="status_kpi_health_value">健康</string>
-    <string name="recent_events_title">最近事件</string>
-    <string name="servers_overview_title">实例总览</string>
-    <string name="servers_overview_body">共 %1$d 个实例，当前 %2$d 个在线，支持一键启动 / 停止 / 编辑。</string>
     <string name="server_meta_players">玩家</string>
     <string name="server_meta_port">端口</string>
     <string name="server_meta_memory">内存</string>
@@ -30,6 +22,4 @@
     <string name="server_action_edit">编辑</string>
     <string name="server_status_online">在线</string>
     <string name="server_status_offline">离线</string>
-    <string name="settings_center_title">常用偏好</string>
-    <string name="settings_center_body">把主题、通知、下载与实验功能集中管理。</string>
 </resources>

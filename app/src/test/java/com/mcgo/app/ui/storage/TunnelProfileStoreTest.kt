@@ -38,7 +38,7 @@ class TunnelProfileStoreTest {
             healthLabel = "稳定",
             rawConfigPreview = "serverAddr = \"frp.home\"",
             rawConfigText = "serverAddr = \"frp.home\"\nserverPort = 7000",
-            detail = "FRP 参数模板 · Token 已保存",
+            detail = "FRP 服务器参数 · Token 已保存",
         )
 
         store.save(listOf(profile))

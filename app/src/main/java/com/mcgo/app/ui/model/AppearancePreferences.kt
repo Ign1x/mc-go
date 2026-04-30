@@ -5,8 +5,8 @@ import androidx.compose.runtime.saveable.listSaver
 import kotlin.math.roundToInt
 
 enum class ThemeModePreference(val label: String) {
-    Light("浅色"),
     FollowSystem("跟随系统"),
+    Light("浅色"),
     Dark("深色");
 
     fun resolvesToDark(systemIsDark: Boolean): Boolean = when (this) {
@@ -15,8 +15,14 @@ enum class ThemeModePreference(val label: String) {
         Dark -> true
     }
 
+    fun next(): ThemeModePreference = when (this) {
+        FollowSystem -> Light
+        Light -> Dark
+        Dark -> FollowSystem
+    }
+
     companion object {
-        fun fromLabel(label: String): ThemeModePreference = entries.firstOrNull { it.label == label } ?: Light
+        fun fromLabel(label: String): ThemeModePreference = entries.firstOrNull { it.label == label } ?: FollowSystem
     }
 }
 
@@ -73,7 +79,7 @@ enum class FontScalePreference(val label: String, val multiplier: Float) {
 }
 
 data class AppearancePreferences(
-    val themeMode: ThemeModePreference = ThemeModePreference.Light,
+    val themeMode: ThemeModePreference = ThemeModePreference.FollowSystem,
     val accentPreset: AccentPreset = AccentPreset.Forest,
     val fontScale: FontScalePreference = FontScalePreference.Compact,
     val cardTransparencyPercent: Int = 82,

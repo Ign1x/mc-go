@@ -50,7 +50,10 @@ fun formatNetworkMetric(uploadBytesPerSecond: Long, downloadBytesPerSecond: Long
 }
 
 fun formatBatteryMetric(currentMilliAmps: Int?, batteryPercent: Int?, isCharging: Boolean): FormattedMetric {
-    val valueLabel = currentMilliAmps?.let(::formatBatteryCurrent) ?: "不可用"
+    val normalizedCurrent = currentMilliAmps?.let { current ->
+        if (isCharging) kotlin.math.abs(current) else -kotlin.math.abs(current)
+    }
+    val valueLabel = normalizedCurrent?.let(::formatBatteryCurrent) ?: "不可用"
     val batteryLabel = batteryPercent?.let { "$it%" } ?: "未知电量"
     val detailPrefix = if (isCharging) "充电中" else "放电中"
     return FormattedMetric(

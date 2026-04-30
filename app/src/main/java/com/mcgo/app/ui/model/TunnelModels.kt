@@ -128,7 +128,7 @@ data class TunnelProfile(
         TunnelSource.ManualServer -> {
             val spec = manualTunnelFieldSpec(kind)
             buildList {
-                add("${kind.label} 参数模板")
+                add("${kind.label} 服务器参数")
                 credentialValue?.takeIf { it.isNotBlank() }?.let { add("${spec.credentialLabel} 已保存") }
                 if (!portRange.isNullOrBlank()) add("端口范围可编辑")
                 add("开服时可改端口")
@@ -172,7 +172,7 @@ data class TunnelProfile(
                 currentLatencyMs = PendingLatencyMs,
                 healthLabel = latencyHealthLabel(PendingLatencyMs),
                 detail = buildList {
-                    add("${kind.label} 参数模板")
+                    add("${kind.label} 服务器参数")
                     if (credentialValue.isNotBlank()) add("${spec.credentialLabel} 已保存")
                     if (portRange.isNotBlank()) add("端口范围 $portRange")
                     add("启动时可改端口")
