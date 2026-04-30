@@ -102,6 +102,9 @@ fun SettingsScreen(
     onDownloadJava: (Int) -> Unit = {},
     onInstallJavaArchive: (Int, Uri) -> Unit = { _, _ -> },
     onDeleteJava: (Int) -> Unit = {},
+    serverDirectoryUri: String? = null,
+    onServerDirectorySelected: (Uri?) -> Unit = {},
+    onRequestServerDirectory: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.fontScale, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground) {
@@ -123,24 +126,14 @@ fun SettingsScreen(
                 context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
         )
     }
-    var serverDirectorySelected by remember { mutableStateOf(false) }
     var batteryOptimizationIgnored by remember { mutableStateOf(context.isIgnoringBatteryOptimizations()) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         postNotificationsGranted = granted
     }
-    val directoryPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree(),
-    ) { uri ->
-        serverDirectorySelected = uri != null
-        uri?.let {
-            context.contentResolver.takePersistableUriPermission(
-                it,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-            )
-        }
-    }
+    @Suppress("UNUSED_VARIABLE")
+    val keepServerDirectoryCallback = onServerDirectorySelected
     var pendingJavaInstallVersion by rememberSaveable { mutableStateOf<Int?>(null) }
     val javaArchivePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -163,15 +156,16 @@ fun SettingsScreen(
         } else {
             true
         },
-        serverDirectorySelected = serverDirectorySelected,
+        serverDirectorySelected = serverDirectoryUri != null,
         batteryOptimizationIgnored = batteryOptimizationIgnored,
+        serverDirectoryUri = serverDirectoryUri,
     )
     val onRuntimePermissionAction: (RuntimePermissionItem) -> Unit = { item ->
         when (item.id) {
             "post-notifications" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
-            "server-directory" -> directoryPickerLauncher.launch(null)
+            "server-directory" -> onRequestServerDirectory()
             "battery-optimization" -> {
                 val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     Intent(

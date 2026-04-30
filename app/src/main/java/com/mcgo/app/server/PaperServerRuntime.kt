@@ -7,6 +7,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
+const val PaperDownloadUserAgent = "MC-GO/0.2.9"
 
 data class PreparedPaperServerFiles(
     val workDir: Path,
@@ -118,15 +119,59 @@ fun buildJavaLaunchCommand(
     "nogui",
 )
 
-fun downloadLatestPaperJar(version: String, targetJar: Path) {
+fun downloadLatestPaperJar(
+    version: String,
+    targetJar: Path,
+    onProgress: (Int) -> Unit = {},
+) {
+    onProgress(2)
     val buildsBody = httpGet("$PaperApiBase/versions/$version")
     val build = parseLatestPaperBuild(buildsBody)
+    onProgress(8)
     val buildBody = httpGet("$PaperApiBase/versions/$version/builds/$build")
     val downloadName = parsePaperDownloadName(buildBody)
     val downloadUrl = buildPaperDownloadUrl(version, build, downloadName)
     Files.createDirectories(targetJar.parent)
-    URL(downloadUrl).openStream().use { input ->
-        Files.newOutputStream(targetJar).use { output -> input.copyTo(output) }
+    downloadFile(downloadUrl, targetJar, scaledPaperDownloadProgressReporter(12, 74, onProgress))
+    onProgress(76)
+}
+
+fun scaledPaperDownloadProgressReporter(
+    start: Int,
+    end: Int,
+    onProgress: (Int) -> Unit,
+): (Int) -> Unit = { inner ->
+    val normalized = inner.coerceIn(0, 100)
+    val mapped = start + ((end - start) * normalized / 100)
+    onProgress(mapped.coerceIn(start, end))
+}
+
+private fun downloadFile(url: String, target: Path, onProgress: (Int) -> Unit) {
+    val connection = URL(url).openConnection() as HttpURLConnection
+    connection.connectTimeout = 15_000
+    connection.readTimeout = 60_000
+    connection.requestMethod = "GET"
+    connection.setRequestProperty("User-Agent", PaperDownloadUserAgent)
+    try {
+        val statusCode = connection.responseCode
+        if (statusCode !in 200..299) error("Paper 下载失败：HTTP $statusCode")
+        val contentLength = connection.contentLengthLong.takeIf { it > 0L }
+        connection.inputStream.use { input ->
+            Files.newOutputStream(target).use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var copied = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    copied += read
+                    contentLength?.let { onProgress(((copied * 100) / it).toInt()) }
+                }
+            }
+        }
+        if (contentLength == null) onProgress(100)
+    } finally {
+        connection.disconnect()
     }
 }
 
@@ -135,6 +180,10 @@ private fun httpGet(url: String): String {
     connection.connectTimeout = 10_000
     connection.readTimeout = 20_000
     connection.requestMethod = "GET"
-    connection.setRequestProperty("User-Agent", "MC-GO/0.2.8")
-    return connection.inputStream.bufferedReader().use { it.readText() }
+    connection.setRequestProperty("User-Agent", PaperDownloadUserAgent)
+    return try {
+        connection.inputStream.bufferedReader().use { it.readText() }
+    } finally {
+        connection.disconnect()
+    }
 }

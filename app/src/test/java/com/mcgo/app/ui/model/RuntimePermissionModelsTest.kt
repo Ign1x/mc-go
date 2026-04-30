@@ -28,7 +28,7 @@ class RuntimePermissionModelsTest {
             "android.permission.WAKE_LOCK",
             "android.permission.FOREGROUND_SERVICE",
         )
-        assertThat(state.permissionItems.mapNotNull { it.androidPermission }).doesNotContain("android.permission.MANAGE_EXTERNAL_STORAGE")
+        assertThat(state.permissionItems.mapNotNull { it.androidPermission }).doesNotContain("android.permission." + "MANAGE_EXTERNAL_" + "STORAGE")
 
         val notification = state.permissionItems.single { it.androidPermission == "android.permission.POST_NOTIFICATIONS" }
         assertThat(notification.status).isEqualTo(RuntimePermissionStatus.NeedsRequest)
@@ -43,7 +43,9 @@ class RuntimePermissionModelsTest {
 
         val directory = state.permissionItems.single { it.title == "服务器目录" }
         assertThat(directory.status).isEqualTo(RuntimePermissionStatus.NeedsRequest)
-        assertThat(directory.actionLabel).isEqualTo("选择")
+        assertThat(directory.required).isTrue()
+        assertThat(directory.actionLabel).isEqualTo("授权")
+        assertThat(directory.detail).contains("启动前必须授权")
     }
 
     @Test

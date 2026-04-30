@@ -205,12 +205,18 @@ fun ServerCardState.startPaperServer(
         ),
     )
     return copy(
-        isOnline = true,
+        isOnline = false,
         port = resolvedPort,
         selectedTunnelId = tunnel?.id,
         activeTunnelLabel = tunnel?.let { "${it.name} · ${it.latencyLabel()}" },
-        launchStatus = ServerLaunchStatus.Running,
+        launchStatus = ServerLaunchStatus.Launching,
         launchPlan = plan,
+        launchProgress = 12,
+        runtimeLogs = listOf(
+            "已生成 Paper 启动计划：${plan.serverJarName}",
+            "准备使用 Java ${plan.javaMajorVersion} 与 ${memoryMb}M 内存启动",
+            tunnel?.let { "隧道绑定：${it.name}，端口 $resolvedPort" } ?: "使用本机端口 $resolvedPort",
+        ),
     )
 }
 
@@ -219,6 +225,8 @@ fun ServerCardState.stopServer(): ServerCardState = copy(
     port = defaultPort,
     activeTunnelLabel = null,
     launchStatus = ServerLaunchStatus.Stopped,
+    launchProgress = 0,
+    runtimeLogs = (runtimeLogs + "服务器已停止").takeLast(12),
 )
 
 fun upsertTunnelProfile(

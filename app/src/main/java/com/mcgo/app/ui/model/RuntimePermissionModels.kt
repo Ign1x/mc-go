@@ -18,6 +18,7 @@ data class RuntimePermissionItem(
     val status: RuntimePermissionStatus,
     val statusLabel: String,
     val actionLabel: String?,
+    val detail: String? = null,
     val actionPlacement: PermissionActionPlacement = PermissionActionPlacement.StatusRowEnd,
 )
 
@@ -32,6 +33,7 @@ fun defaultRuntimePermissionState(
     foregroundServiceGranted: Boolean,
     serverDirectorySelected: Boolean,
     batteryOptimizationIgnored: Boolean,
+    serverDirectoryUri: String? = null,
 ): RuntimePermissionState {
     fun item(
         id: String,
@@ -41,6 +43,7 @@ fun defaultRuntimePermissionState(
         androidPermission: String? = null,
         required: Boolean = true,
         actionWhenMissing: String,
+        detail: String? = null,
     ): RuntimePermissionItem = RuntimePermissionItem(
         id = id,
         title = title,
@@ -50,6 +53,7 @@ fun defaultRuntimePermissionState(
         status = if (granted) RuntimePermissionStatus.Granted else RuntimePermissionStatus.NeedsRequest,
         statusLabel = if (granted) "已授权" else "未授权",
         actionLabel = if (granted) null else actionWhenMissing,
+        detail = detail,
     )
 
     return RuntimePermissionState(
@@ -82,10 +86,15 @@ fun defaultRuntimePermissionState(
             item(
                 id = "server-directory",
                 title = "服务器目录",
-                description = "通过系统目录选择器授权服务器工作目录。",
+                description = "通过系统目录选择器授权服务器工作目录，启动、控制台与编辑都会复用该持久授权。",
                 granted = serverDirectorySelected,
-                required = false,
-                actionWhenMissing = "选择",
+                required = true,
+                actionWhenMissing = "授权",
+                detail = if (serverDirectorySelected) {
+                    serverDirectoryUri?.let { "已持久授权：$it" } ?: "已持久授权服务器工作目录"
+                } else {
+                    "启动前必须授权一个服务器目录；MC-GO 不请求全部文件管理权限。"
+                },
             ),
             item(
                 id = "battery-optimization",

@@ -23,7 +23,9 @@ enum class MinecraftServerType(val label: String) {
 
 enum class ServerLaunchStatus(val label: String) {
     Ready("就绪"),
+    Launching("启动中"),
     Running("运行中"),
+    Failed("启动失败"),
     Stopped("已停止"),
 }
 
@@ -60,6 +62,8 @@ data class ServerCardState(
     val javaMajorVersion: Int = recommendedJavaMajorVersion(edition.substringAfter(' ', "1.21.4")),
     val launchStatus: ServerLaunchStatus = if (isOnline) ServerLaunchStatus.Running else ServerLaunchStatus.Ready,
     val launchPlan: PaperLaunchPlan? = null,
+    val launchProgress: Int = if (isOnline) 100 else 0,
+    val runtimeLogs: List<String> = emptyList(),
 )
 
 data class SettingsSectionState(
@@ -127,6 +131,32 @@ fun createPaperServer(
     minecraftVersion = minecraftVersion,
     javaMajorVersion = recommendedJavaMajorVersion(minecraftVersion),
     launchStatus = ServerLaunchStatus.Ready,
+)
+
+fun ServerCardState.withLaunchProgress(
+    progress: Int,
+    logLine: String? = null,
+    status: ServerLaunchStatus = ServerLaunchStatus.Launching,
+    online: Boolean = false,
+): ServerCardState = copy(
+    isOnline = online,
+    launchStatus = status,
+    launchProgress = progress.coerceIn(0, 100),
+    runtimeLogs = (runtimeLogs + listOfNotNull(logLine)).takeLast(12),
+)
+
+fun ServerCardState.markLaunchRunning(logLine: String = "服务端进程已进入运行状态"): ServerCardState = copy(
+    isOnline = true,
+    launchStatus = ServerLaunchStatus.Running,
+    launchProgress = 100,
+    runtimeLogs = (runtimeLogs + logLine).takeLast(12),
+)
+
+fun ServerCardState.markLaunchFailed(error: String): ServerCardState = copy(
+    isOnline = false,
+    launchStatus = ServerLaunchStatus.Failed,
+    launchProgress = 0,
+    runtimeLogs = (runtimeLogs + "启动失败：$error").takeLast(12),
 )
 
 private fun parseMemoryMb(memoryLabel: String): Int {

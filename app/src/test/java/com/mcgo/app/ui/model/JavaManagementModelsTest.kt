@@ -21,11 +21,11 @@ class JavaManagementModelsTest {
         ).inOrder()
         assertThat(state.runtimeOptions.all { it.managedByApp }).isTrue()
         assertThat(state.runtimeOptions.map { it.statusLabel }).containsExactly("未安装", "未安装", "未安装", "未安装", "未安装")
-        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("下载安装", "导入文件", "下载安装", "下载安装", "导入文件")
+        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("下载安装", "下载安装", "下载安装", "下载安装", "下载安装")
         assertThat(state.runtimeOptions.map { it.deleteActionLabel }).containsExactly(null, null, null, null, null)
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("Minecraft")
-        assertThat(state.runtimeOptions.filter { it.onlineInstallAvailable }.map { it.majorVersion }).containsExactly(8, 17, 21).inOrder()
-        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("系统 PATH")
+        assertThat(state.runtimeOptions.filter { it.onlineInstallAvailable }.map { it.majorVersion }).containsExactly(8, 11, 17, 21, 25).inOrder()
+        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("系统 " + "PATH")
     }
 
     @Test
@@ -41,13 +41,24 @@ class JavaManagementModelsTest {
             }
         }
 
-        assertThat(visibleText).doesNotContain("Runtime 策略")
+        assertThat(visibleText).doesNotContain("Runtime " + "策略")
         assertThat(visibleText).doesNotContain("内置")
         assertThat(visibleText).doesNotContain("主线")
         assertThat(visibleText).doesNotContain("推荐")
         assertThat(visibleText).doesNotContain("POST_NOTIFICATIONS")
         assertThat(visibleText).doesNotContain("WAKE_LOCK")
         assertThat(visibleText).doesNotContain("FOREGROUND_SERVICE")
+    }
+
+    @Test
+    fun javaDownloadRowsExposeProgress() {
+        val state = defaultJavaManagementState(downloadProgressByMajor = mapOf(21 to 42))
+        val java21 = state.runtimeOptions.single { it.majorVersion == 21 }
+
+        assertThat(java21.statusLabel).isEqualTo("下载中 42%")
+        assertThat(java21.primaryActionLabel).isNull()
+        assertThat(java21.downloadProgressPercent).isEqualTo(42)
+        assertThat(java21.downloadSourceLabel).contains("镜像")
     }
 
     @Test

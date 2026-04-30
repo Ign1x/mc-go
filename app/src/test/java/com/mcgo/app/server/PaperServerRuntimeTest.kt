@@ -80,4 +80,21 @@ class PaperServerRuntimeTest {
         assertThat(error).hasMessageThat().contains("Java 17")
         assertThat(isRuntimeReady(filesDir, 17)).isFalse()
     }
+    @Test
+    fun paperDownloadUserAgentUsesCurrentVersion() {
+        assertThat(PaperDownloadUserAgent).isEqualTo("MC-GO/0.2.9")
+    }
+
+    @Test
+    fun scaledProgressReporterMapsInnerDownloadRange() {
+        val events = mutableListOf<Int>()
+        val reporter = scaledPaperDownloadProgressReporter(20, 80) { events += it }
+
+        reporter(0)
+        reporter(50)
+        reporter(100)
+
+        assertThat(events).containsExactly(20, 50, 80).inOrder()
+    }
+
 }

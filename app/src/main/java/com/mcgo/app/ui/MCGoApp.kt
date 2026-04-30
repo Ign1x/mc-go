@@ -1,6 +1,7 @@
 package com.mcgo.app.ui
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
@@ -32,6 +33,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +56,8 @@ import com.mcgo.app.R
 import com.mcgo.app.network.measureTcpLatency
 import com.mcgo.app.network.parseTcpEndpoint
 import com.mcgo.app.server.PaperServerService
+import com.mcgo.app.server.PaperServerEvents
+import com.mcgo.app.server.PaperServerEventStatus
 import com.mcgo.app.server.JavaRuntimeArchiveKind
 import com.mcgo.app.server.JavaRuntimeInstallException
 import com.mcgo.app.server.classifyJavaRuntimeArchiveName
@@ -70,6 +75,7 @@ import com.mcgo.app.ui.model.AppearancePreferencesSaver
 import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.ServerCardState
+import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.TunnelLatencyResult
@@ -77,7 +83,10 @@ import com.mcgo.app.ui.model.applyTunnelLatencyResults
 import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.detachDeletedTunnel
 import com.mcgo.app.ui.model.removeTunnelProfile
+import com.mcgo.app.ui.model.markLaunchFailed
+import com.mcgo.app.ui.model.markLaunchRunning
 import com.mcgo.app.ui.model.startWithTunnel
+import com.mcgo.app.ui.model.withLaunchProgress
 import com.mcgo.app.ui.model.stopServer
 import com.mcgo.app.ui.model.upsertTunnelProfile
 import com.mcgo.app.ui.sample.McGoSampleRepository
@@ -97,6 +106,23 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
+
+private const val RuntimePrefsName = "mcgo_runtime_permissions"
+private const val ServerDirectoryUriKey = "server_directory_uri"
+private const val ServerDirectoryGrantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+
+private data class PendingStartRequest(
+    val serverId: String,
+    val tunnelId: String?,
+    val startupPort: Int,
+)
+
+private enum class PendingServerDirectoryAction {
+    StartServer,
+    OpenConsole,
+    EditServer,
+    SettingsRequest,
+}
 
 private enum class McGoDestination(
     val page: McGoPage,
@@ -187,8 +213,118 @@ private fun MCGoAppScaffold(
     var installedJavaVersions by remember(appContext) {
         mutableStateOf(scanInstalledJavaVersions(appContext.filesDir.toPath()))
     }
-    val javaManagementState = remember(installedJavaVersions) {
-        defaultJavaManagementState(installedVersions = installedJavaVersions)
+    var javaDownloadProgress by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    val javaManagementState = remember(installedJavaVersions, javaDownloadProgress) {
+        defaultJavaManagementState(
+            installedVersions = installedJavaVersions,
+            downloadProgressByMajor = javaDownloadProgress,
+        )
+    }
+    val runtimePrefs = remember(appContext) { appContext.getSharedPreferences(RuntimePrefsName, Context.MODE_PRIVATE) }
+    var serverDirectoryUriText by remember(appContext) {
+        mutableStateOf(runtimePrefs.getString(ServerDirectoryUriKey, null))
+    }
+    var pendingStartRequest by remember { mutableStateOf<PendingStartRequest?>(null) }
+    var pendingServerDirectoryAction by remember { mutableStateOf<PendingServerDirectoryAction?>(null) }
+    val latestServers by rememberUpdatedState(servers)
+    fun persistServerDirectoryUri(uri: Uri?) {
+        serverDirectoryUriText = uri?.toString()
+        runtimePrefs.edit().apply {
+            if (uri == null) remove(ServerDirectoryUriKey) else putString(ServerDirectoryUriKey, uri.toString())
+        }.apply()
+    }
+    fun hasServerDirectoryGrant(): Boolean = serverDirectoryUriText
+        ?.let { Uri.parse(it) }
+        ?.let { uri ->
+            appContext.contentResolver.persistedUriPermissions.any { permission ->
+                permission.uri == uri && permission.isReadPermission && permission.isWritePermission
+            }
+        } == true
+    val directoryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                appContext.contentResolver.takePersistableUriPermission(uri, ServerDirectoryGrantFlags)
+            }
+            persistServerDirectoryUri(uri)
+            scope.launch { snackbarHostState.showSnackbar("服务器目录已授权") }
+        } else {
+            pendingStartRequest = null
+            pendingServerDirectoryAction = null
+            scope.launch { snackbarHostState.showSnackbar("启动、控制台和编辑都需要先授权服务器目录") }
+        }
+    }
+    fun requestServerDirectory(action: PendingServerDirectoryAction) {
+        pendingServerDirectoryAction = action
+        directoryPickerLauncher.launch(serverDirectoryUriText?.let(Uri::parse))
+    }
+    fun startServerNow(request: PendingStartRequest) {
+        val tunnel = tunnels.firstOrNull { it.id == request.tunnelId }
+        val targetServer = servers.firstOrNull { it.id == request.serverId }
+        if (targetServer == null) {
+            scope.launch { snackbarHostState.showSnackbar("未找到服务器") }
+            return
+        }
+        if (!isRuntimeReady(appContext.filesDir.toPath(), targetServer.javaMajorVersion)) {
+            scope.launch {
+                snackbarHostState.showSnackbar("请先在设置里导入 Java ${targetServer.javaMajorVersion} 托管 JRE")
+            }
+            return
+        }
+        val updatedServers = servers.map { server ->
+            if (server.id != request.serverId) {
+                server
+            } else {
+                server.startWithTunnel(tunnel = tunnel, startupPort = request.startupPort)
+                    .withLaunchProgress(8, "已提交启动任务，准备检查 Paper 文件")
+            }
+        }
+        onServersChange(updatedServers)
+        updatedServers.firstOrNull { it.id == request.serverId }?.let { PaperServerService.start(appContext, it) }
+        scope.launch {
+            snackbarHostState.showSnackbar(
+                tunnel?.let { "${targetServer.name} 已通过 ${it.name} 开始启动" } ?: "${targetServer.name} 开始启动",
+            )
+        }
+    }
+
+    LaunchedEffect(serverDirectoryUriText) {
+        val pending = pendingStartRequest
+        if (pending != null && hasServerDirectoryGrant()) {
+            pendingStartRequest = null
+            pendingServerDirectoryAction = null
+            startServerNow(pending)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        PaperServerEvents.events.collect { event ->
+            onServersChange(
+                latestServers.map { server ->
+                    if (server.id != event.serverId) {
+                        server
+                    } else {
+                        when (event.status) {
+                            PaperServerEventStatus.Running -> server.markLaunchRunning(event.message)
+                            PaperServerEventStatus.Failed -> server.markLaunchFailed(event.message)
+                            PaperServerEventStatus.Stopped -> server.copy(
+                                isOnline = false,
+                                launchStatus = ServerLaunchStatus.Stopped,
+                                launchProgress = 0,
+                                runtimeLogs = (server.runtimeLogs + event.message).takeLast(12),
+                            )
+                            else -> server.withLaunchProgress(
+                                progress = event.progress ?: server.launchProgress,
+                                logLine = event.message,
+                                status = ServerLaunchStatus.Launching,
+                                online = false,
+                            )
+                        }
+                    }
+                },
+            )
+        }
     }
 
     LaunchedEffect(tunnels.map { it.id to it.serverAddress }) {
@@ -239,10 +375,17 @@ private fun MCGoAppScaffold(
 
     val onDownloadJava: (Int) -> Unit = remember(appContext, scope, snackbarHostState) {
         { majorVersion ->
+            if (javaDownloadProgress.containsKey(majorVersion)) return@remember
+            javaDownloadProgress = javaDownloadProgress + (majorVersion to 1)
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
-                    runCatching { downloadAndInstallPojavRuntime(appContext, majorVersion) }
+                    runCatching {
+                        downloadAndInstallPojavRuntime(appContext, majorVersion) { progress ->
+                            javaDownloadProgress = javaDownloadProgress + (majorVersion to progress.coerceIn(1, 99))
+                        }
+                    }
                 }
+                javaDownloadProgress = javaDownloadProgress - majorVersion
                 result.onSuccess {
                     installedJavaVersions = scanInstalledJavaVersions(appContext.filesDir.toPath())
                     snackbarHostState.showSnackbar("Java $majorVersion 托管 JRE 已下载安装")
@@ -411,29 +554,12 @@ private fun MCGoAppScaffold(
                             }
                         },
                         onStartServer = { serverId, tunnelId, startupPort ->
-                            val tunnel = tunnels.firstOrNull { it.id == tunnelId }
-                            val targetServer = servers.firstOrNull { it.id == serverId }
-                            if (targetServer == null) {
-                                scope.launch { snackbarHostState.showSnackbar("未找到服务器") }
-                            } else if (!isRuntimeReady(appContext.filesDir.toPath(), targetServer.javaMajorVersion)) {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("请先在设置里导入 Java ${targetServer.javaMajorVersion} 托管 JRE")
-                                }
+                            val request = PendingStartRequest(serverId, tunnelId, startupPort)
+                            if (!hasServerDirectoryGrant()) {
+                                pendingStartRequest = request
+                                requestServerDirectory(PendingServerDirectoryAction.StartServer)
                             } else {
-                                val updatedServers = servers.map { server ->
-                                    if (server.id != serverId) {
-                                        server
-                                    } else {
-                                        server.startWithTunnel(tunnel = tunnel, startupPort = startupPort)
-                                    }
-                                }
-                                onServersChange(updatedServers)
-                                updatedServers.firstOrNull { it.id == serverId }?.let { PaperServerService.start(appContext, it) }
-                                scope.launch {
-                                    snackbarHostState.showSnackbar(
-                                        tunnel?.let { "${targetServer.name} 已通过 ${it.name} 启动" } ?: "${targetServer.name} 已启动",
-                                    )
-                                }
+                                startServerNow(request)
                             }
                         },
                         onStopServer = { serverId ->
@@ -460,7 +586,13 @@ private fun MCGoAppScaffold(
                                 snackbarHostState.showSnackbar("已删除 ${targetServer?.name ?: "服务器"}")
                             }
                         },
-                        onActionClick = notifyUnavailableFeature,
+                        onActionClick = {
+                            if (!hasServerDirectoryGrant()) {
+                                requestServerDirectory(PendingServerDirectoryAction.EditServer)
+                            } else {
+                                notifyUnavailableFeature()
+                            }
+                        },
                     )
                     McGoDestination.Tunnels -> TunnelsScreen(
                         modifier = Modifier.fillMaxSize(),
@@ -507,6 +639,9 @@ private fun MCGoAppScaffold(
                         onDownloadJava = onDownloadJava,
                         onInstallJavaArchive = onInstallJavaArchive,
                         onDeleteJava = onDeleteJava,
+                        serverDirectoryUri = serverDirectoryUriText,
+                        onServerDirectorySelected = { uri -> persistServerDirectoryUri(uri) },
+                        onRequestServerDirectory = { requestServerDirectory(PendingServerDirectoryAction.SettingsRequest) },
                     )
                 }
             }
@@ -518,45 +653,73 @@ private fun MCGoAppScaffold(
 private fun downloadAndInstallPojavRuntime(
     context: Context,
     majorVersion: Int,
+    onProgress: (Int) -> Unit = {},
 ): Path {
-    if (majorVersion !in setOf(8, 17, 21)) {
-        throw JavaRuntimeInstallException("Java $majorVersion 暂无可验证在线安装包，请导入 Android JRE tar.xz/txz 包")
-    }
     val tempFile = Files.createTempFile(context.cacheDir.toPath(), "mcgo-pojav-runtime-", ".apk")
     try {
-        downloadFileToPath(PojavLauncherApkUrl, tempFile)
+        val urls = runtimeDownloadUrlsForRegion(context)
+        downloadFileToPath(urls, tempFile) { progress -> onProgress(progress.coerceIn(1, 82)) }
+        onProgress(86)
         return installPojavRuntimeFromApk(
             apkPath = tempFile,
             filesDir = context.filesDir.toPath(),
             majorVersion = majorVersion,
         )
     } finally {
+        onProgress(100)
         Files.deleteIfExists(tempFile)
     }
 }
 
-private fun downloadFileToPath(url: String, target: Path) {
+private fun downloadFileToPath(urls: List<String>, target: Path, onProgress: (Int) -> Unit = {}) {
+    var lastError: Exception? = null
+    urls.distinct().forEach { url ->
+        try {
+            downloadSingleFileToPath(url, target, onProgress)
+            return
+        } catch (error: Exception) {
+            lastError = error
+        }
+    }
+    throw JavaRuntimeInstallException("下载 JRE 失败", lastError)
+}
+
+private fun downloadSingleFileToPath(url: String, target: Path, onProgress: (Int) -> Unit) {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         connectTimeout = 20_000
         readTimeout = 60_000
         requestMethod = "GET"
-        setRequestProperty("User-Agent", "MC-GO/0.2.8")
+        setRequestProperty("User-Agent", "MC-GO/0.2.9")
     }
     try {
         val statusCode = connection.responseCode
         if (statusCode !in 200..299) {
             throw JavaRuntimeInstallException("下载 JRE 失败：HTTP $statusCode")
         }
+        val contentLength = connection.contentLengthLong.takeIf { it > 0L }
         connection.inputStream.use { input ->
-            Files.copy(input, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            Files.newOutputStream(target).use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var copied = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    copied += read
+                    contentLength?.let { onProgress(((copied * 80) / it).toInt().coerceIn(1, 82)) }
+                }
+            }
         }
-    } catch (error: JavaRuntimeInstallException) {
-        throw error
-    } catch (error: Exception) {
-        throw JavaRuntimeInstallException("下载 JRE 失败", error)
     } finally {
         connection.disconnect()
     }
+}
+
+private fun runtimeDownloadUrlsForRegion(context: Context): List<String> {
+    val github = PojavLauncherApkUrl
+    val mirror = "https://gh-proxy.com/$github"
+    val language = context.resources.configuration.locales.get(0).language.lowercase()
+    return if (language == "zh") listOf(mirror, github) else listOf(github, mirror)
 }
 
 private const val PojavLauncherApkUrl = "https://github.com/PojavLauncherTeam/PojavLauncher/releases/download/gladiolus/PojavLauncher.apk"

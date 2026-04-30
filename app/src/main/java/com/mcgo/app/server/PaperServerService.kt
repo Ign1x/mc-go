@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -47,24 +48,66 @@ class PaperServerService : Service() {
     private fun startPaperServer(intent: Intent) {
         val server = intent.toServerCardState()
         startForeground(NotificationId, notification("正在准备 ${server.name}"))
+        publish(server, PaperServerEventStatus.Launching, 12, "正在准备服务器目录")
         serviceScope.launch {
             runCatching {
                 val root = filesDir.toPath().resolve("paper-servers")
                 val prepared = preparePaperServerFiles(server, root)
+                publish(server, PaperServerEventStatus.Launching, 22, "已写入 EULA 与 server.properties")
                 if (!Files.exists(prepared.jarPath)) {
-                    downloadLatestPaperJar(server.minecraftVersion, prepared.jarPath)
+                    publish(server, PaperServerEventStatus.Launching, 28, "正在下载 Paper ${server.minecraftVersion}")
+                    downloadLatestPaperJar(server.minecraftVersion, prepared.jarPath) { progress ->
+                        publish(server, PaperServerEventStatus.Launching, progress.coerceIn(28, 76), "Paper 核心下载中 ${progress.coerceIn(0, 100)}%")
+                    }
+                } else {
+                    publish(server, PaperServerEventStatus.Launching, 76, "已复用本地 Paper 核心")
                 }
                 val javaHome = requireManagedJavaHome(filesDir.toPath(), server.javaMajorVersion)
+                publish(server, PaperServerEventStatus.Launching, 84, "正在使用 Java ${server.javaMajorVersion} 启动")
                 val command = buildJavaLaunchCommand(server, prepared, javaHome)
-                process = ProcessBuilder(command)
+                val runningProcess = ProcessBuilder(command)
                     .directory(prepared.workDir.toFile())
                     .redirectErrorStream(true)
                     .start()
-            }.onFailure {
+                process = runningProcess
+                publish(server, PaperServerEventStatus.Running, 100, "进程已启动，控制台日志正在接入")
+                val notificationManager = getSystemService(NotificationManager::class.java)
+                notificationManager.notify(NotificationId, notification("${server.name} 正在运行"))
+                streamProcessLogs(server, runningProcess)
+            }.onFailure { error ->
+                publish(server, PaperServerEventStatus.Failed, 0, error.message ?: "启动失败")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
         }
+    }
+
+    private suspend fun streamProcessLogs(server: ServerCardState, runningProcess: Process) {
+        withContext(Dispatchers.IO) {
+            runningProcess.inputStream.bufferedReader().useLines { lines ->
+                lines.take(96).forEach { line ->
+                    if (line.isNotBlank()) publish(server, PaperServerEventStatus.Running, 100, line.take(160))
+                }
+            }
+        }
+        val exitCode = runningProcess.waitFor()
+        if (process === runningProcess) {
+            publish(server, PaperServerEventStatus.Stopped, 0, "服务器进程已退出：$exitCode")
+            process = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
+
+    private fun publish(server: ServerCardState, status: PaperServerEventStatus, progress: Int?, message: String) {
+        PaperServerEvents.publish(
+            PaperServerEvent(
+                serverId = server.id,
+                status = status,
+                progress = progress,
+                message = message,
+            ),
+        )
     }
 
     private fun stopRunningServer() {

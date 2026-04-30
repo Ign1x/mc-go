@@ -30,7 +30,7 @@ class ServerModelsTest {
     }
 
     @Test
-    fun startPaperServer_marksServerRunningAndBuildsLaunchPlan() {
+    fun startPaperServer_entersLaunchingStateWithProgressAndLogsBeforeOnline() {
         val server = createPaperServer(
             name = "生存服",
             minecraftVersion = "1.21.4",
@@ -40,9 +40,11 @@ class ServerModelsTest {
 
         val started = server.startPaperServer(tunnel = null, startupPort = 25566)
 
-        assertThat(started.isOnline).isTrue()
+        assertThat(started.isOnline).isFalse()
         assertThat(started.port).isEqualTo(25566)
-        assertThat(started.launchStatus).isEqualTo(ServerLaunchStatus.Running)
+        assertThat(started.launchStatus).isEqualTo(ServerLaunchStatus.Launching)
+        assertThat(started.launchProgress).isAtLeast(1)
+        assertThat(started.runtimeLogs).isNotEmpty()
         assertThat(started.launchPlan?.serverJarName).isEqualTo("paper-1.21.4.jar")
         assertThat(started.launchPlan?.javaMajorVersion).isEqualTo(21)
         assertThat(started.launchPlan?.arguments).contains("-Xmx2048M")

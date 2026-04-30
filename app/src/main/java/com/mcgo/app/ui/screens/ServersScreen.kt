@@ -2,6 +2,7 @@ package com.mcgo.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.verticalScroll
@@ -9,13 +10,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,6 +36,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -53,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.ServerCardState
+import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.formatPlayerCapacity
@@ -72,6 +77,7 @@ fun ServersScreen(
     onActionClick: () -> Unit,
 ) {
     var pendingStartServer by remember { mutableStateOf<ServerCardState?>(null) }
+    var pendingDeleteServer by remember { mutableStateOf<ServerCardState?>(null) }
 
     if (showCreateServer) {
         CreatePaperServerDialog(
@@ -93,6 +99,17 @@ fun ServersScreen(
         )
     }
 
+    pendingDeleteServer?.let { server ->
+        DeleteServerDialog(
+            server = server,
+            onDismiss = { pendingDeleteServer = null },
+            onConfirm = {
+                onDeleteServer(server.id)
+                pendingDeleteServer = null
+            },
+        )
+    }
+
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -105,7 +122,7 @@ fun ServersScreen(
                 onActionClick = onActionClick,
                 onStartClick = { pendingStartServer = server },
                 onStopClick = { onStopServer(server.id) },
-                onDeleteClick = { onDeleteServer(server.id) },
+                onDeleteClick = { pendingDeleteServer = server },
             )
         }
         item { Spacer(modifier = Modifier.height(96.dp)) }
@@ -121,7 +138,12 @@ private fun ServerCard(
     onStopClick: () -> Unit,
     onDeleteClick: () -> Unit,
 ) {
-    val statusColor = if (server.isOnline) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
+    val statusColor = when (server.launchStatus) {
+        ServerLaunchStatus.Running -> MaterialTheme.colorScheme.secondary
+        ServerLaunchStatus.Launching -> MaterialTheme.colorScheme.primary
+        ServerLaunchStatus.Failed -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     GlassCard(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -168,7 +190,7 @@ private fun ServerCard(
                 }
             }
             StatusDotBadge(
-                text = if (server.isOnline) stringResource(R.string.server_status_online) else stringResource(R.string.server_status_offline),
+                text = server.launchStatus.label,
                 color = statusColor,
             )
         }
@@ -189,6 +211,10 @@ private fun ServerCard(
                 value = server.memoryLabel,
                 modifier = Modifier.weight(1f),
             )
+        }
+        if (server.launchStatus == ServerLaunchStatus.Launching || server.runtimeLogs.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            RuntimeProgressPanel(server = server)
         }
         Spacer(modifier = Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -226,6 +252,59 @@ private fun ServerCard(
     }
 }
 
+@Composable
+private fun RuntimeProgressPanel(server: ServerCardState) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "启动进度",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "${server.launchProgress.coerceIn(0, 100)}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        LinearProgressIndicator(
+            progress = { server.launchProgress.coerceIn(0, 100) / 100f },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        server.runtimeLogs.takeLast(3).forEach { log ->
+            Text(
+                text = "• $log",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DeleteServerDialog(
+    server: ServerCardState,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("确认删除") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        title = { Text("删除 ${server.name}？") },
+        text = { Text("会从列表移除此服务器配置；运行中的服务会先停止。") },
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreatePaperServerDialog(
@@ -246,7 +325,7 @@ private fun CreatePaperServerDialog(
     val canCreate = name.isNotBlank() && minecraftVersion.isNotBlank()
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {},
         confirmButton = {
             TextButton(
                 enabled = canCreate,
@@ -447,6 +526,9 @@ private fun TunnelStartupChoice(
     onClick: () -> Unit,
 ) {
     FilterChip(
+        modifier = Modifier
+            .width(188.dp)
+            .height(88.dp),
         selected = selected,
         onClick = onClick,
         label = {
