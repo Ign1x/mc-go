@@ -7,13 +7,20 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
-const val PaperDownloadUserAgent = "MC-GO/0.2.9"
+const val PaperDownloadUserAgent = "MC-GO/0.2.10"
 
 data class PreparedPaperServerFiles(
     val workDir: Path,
     val jarPath: Path,
     val eulaPath: Path,
     val serverPropertiesPath: Path,
+)
+
+data class PaperDownloadArtifact(
+    val version: String,
+    val build: Int,
+    val downloadName: String,
+    val downloadUrl: String,
 )
 
 fun fallbackPaperVersions(): List<String> = listOf(
@@ -59,8 +66,19 @@ fun parsePaperDownloadName(responseBody: String): String =
         ?.getOrNull(1)
         ?: error("Paper download name is missing")
 
-fun buildPaperDownloadUrl(version: String, build: Int, downloadName: String): String =
-    "$PaperApiBase/versions/$version/builds/$build/downloads/$downloadName"
+fun buildPaperDownloadUrl(version: String, build: Int, downloadName: String): String {
+    val safeVersion = validatePaperVersion(version)
+    require(downloadName.matches(Regex("[A-Za-z0-9._-]+\\.jar"))) { "Paper download name is invalid" }
+    return "$PaperApiBase/versions/$safeVersion/builds/$build/downloads/$downloadName"
+}
+
+fun validatePaperVersion(version: String): String {
+    val trimmed = version.trim()
+    require(trimmed.matches(Regex("[0-9]+\\.[0-9]+(\\.[0-9]+)?"))) { "Paper version is invalid: $version" }
+    return trimmed
+}
+
+fun paperJarFileName(version: String): String = "paper-${validatePaperVersion(version)}.jar"
 
 fun fetchPaperVersions(): List<String> = runCatching {
     val response = httpGet(PaperApiBase)
@@ -72,22 +90,10 @@ fun preparePaperServerFiles(server: ServerCardState, rootDir: Path): PreparedPap
     Files.createDirectories(workDir)
     val eulaPath = workDir.resolve("eula.txt")
     val propertiesPath = workDir.resolve("server.properties")
-    val jarPath = workDir.resolve("paper-${server.minecraftVersion}.jar")
+    val jarPath = workDir.resolve(paperJarFileName(server.minecraftVersion))
 
-    Files.write(eulaPath, "eula=true\n".toByteArray())
-    Files.write(
-        propertiesPath,
-        buildString {
-            appendLine("server-port=${server.port}")
-            appendLine("max-players=${server.maxPlayers}")
-            appendLine("motd=${server.name}")
-            appendLine("online-mode=true")
-            appendLine("enable-command-block=true")
-            appendLine("allow-flight=true")
-            appendLine("view-distance=8")
-            appendLine("simulation-distance=4")
-        }.toByteArray(),
-    )
+    Files.write(eulaPath, buildPaperEula().toByteArray())
+    Files.write(propertiesPath, buildServerProperties(server).toByteArray())
     return PreparedPaperServerFiles(
         workDir = workDir,
         jarPath = jarPath,
@@ -95,6 +101,27 @@ fun preparePaperServerFiles(server: ServerCardState, rootDir: Path): PreparedPap
         serverPropertiesPath = propertiesPath,
     )
 }
+
+fun buildPaperEula(): String = "eula=true\n"
+
+fun buildServerProperties(server: ServerCardState): String = buildString {
+    appendLine("server-port=${server.port}")
+    appendLine("max-players=${server.maxPlayers}")
+    appendLine("motd=${server.name.asServerPropertyValue()}")
+    appendLine("online-mode=true")
+    appendLine("enable-command-block=true")
+    appendLine("allow-flight=true")
+    appendLine("view-distance=8")
+    appendLine("simulation-distance=4")
+}
+
+private fun String.asServerPropertyValue(): String = trim()
+    .replace('\\', '/')
+    .replace('\r', ' ')
+    .replace('\n', ' ')
+    .replace('=', '-')
+    .replace(':', '-')
+    .ifBlank { "MC-GO Server" }
 
 fun requireManagedJavaHome(filesDir: Path, majorVersion: Int): Path {
     val javaHome = managedJavaHome(filesDir, majorVersion)
@@ -106,18 +133,116 @@ fun requireManagedJavaHome(filesDir: Path, majorVersion: Int): Path {
     return javaHome
 }
 
-fun buildJavaLaunchCommand(
-    server: ServerCardState,
-    preparedFiles: PreparedPaperServerFiles,
-    javaHome: Path,
-): List<String> = listOf(
-    javaHome.resolve("bin/java").toString(),
+fun buildPaperJvmArguments(server: ServerCardState): List<String> = listOf(
     "-Xms${(server.memoryMb / 2).coerceAtLeast(512)}M",
     "-Xmx${server.memoryMb}M",
-    "-jar",
-    preparedFiles.jarPath.toString(),
-    "nogui",
 )
+
+fun termuxServerDirectory(serverId: String): String = "\$HOME/mc-go/servers/${sanitizeTermuxServerId(serverId)}"
+
+fun sanitizeTermuxServerId(serverId: String): String = serverId
+    .replace(Regex("[^A-Za-z0-9._-]+"), "-")
+    .trim('-', '.')
+    .ifBlank { "paper-server" }
+
+fun termuxJavaInstallHint(javaMajorVersion: Int): String {
+    val packageName = if (javaMajorVersion >= 21) "openjdk-21" else "openjdk-17"
+    return "pkg update && pkg install $packageName"
+}
+
+fun buildTermuxPaperLaunchScript(
+    server: ServerCardState,
+    artifact: PaperDownloadArtifact,
+): String {
+    val safeServerId = sanitizeTermuxServerId(server.id)
+    val jarName = paperJarFileName(server.minecraftVersion)
+    val installHint = termuxJavaInstallHint(server.javaMajorVersion)
+    val jvmArgs = buildPaperJvmArguments(server).joinToString(" ") { shellQuote(it) }
+    return buildString {
+        appendLine("set -Eeuo pipefail")
+        appendLine("export PATH=\"/data/data/com.termux/files/usr/bin:\$PATH\"")
+        appendLine("SERVER_ID=${shellQuote(safeServerId)}")
+        appendLine("SERVER_NAME=${shellQuote(server.name)}")
+        appendLine("SERVER_DIR=\"\$HOME/mc-go/servers/\$SERVER_ID\"")
+        appendLine("LOG_FILE=\"\$SERVER_DIR/mcgo-latest.log\"")
+        appendLine("PID_FILE=\"\$SERVER_DIR/mcgo.pid\"")
+        appendLine("JAR_FILE=\"\$SERVER_DIR/$jarName\"")
+        appendLine("mkdir -p \"\$SERVER_DIR\"")
+        appendLine("cd \"\$SERVER_DIR\"")
+        appendLine(": > \"\$LOG_FILE\"")
+        appendLine("exec > >(tee -a \"\$LOG_FILE\") 2>&1")
+        appendLine("echo '[MC-GO] Termux 桥接启动，避开 Android 私有目录执行限制'")
+        appendLine("echo \"[MC-GO] 服务器：\$SERVER_NAME\"")
+        appendLine("echo \"[MC-GO] 工作目录：\$SERVER_DIR\"")
+        appendLine("if ! command -v java >/dev/null 2>&1; then")
+        appendLine("  echo ${shellQuote("[MC-GO] 未找到 Termux Java，请先在 Termux 执行：$installHint")}")
+        appendLine("  exit 127")
+        appendLine("fi")
+        appendLine("java -version || true")
+        appendLine("cat > eula.txt <<'MCGO_EULA'")
+        append(buildPaperEula())
+        appendLine("MCGO_EULA")
+        appendLine("cat > server.properties <<'MCGO_PROPERTIES'")
+        append(buildServerProperties(server))
+        appendLine("MCGO_PROPERTIES")
+        appendLine("if [ ! -s \"\$JAR_FILE\" ]; then")
+        appendLine("  echo ${shellQuote("[MC-GO] 正在下载 Paper ${artifact.version} build ${artifact.build}")}")
+        appendLine("  rm -f \"\$JAR_FILE.tmp\"")
+        appendLine("  if command -v curl >/dev/null 2>&1; then")
+        appendLine("    curl -L --fail --connect-timeout 15 -o \"\$JAR_FILE.tmp\" ${shellQuote(artifact.downloadUrl)}")
+        appendLine("  elif command -v wget >/dev/null 2>&1; then")
+        appendLine("    wget -O \"\$JAR_FILE.tmp\" ${shellQuote(artifact.downloadUrl)}")
+        appendLine("  else")
+        appendLine("    echo '[MC-GO] Termux 缺少 curl/wget，无法下载 Paper。请在 Termux 执行：pkg update && pkg install curl'")
+        appendLine("    exit 126")
+        appendLine("  fi")
+        appendLine("  mv \"\$JAR_FILE.tmp\" \"\$JAR_FILE\"")
+        appendLine("fi")
+        appendLine("echo '[MC-GO] 启动 Paper：java $jvmArgs -jar ... nogui'")
+        appendLine("java $jvmArgs -jar \"\$JAR_FILE\" nogui &")
+        appendLine("JAVA_PID=\$!")
+        appendLine("echo \"\$JAVA_PID\" > \"\$PID_FILE\"")
+        appendLine("set +e")
+        appendLine("wait \"\$JAVA_PID\"")
+        appendLine("EXIT_CODE=\$?")
+        appendLine("set -e")
+        appendLine("rm -f \"\$PID_FILE\"")
+        appendLine("echo \"[MC-GO] 服务器进程已退出：\$EXIT_CODE\"")
+        appendLine("exit \"\$EXIT_CODE\"")
+    }
+}
+
+fun buildTermuxStopScript(serverId: String): String {
+    val safeServerId = sanitizeTermuxServerId(serverId)
+    return buildString {
+        appendLine("set -Eeuo pipefail")
+        appendLine("SERVER_DIR=\"\$HOME/mc-go/servers/$safeServerId\"")
+        appendLine("PID_FILE=\"\$SERVER_DIR/mcgo.pid\"")
+        appendLine("if [ -s \"\$PID_FILE\" ]; then")
+        appendLine("  PID=\$(cat \"\$PID_FILE\")")
+        appendLine("  echo \"[MC-GO] 正在停止服务器进程：\$PID\"")
+        appendLine("  kill \"\$PID\" 2>/dev/null || true")
+        appendLine("else")
+        appendLine("  echo '[MC-GO] 没有找到运行中的 MC-GO 服务器 PID'")
+        appendLine("fi")
+    }
+}
+
+private fun shellQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
+
+fun resolveLatestPaperDownload(version: String): PaperDownloadArtifact {
+    val safeVersion = validatePaperVersion(version)
+    val buildsBody = httpGet("$PaperApiBase/versions/$safeVersion")
+    val build = parseLatestPaperBuild(buildsBody)
+    val buildBody = httpGet("$PaperApiBase/versions/$safeVersion/builds/$build")
+    val downloadName = parsePaperDownloadName(buildBody)
+    return PaperDownloadArtifact(
+        version = safeVersion,
+        build = build,
+        downloadName = downloadName,
+        downloadUrl = buildPaperDownloadUrl(version, build, downloadName),
+    )
+}
 
 fun downloadLatestPaperJar(
     version: String,
@@ -125,14 +250,10 @@ fun downloadLatestPaperJar(
     onProgress: (Int) -> Unit = {},
 ) {
     onProgress(2)
-    val buildsBody = httpGet("$PaperApiBase/versions/$version")
-    val build = parseLatestPaperBuild(buildsBody)
+    val artifact = resolveLatestPaperDownload(version)
     onProgress(8)
-    val buildBody = httpGet("$PaperApiBase/versions/$version/builds/$build")
-    val downloadName = parsePaperDownloadName(buildBody)
-    val downloadUrl = buildPaperDownloadUrl(version, build, downloadName)
     Files.createDirectories(targetJar.parent)
-    downloadFile(downloadUrl, targetJar, scaledPaperDownloadProgressReporter(12, 74, onProgress))
+    downloadFile(artifact.downloadUrl, targetJar, scaledPaperDownloadProgressReporter(12, 74, onProgress))
     onProgress(76)
 }
 

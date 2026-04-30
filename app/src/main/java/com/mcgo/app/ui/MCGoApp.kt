@@ -2,6 +2,7 @@ package com.mcgo.app.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
@@ -58,6 +59,8 @@ import com.mcgo.app.network.parseTcpEndpoint
 import com.mcgo.app.server.PaperServerService
 import com.mcgo.app.server.PaperServerEvents
 import com.mcgo.app.server.PaperServerEventStatus
+import com.mcgo.app.server.TermuxRunCommandBridge
+import com.mcgo.app.server.TermuxRunCommandPermission
 import com.mcgo.app.server.JavaRuntimeArchiveKind
 import com.mcgo.app.server.JavaRuntimeInstallException
 import com.mcgo.app.server.classifyJavaRuntimeArchiveName
@@ -66,7 +69,6 @@ import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fetchPaperVersions
 import com.mcgo.app.server.installPojavRuntimeFromApk
 import com.mcgo.app.server.installRuntimeFromTarXz
-import com.mcgo.app.server.isRuntimeReady
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
 import com.mcgo.app.server.scanInstalledJavaVersions
 import com.mcgo.app.ui.components.FluidGradientBackground
@@ -226,6 +228,7 @@ private fun MCGoAppScaffold(
     }
     var pendingStartRequest by remember { mutableStateOf<PendingStartRequest?>(null) }
     var pendingServerDirectoryAction by remember { mutableStateOf<PendingServerDirectoryAction?>(null) }
+    var resumeStartAfterTermuxPermission by remember { mutableStateOf(false) }
     val latestServers by rememberUpdatedState(servers)
     fun persistServerDirectoryUri(uri: Uri?) {
         serverDirectoryUriText = uri?.toString()
@@ -255,6 +258,14 @@ private fun MCGoAppScaffold(
             scope.launch { snackbarHostState.showSnackbar("启动、控制台和编辑都需要先授权服务器目录") }
         }
     }
+    val termuxPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        resumeStartAfterTermuxPermission = granted
+        scope.launch {
+            snackbarHostState.showSnackbar(if (granted) "Termux 启动桥接已授权" else "未授权 Termux 启动桥接")
+        }
+    }
     fun requestServerDirectory(action: PendingServerDirectoryAction) {
         pendingServerDirectoryAction = action
         directoryPickerLauncher.launch(serverDirectoryUriText?.let(Uri::parse))
@@ -266,10 +277,20 @@ private fun MCGoAppScaffold(
             scope.launch { snackbarHostState.showSnackbar("未找到服务器") }
             return
         }
-        if (!isRuntimeReady(appContext.filesDir.toPath(), targetServer.javaMajorVersion)) {
-            scope.launch {
-                snackbarHostState.showSnackbar("请先在设置里导入 Java ${targetServer.javaMajorVersion} 托管 JRE")
-            }
+        if (!TermuxRunCommandBridge.isTermuxInstalled(appContext)) {
+            onServersChange(servers.map { server ->
+                if (server.id == request.serverId) {
+                    server.markLaunchFailed("未安装 Termux；请安装 F-Droid/GitHub 版 Termux，并在 Termux 执行：pkg update && pkg install openjdk-21")
+                } else {
+                    server
+                }
+            })
+            scope.launch { snackbarHostState.showSnackbar("请先安装 Termux，并安装 OpenJDK") }
+            return
+        }
+        if (appContext.checkSelfPermission(TermuxRunCommandPermission) != PackageManager.PERMISSION_GRANTED) {
+            pendingStartRequest = request
+            termuxPermissionLauncher.launch(TermuxRunCommandPermission)
             return
         }
         val updatedServers = servers.map { server ->
@@ -277,7 +298,7 @@ private fun MCGoAppScaffold(
                 server
             } else {
                 server.startWithTunnel(tunnel = tunnel, startupPort = request.startupPort)
-                    .withLaunchProgress(8, "已提交启动任务，准备检查 Paper 文件")
+                    .withLaunchProgress(8, "已提交启动任务，准备通过 Termux 桥接运行")
             }
         }
         onServersChange(updatedServers)
@@ -295,6 +316,17 @@ private fun MCGoAppScaffold(
             pendingStartRequest = null
             pendingServerDirectoryAction = null
             startServerNow(pending)
+        }
+    }
+
+    LaunchedEffect(resumeStartAfterTermuxPermission) {
+        if (resumeStartAfterTermuxPermission) {
+            resumeStartAfterTermuxPermission = false
+            val pending = pendingStartRequest
+            if (pending != null) {
+                pendingStartRequest = null
+                startServerNow(pending)
+            }
         }
     }
 
@@ -554,13 +586,7 @@ private fun MCGoAppScaffold(
                             }
                         },
                         onStartServer = { serverId, tunnelId, startupPort ->
-                            val request = PendingStartRequest(serverId, tunnelId, startupPort)
-                            if (!hasServerDirectoryGrant()) {
-                                pendingStartRequest = request
-                                requestServerDirectory(PendingServerDirectoryAction.StartServer)
-                            } else {
-                                startServerNow(request)
-                            }
+                            startServerNow(PendingStartRequest(serverId, tunnelId, startupPort))
                         },
                         onStopServer = { serverId ->
                             val targetServer = servers.firstOrNull { it.id == serverId }
@@ -569,7 +595,7 @@ private fun MCGoAppScaffold(
                             }
                             onServersChange(updatedServers)
                             onPersistServers(updatedServers)
-                            PaperServerService.stop(appContext)
+                            PaperServerService.stop(appContext, serverId)
                             scope.launch {
                                 snackbarHostState.showSnackbar("${targetServer?.name ?: "服务器"} 已停止")
                             }
@@ -577,7 +603,7 @@ private fun MCGoAppScaffold(
                         onDeleteServer = { serverId ->
                             val targetServer = servers.firstOrNull { it.id == serverId }
                             if (targetServer?.isOnline == true) {
-                                PaperServerService.stop(appContext)
+                                PaperServerService.stop(appContext, serverId)
                             }
                             val updatedServers = servers.filterNot { it.id == serverId }
                             onServersChange(updatedServers)
@@ -689,7 +715,7 @@ private fun downloadSingleFileToPath(url: String, target: Path, onProgress: (Int
         connectTimeout = 20_000
         readTimeout = 60_000
         requestMethod = "GET"
-        setRequestProperty("User-Agent", "MC-GO/0.2.9")
+        setRequestProperty("User-Agent", "MC-GO/0.2.10")
     }
     try {
         val statusCode = connection.responseCode

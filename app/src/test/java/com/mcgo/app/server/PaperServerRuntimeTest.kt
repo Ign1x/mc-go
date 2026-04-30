@@ -22,9 +22,9 @@ class PaperServerRuntimeTest {
 
         assertThat(build).isEqualTo(227)
         assertThat(download).isEqualTo("paper-1.21.4-227.jar")
-        assertThat(buildPaperDownloadUrl("1.21.4", build, download)).isEqualTo(
-            "https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/227/downloads/paper-1.21.4-227.jar",
-        )
+        val url = "https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/227/downloads/paper-1.21.4-227.jar"
+        assertThat(buildPaperDownloadUrl("1.21.4", build, download)).isEqualTo(url)
+        assertThat(PaperDownloadArtifact("1.21.4", build, download, url).downloadUrl).isEqualTo(url)
     }
 
     @Test
@@ -42,19 +42,23 @@ class PaperServerRuntimeTest {
     }
 
     @Test
-    fun buildJavaLaunchCommand_usesManagedJavaPathAndPaperJar() {
-        val workDir = Files.createTempDirectory("mcgo-paper-command")
-        val javaHome = workDir.resolve("jre-21")
+    fun buildTermuxPaperLaunchScript_usesTermuxJavaWithoutExecutingManagedBinary() {
         val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
-        val prepared = preparePaperServerFiles(server, workDir)
+        val artifact = PaperDownloadArtifact(
+            version = "1.21.4",
+            build = 227,
+            downloadName = "paper-1.21.4-227.jar",
+            downloadUrl = "https://example.invalid/paper.jar",
+        )
 
-        val command = buildJavaLaunchCommand(server, prepared, javaHome)
+        val script = buildTermuxPaperLaunchScript(server, artifact)
 
-        assertThat(command.first()).isEqualTo(javaHome.resolve("bin/java").toString())
-        assertThat(command).contains("-Xmx2048M")
-        assertThat(command).contains("-jar")
-        assertThat(command).contains(prepared.jarPath.toString())
-        assertThat(command).contains("nogui")
+        assertThat(script).contains("Termux 桥接启动")
+        assertThat(script).contains("command -v java")
+        assertThat(script).contains("java '-Xms1024M' '-Xmx2048M' -jar")
+        assertThat(script).contains("https://example.invalid/paper.jar")
+        assertThat(script).doesNotContain("/bin/java")
+        assertThat(script).doesNotContain("files/jre")
     }
 
     @Test
@@ -82,7 +86,7 @@ class PaperServerRuntimeTest {
     }
     @Test
     fun paperDownloadUserAgentUsesCurrentVersion() {
-        assertThat(PaperDownloadUserAgent).isEqualTo("MC-GO/0.2.9")
+        assertThat(PaperDownloadUserAgent).isEqualTo("MC-GO/0.2.10")
     }
 
     @Test

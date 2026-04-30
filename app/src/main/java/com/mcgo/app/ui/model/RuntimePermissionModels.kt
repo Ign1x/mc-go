@@ -34,6 +34,7 @@ fun defaultRuntimePermissionState(
     serverDirectorySelected: Boolean,
     batteryOptimizationIgnored: Boolean,
     serverDirectoryUri: String? = null,
+    termuxRunCommandGranted: Boolean = false,
 ): RuntimePermissionState {
     fun item(
         id: String,
@@ -84,16 +85,30 @@ fun defaultRuntimePermissionState(
                 actionWhenMissing = "检查",
             ),
             item(
+                id = "termux-run-command",
+                title = "Termux 启动桥接",
+                description = "通过 Termux RUN_COMMAND 运行 OpenJDK，避免 Android 禁止执行应用私有目录里的下载二进制。",
+                granted = termuxRunCommandGranted,
+                androidPermission = "com.termux.permission.RUN_COMMAND",
+                required = true,
+                actionWhenMissing = "授权",
+                detail = if (termuxRunCommandGranted) {
+                    "已授权 MC-GO 调用 Termux；请确认 Termux 已安装 OpenJDK。"
+                } else {
+                    "需要安装 Termux，并在 Termux 设置 allow-external-apps=true。"
+                },
+            ),
+            item(
                 id = "server-directory",
                 title = "服务器目录",
-                description = "通过系统目录选择器授权服务器工作目录，启动、控制台与编辑都会复用该持久授权。",
+                description = "授权后用于导入、备份和编辑服务器文件；Termux 开服使用 Termux 主目录。",
                 granted = serverDirectorySelected,
-                required = true,
+                required = false,
                 actionWhenMissing = "授权",
                 detail = if (serverDirectorySelected) {
                     serverDirectoryUri?.let { "已持久授权：$it" } ?: "已持久授权服务器工作目录"
                 } else {
-                    "启动前必须授权一个服务器目录；MC-GO 不请求全部文件管理权限。"
+                    "未授权时仍可通过 Termux 启动；文件管理功能需要目录授权。"
                 },
             ),
             item(

@@ -108,7 +108,7 @@ Mobile frontend UI design, settings screen for a Minecraft server hosting app. E
 ---
 
 ## 推荐的统一设计语言
-如果你后续要把这些提示词转成真正的产品设计稿，建议统一采用以下语言：
+如果要把这些提示词转成真正的产品设计稿，建议统一采用以下语言：
 - **配色**：浅色基底 + 蓝绿科技感强调色
 - **质感**：卡片化、柔和阴影、少量玻璃拟态
 - **图标**：简洁线性图标，少量 Minecraft 方块/像素元素点缀

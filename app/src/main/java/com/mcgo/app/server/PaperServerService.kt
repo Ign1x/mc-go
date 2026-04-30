@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -16,13 +17,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.nio.file.Files
-import java.nio.file.Path
 
 class PaperServerService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var process: Process? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,14 +30,13 @@ class PaperServerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ActionStop -> stopRunningServer()
+            ActionStop -> stopRunningServer(intent)
             ActionStart -> startPaperServer(intent)
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        stopRunningServer()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -48,73 +44,63 @@ class PaperServerService : Service() {
     private fun startPaperServer(intent: Intent) {
         val server = intent.toServerCardState()
         startForeground(NotificationId, notification("正在准备 ${server.name}"))
-        publish(server, PaperServerEventStatus.Launching, 12, "正在准备服务器目录")
+        publish(server.id, PaperServerEventStatus.Launching, 12, "正在准备 Termux 桥接启动")
         serviceScope.launch {
             runCatching {
-                val root = filesDir.toPath().resolve("paper-servers")
-                val prepared = preparePaperServerFiles(server, root)
-                publish(server, PaperServerEventStatus.Launching, 22, "已写入 EULA 与 server.properties")
-                if (!Files.exists(prepared.jarPath)) {
-                    publish(server, PaperServerEventStatus.Launching, 28, "正在下载 Paper ${server.minecraftVersion}")
-                    downloadLatestPaperJar(server.minecraftVersion, prepared.jarPath) { progress ->
-                        publish(server, PaperServerEventStatus.Launching, progress.coerceIn(28, 76), "Paper 核心下载中 ${progress.coerceIn(0, 100)}%")
-                    }
-                } else {
-                    publish(server, PaperServerEventStatus.Launching, 76, "已复用本地 Paper 核心")
-                }
-                val javaHome = requireManagedJavaHome(filesDir.toPath(), server.javaMajorVersion)
-                publish(server, PaperServerEventStatus.Launching, 84, "正在使用 Java ${server.javaMajorVersion} 启动")
-                val command = buildJavaLaunchCommand(server, prepared, javaHome)
-                val runningProcess = ProcessBuilder(command)
-                    .directory(prepared.workDir.toFile())
-                    .redirectErrorStream(true)
-                    .start()
-                process = runningProcess
-                publish(server, PaperServerEventStatus.Running, 100, "进程已启动，控制台日志正在接入")
+                ensureTermuxReady()
+                publish(server.id, PaperServerEventStatus.Launching, 26, "正在解析 Paper ${server.minecraftVersion} 下载信息")
+                val artifact = resolveLatestPaperDownload(server.minecraftVersion)
+                publish(server.id, PaperServerEventStatus.Launching, 54, "已选择 Paper build ${artifact.build}")
+                publish(server.id, PaperServerEventStatus.Launching, 78, "正在交给 Termux OpenJDK 启动")
+                TermuxRunCommandBridge.startPaperServer(this@PaperServerService, server, artifact)
+                publish(
+                    server.id,
+                    PaperServerEventStatus.Running,
+                    100,
+                    "已交给 Termux 运行；日志路径：${termuxServerDirectory(server.id)}/mcgo-latest.log",
+                )
                 val notificationManager = getSystemService(NotificationManager::class.java)
-                notificationManager.notify(NotificationId, notification("${server.name} 正在运行"))
-                streamProcessLogs(server, runningProcess)
+                notificationManager.notify(NotificationId, notification("${server.name} 已交给 Termux 运行"))
             }.onFailure { error ->
-                publish(server, PaperServerEventStatus.Failed, 0, error.message ?: "启动失败")
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                publish(server.id, PaperServerEventStatus.Failed, 0, error.toUserFacingStartError(server.javaMajorVersion))
             }
-        }
-    }
-
-    private suspend fun streamProcessLogs(server: ServerCardState, runningProcess: Process) {
-        withContext(Dispatchers.IO) {
-            runningProcess.inputStream.bufferedReader().useLines { lines ->
-                lines.take(96).forEach { line ->
-                    if (line.isNotBlank()) publish(server, PaperServerEventStatus.Running, 100, line.take(160))
-                }
-            }
-        }
-        val exitCode = runningProcess.waitFor()
-        if (process === runningProcess) {
-            publish(server, PaperServerEventStatus.Stopped, 0, "服务器进程已退出：$exitCode")
-            process = null
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
 
-    private fun publish(server: ServerCardState, status: PaperServerEventStatus, progress: Int?, message: String) {
+    private fun stopRunningServer(intent: Intent) {
+        val serverId = intent.getStringExtra("id") ?: return stopSelf()
+        serviceScope.launch {
+            runCatching {
+                ensureTermuxReady()
+                TermuxRunCommandBridge.stopPaperServer(this@PaperServerService, serverId)
+                publish(serverId, PaperServerEventStatus.Stopped, 0, "已向 Termux 发送停止命令")
+            }.onFailure { error ->
+                publish(serverId, PaperServerEventStatus.Failed, 0, error.message ?: "Termux 停止命令发送失败")
+            }
+            stopSelf()
+        }
+    }
+
+    private fun ensureTermuxReady() {
+        if (!TermuxRunCommandBridge.isTermuxInstalled(this)) {
+            throw IllegalStateException("未安装 Termux。请安装 F-Droid/GitHub 版 Termux，并在 Termux 执行：pkg update && pkg install openjdk-21")
+        }
+        if (checkSelfPermission(TermuxRunCommandPermission) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("未授予 Termux RUN_COMMAND 权限。请在 MC-GO 设置 > 运行权限中授权 Termux 启动桥接，并在 Termux 的 ~/.termux/termux.properties 写入 allow-external-apps=true 后重启 Termux。")
+        }
+    }
+
+    private fun publish(serverId: String, status: PaperServerEventStatus, progress: Int?, message: String) {
         PaperServerEvents.publish(
             PaperServerEvent(
-                serverId = server.id,
+                serverId = serverId,
                 status = status,
                 progress = progress,
                 message = message,
             ),
         )
-    }
-
-    private fun stopRunningServer() {
-        process?.destroy()
-        process = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
     private fun ensureNotificationChannel() {
@@ -130,6 +116,11 @@ class PaperServerService : Service() {
         .setContentText(text)
         .setOngoing(true)
         .build()
+
+    private fun Throwable.toUserFacingStartError(javaMajorVersion: Int): String = when (this) {
+        is SecurityException -> message ?: "Termux RUN_COMMAND 权限未授权"
+        else -> message ?: "启动失败；请确认 Termux 已安装，并执行：${termuxJavaInstallHint(javaMajorVersion)}"
+    }
 
     companion object {
         private const val ChannelId = "mcgo_paper_server"
@@ -156,8 +147,13 @@ class PaperServerService : Service() {
             }
         }
 
-        fun stop(context: Context) {
-            context.startService(Intent(context, PaperServerService::class.java).apply { action = ActionStop })
+        fun stop(context: Context, serverId: String) {
+            context.startService(
+                Intent(context, PaperServerService::class.java).apply {
+                    action = ActionStop
+                    putExtra("id", serverId)
+                },
+            )
         }
     }
 }

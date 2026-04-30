@@ -1,5 +1,9 @@
 package com.mcgo.app.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.FlowRow
@@ -22,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -36,6 +41,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -51,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -254,6 +261,8 @@ private fun ServerCard(
 
 @Composable
 private fun RuntimeProgressPanel(server: ServerCardState) {
+    val context = LocalContext.current
+    val logsText = remember(server.runtimeLogs) { server.runtimeLogs.joinToString(separator = "\n") }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -265,12 +274,31 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(
-                text = "${server.launchProgress.coerceIn(0, 100)}%",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "${server.launchProgress.coerceIn(0, 100)}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                )
+                IconButton(
+                    enabled = logsText.isNotBlank(),
+                    onClick = {
+                        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                            ClipData.newPlainText("${server.name} MC-GO logs", logsText),
+                        )
+                        Toast.makeText(context, "日志已复制", Toast.LENGTH_SHORT).show()
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ContentCopy,
+                        contentDescription = if (server.launchStatus == ServerLaunchStatus.Failed) "复制失败日志" else "复制运行日志",
+                    )
+                }
+            }
         }
         LinearProgressIndicator(
             progress = { server.launchProgress.coerceIn(0, 100) / 100f },
