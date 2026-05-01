@@ -91,6 +91,64 @@ class JavaRuntimeManagerTest {
     }
 
     @Test
+    fun installPojavRuntimeFromApk_detectsJava11ComponentByRuntimeReleaseVersion() {
+        val filesDir = Files.createTempDirectory("mcgo-jre-install-java11")
+        val apk = filesDir.resolve("pojav-java11.apk")
+        writeFakePojavApk(
+            apk = apk,
+            component = "jre-11",
+            universal = tarXz(
+                file("./release", "JAVA_VERSION=\"11.0.25\"\nOS_ARCH=\"aarch64\"\n"),
+            ),
+            abiArchiveName = "bin-arm64.tar.xz",
+            abi = tarXz(
+                directory("./bin"),
+                file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
+            ),
+        )
+
+        val javaHome = installPojavRuntimeFromApk(
+            apkPath = apk,
+            filesDir = filesDir,
+            majorVersion = 11,
+            androidAbi = "arm64-v8a",
+        )
+
+        assertThat(javaHome).isEqualTo(filesDir.resolve("jre/java-11"))
+        assertThat(String(Files.readAllBytes(javaHome.resolve("release")))).contains("11.0.25")
+        assertThat(scanInstalledJavaVersions(filesDir)).contains(11)
+    }
+
+    @Test
+    fun installPojavRuntimeFromApk_rejectsPreferredComponentWhenReleaseVersionDoesNotMatchRequestedSlot() {
+        val filesDir = Files.createTempDirectory("mcgo-jre-install-java11-mismatch")
+        val apk = filesDir.resolve("pojav-java11-mismatch.apk")
+        writeFakePojavApk(
+            apk = apk,
+            component = "jre-11",
+            universal = tarXz(
+                file("./release", "JAVA_VERSION=\"17.0.14\"\nOS_ARCH=\"aarch64\"\n"),
+            ),
+            abiArchiveName = "bin-arm64.tar.xz",
+            abi = tarXz(
+                directory("./bin"),
+                file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
+            ),
+        )
+
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            installPojavRuntimeFromApk(
+                apkPath = apk,
+                filesDir = filesDir,
+                majorVersion = 11,
+                androidAbi = "arm64-v8a",
+            )
+        }
+
+        assertThat(error).hasMessageThat().contains("Java 11")
+    }
+
+    @Test
     fun deleteJavaRuntime_removesOnlyRequestedManagedRuntime() {
         val filesDir = Files.createTempDirectory("mcgo-jre-delete")
         Files.createDirectories(filesDir.resolve("jre/java-17/bin"))

@@ -54,6 +54,28 @@ class JavaRuntimeLayoutTest {
         assertThat(layout.libraryPath).contains(javaHome.resolve("lib/aarch64").toString())
     }
 
+    @Test
+    fun resolveManagedJavaRuntimeLayout_preloadsDependenciesBeforeLibzip() {
+        val javaHome = createRuntimeLayout(
+            osArch = "aarch64",
+            withDedicatedJliDirectory = true,
+        ).also { home ->
+            Files.write(home.resolve("lib/aarch64/libzip.so"), byteArrayOf(1))
+            Files.write(home.resolve("lib/aarch64/libjimage.so"), byteArrayOf(1))
+        }
+
+        val layout = resolveManagedJavaRuntimeLayout(
+            javaHome = javaHome,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+        val names = layout.bootstrapLibraries.map { it.fileName.toString() }
+
+        assertThat(names.indexOf("libjava.so")).isLessThan(names.indexOf("libzip.so"))
+        assertThat(names.indexOf("libjvm.so")).isLessThan(names.indexOf("libzip.so"))
+        assertThat(names.indexOf("libnet.so")).isLessThan(names.indexOf("libnio.so"))
+    }
+
     private fun createRuntimeLayout(
         osArch: String,
         withDedicatedJliDirectory: Boolean,

@@ -229,7 +229,11 @@ private fun ServerCard(
             RuntimeProgressPanel(server = server)
         }
         Spacer(modifier = Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             AssistChip(
                 onClick = onActionClick,
                 label = { Text(stringResource(R.string.server_action_console)) },

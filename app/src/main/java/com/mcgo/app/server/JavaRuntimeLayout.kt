@@ -113,7 +113,7 @@ fun resolveManagedJavaRuntimeLayout(
     val bootstrapLibraries = buildList {
         add(libjliPath)
         add(libjvmPath)
-        listOf("libzip.so", "libverify.so", "libjava.so", "libnet.so", "libnio.so")
+        listOf("libverify.so", "libjava.so", "libnet.so", "libnio.so", "libzip.so", "libjimage.so")
             .map(javaLibDir::resolve)
             .filter { Files.isRegularFile(it) }
             .forEach(::add)

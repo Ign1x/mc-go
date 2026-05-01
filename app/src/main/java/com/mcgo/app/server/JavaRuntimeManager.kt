@@ -86,9 +86,9 @@ fun installPojavRuntimeFromApk(
     majorVersion: Int,
     androidAbi: String = Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
 ): Path = installRuntimeWithStaging(filesDir = filesDir, majorVersion = majorVersion) { tempDir ->
-    val component = pojavComponentName(majorVersion)
     val abiArchive = abiArchiveName(androidAbi)
     ZipFile(apkPath.toFile()).use { zip ->
+        val component = resolvePojavRuntimeComponent(zip, majorVersion)
         fun extractComponentArchive(archiveName: String) {
             val entryName = "assets/components/$component/$archiveName"
             val entry = zip.getEntry(entryName)
@@ -244,9 +244,61 @@ private fun applyExecutableBit(path: Path, mode: Int) {
 
 private fun pojavComponentName(majorVersion: Int): String = when (majorVersion) {
     8 -> "jre"
+    11 -> "jre-11"
     17 -> "jre-new"
     21 -> "jre-21"
     else -> throw JavaRuntimeInstallException("Java $majorVersion 暂未在 Pojav 安装包中找到可用组件，请导入匹配的 Android JRE 包")
+}
+
+fun resolvePojavRuntimeComponent(zip: ZipFile, majorVersion: Int): String {
+    val preferredComponent = runCatching { pojavComponentName(majorVersion) }.getOrNull()
+    val availableComponents = zip.entries().asSequence()
+        .map { it.name }
+        .filter { it.startsWith("assets/components/") }
+        .mapNotNull { entry -> entry.split('/').getOrNull(2) }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .toList()
+    preferredComponent
+        ?.takeIf { it in availableComponents }
+        ?.takeIf { detectPojavComponentMajorVersion(zip, it) == majorVersion }
+        ?.let { return it }
+    val detectedComponent = availableComponents.firstOrNull { component ->
+        detectPojavComponentMajorVersion(zip, component) == majorVersion
+    }
+    return detectedComponent
+        ?: throw JavaRuntimeInstallException("Java $majorVersion 暂未在所选 Pojav APK 中找到可用组件，请导入匹配的 Android JRE 包")
+}
+
+private fun detectPojavComponentMajorVersion(zip: ZipFile, component: String): Int? {
+    val releaseEntry = zip.getEntry("assets/components/$component/universal.tar.xz") ?: return null
+    return zip.getInputStream(releaseEntry).use { input ->
+        XZCompressorInputStream(input).use { xz ->
+            TarArchiveInputStream(xz).use { tar ->
+                var entry = tar.nextTarEntry
+                while (entry != null) {
+                    val normalized = entry.name.replace('\\', '/').removePrefix("./").trimEnd('/')
+                    if (!entry.isDirectory && normalized == "release") {
+                        val releaseText = tar.readBytes().toString(Charsets.UTF_8)
+                        return@use parseJavaMajorVersionFromReleaseText(releaseText)
+                    }
+                    entry = tar.nextTarEntry
+                }
+                null
+            }
+        }
+    }
+}
+
+private fun parseJavaMajorVersionFromReleaseText(releaseText: String): Int? {
+    val version = releaseText.lineSequence()
+        .firstOrNull { it.trimStart().startsWith("JAVA_VERSION=") }
+        ?.substringAfter('=')
+        ?.trim()
+        ?.trim('"')
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    return if (version.startsWith("1.8")) 8 else version.substringBefore('.').toIntOrNull()
 }
 
 private fun deleteRecursively(path: Path) {

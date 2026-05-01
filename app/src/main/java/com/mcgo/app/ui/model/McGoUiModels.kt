@@ -178,7 +178,7 @@ fun requestServerDeletion(server: ServerCardState): ServerCardState = server.cop
 fun finalizePendingServerDeletion(servers: List<ServerCardState>): List<ServerCardState> =
     servers.filterNot { it.pendingDeletion && !it.isRuntimeBusy() }
 
-fun isManagedRuntimeProvisioningAvailable(majorVersion: Int): Boolean = majorVersion in setOf(8, 17, 21)
+fun isManagedRuntimeProvisioningAvailable(majorVersion: Int): Boolean = majorVersion in setOf(8, 11, 17, 21)
 
 fun unsupportedManagedRuntimeReason(majorVersion: Int): String? = if (isManagedRuntimeProvisioningAvailable(majorVersion)) {
     null

@@ -66,6 +66,8 @@ import com.mcgo.app.server.JavaRuntimeArchiveKind
 import com.mcgo.app.server.JavaRuntimeArchiveSource
 import com.mcgo.app.server.JavaRuntimeInstallException
 import com.mcgo.app.server.OfficialPojavLauncherApkSha256
+import com.mcgo.app.server.OfficialPojavLauncherCertSha256
+import com.mcgo.app.server.abiArchiveName
 import com.mcgo.app.server.classifyJavaRuntimeArchiveName
 import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.fallbackPaperVersions
@@ -74,6 +76,7 @@ import com.mcgo.app.server.filterProvisionablePaperVersions
 import com.mcgo.app.server.installPojavRuntimeFromApk
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
 import com.mcgo.app.server.managedPaperServerLogFile
+import com.mcgo.app.server.resolvePojavRuntimeComponent
 import com.mcgo.app.server.scanInstalledJavaVersions
 import com.mcgo.app.server.sha256Hex
 import com.mcgo.app.server.validateRuntimeArchiveTrust
@@ -119,6 +122,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.cert.X509Certificate
+import java.util.jar.JarFile
 
 private const val RuntimePrefsName = "mcgo_runtime_permissions"
 private const val ServerDirectoryUriKey = "server_directory_uri"
@@ -728,6 +733,7 @@ private fun downloadAndInstallPojavRuntime(
             source = JavaRuntimeArchiveSource.OfficialDownload,
             sha256 = sha256Hex(tempFile),
             displayName = "PojavLauncher.apk",
+            signerCertSha256 = OfficialPojavLauncherCertSha256,
         )
         onProgress(86)
         return installPojavRuntimeFromApk(
@@ -759,7 +765,7 @@ private fun downloadSingleFileToPath(url: String, target: Path, onProgress: (Int
         connectTimeout = 20_000
         readTimeout = 60_000
         requestMethod = "GET"
-        setRequestProperty("User-Agent", "MC-GO/0.2.11")
+        setRequestProperty("User-Agent", "MC-GO/0.2.12")
     }
     try {
         val statusCode = connection.responseCode
@@ -821,6 +827,10 @@ private fun installJavaRuntimeFromUri(
             source = JavaRuntimeArchiveSource.UserImport,
             sha256 = sha256Hex(tempFile),
             displayName = displayName,
+            signerCertSha256 = when (archiveKind) {
+                JavaRuntimeArchiveKind.PojavApk -> pojavRuntimeComponentSignerCertSha256(tempFile, majorVersion)
+                JavaRuntimeArchiveKind.TarXz -> null
+            },
         )
         when (archiveKind) {
             JavaRuntimeArchiveKind.PojavApk -> installPojavRuntimeFromApk(
@@ -836,6 +846,34 @@ private fun installJavaRuntimeFromUri(
         Files.deleteIfExists(tempFile)
     }
 }
+
+private fun pojavRuntimeComponentSignerCertSha256(apkPath: Path, majorVersion: Int): String? = runCatching {
+    JarFile(apkPath.toFile(), true).use { jar ->
+        val component = resolvePojavRuntimeComponent(jar.asZipFile(), majorVersion)
+        val targetEntries = listOf(
+            "assets/components/$component/universal.tar.xz",
+            "assets/components/$component/${abiArchiveName(Build.SUPPORTED_ABIS.firstOrNull().orEmpty())}",
+        )
+        for (entryName in targetEntries) {
+            val entry = jar.getJarEntry(entryName) ?: return@runCatching null
+            jar.getInputStream(entry).use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (input.read(buffer) >= 0) {
+                    // consume to trigger certificate verification
+                }
+            }
+            val certificate = entry.certificates
+                ?.firstOrNull()
+                ?.let { it as? X509Certificate }
+                ?: return@runCatching null
+            val digest = sha256Hex(certificate.encoded.inputStream())
+            if (digest != OfficialPojavLauncherCertSha256) return@runCatching digest
+        }
+        OfficialPojavLauncherCertSha256
+    }
+}.getOrNull()
+
+private fun JarFile.asZipFile(): java.util.zip.ZipFile = this
 
 private fun copyUriToTempFile(
     context: Context,

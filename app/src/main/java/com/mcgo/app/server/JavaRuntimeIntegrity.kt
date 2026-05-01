@@ -12,6 +12,7 @@ enum class JavaRuntimeArchiveSource {
 }
 
 const val OfficialPojavLauncherApkSha256 = "cc8479e1600e3a094d2184bbb88b19809ce41a0f8f7882aefd4527c9d032fc56"
+const val OfficialPojavLauncherCertSha256 = "d0d0886a0d7e3486e6627f9b8011027fe3c6b0fb09424530b6d7be14f8c2cc33"
 
 fun sha256Hex(path: Path): String = Files.newInputStream(path).use(::sha256Hex)
 
@@ -31,14 +32,27 @@ fun validateRuntimeArchiveTrust(
     source: JavaRuntimeArchiveSource,
     sha256: String,
     displayName: String,
+    signerCertSha256: String? = null,
 ) {
     val normalizedSha = sha256.lowercase()
     when (archiveKind) {
         JavaRuntimeArchiveKind.PojavApk -> {
-            if (normalizedSha != OfficialPojavLauncherApkSha256) {
-                throw JavaRuntimeInstallException(
-                    "JRE 安装包可信校验失败：$displayName 的 SHA-256 不匹配官方 Pojav 发行版",
-                )
+            when (source) {
+                JavaRuntimeArchiveSource.OfficialDownload -> {
+                    if (normalizedSha != OfficialPojavLauncherApkSha256) {
+                        throw JavaRuntimeInstallException(
+                            "JRE 安装包可信校验失败：$displayName 的 SHA-256 不匹配官方 Pojav 发行版",
+                        )
+                    }
+                }
+                JavaRuntimeArchiveSource.UserImport -> {
+                    val normalizedSigner = signerCertSha256?.lowercase()
+                    if (normalizedSigner != OfficialPojavLauncherCertSha256) {
+                        throw JavaRuntimeInstallException(
+                            "JRE 安装包可信校验失败：$displayName 的签名证书与官方 Pojav APK 不匹配",
+                        )
+                    }
+                }
             }
         }
         JavaRuntimeArchiveKind.TarXz -> {

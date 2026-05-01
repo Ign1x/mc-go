@@ -56,6 +56,47 @@ class JavaRuntimeImportTest {
     }
 
     @Test
+    fun validateRuntimeArchiveTrust_allowsUserImportedPojavApkWithOfficialSignerFingerprint() {
+        validateRuntimeArchiveTrust(
+            archiveKind = JavaRuntimeArchiveKind.PojavApk,
+            source = JavaRuntimeArchiveSource.UserImport,
+            sha256 = "deadbeef",
+            displayName = "community-pojav.apk",
+            signerCertSha256 = OfficialPojavLauncherCertSha256,
+        )
+    }
+
+    @Test
+    fun validateRuntimeArchiveTrust_rejectsUserImportedPojavApkWithUnexpectedSignerFingerprint() {
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            validateRuntimeArchiveTrust(
+                archiveKind = JavaRuntimeArchiveKind.PojavApk,
+                source = JavaRuntimeArchiveSource.UserImport,
+                sha256 = "deadbeef",
+                displayName = "community-pojav.apk",
+                signerCertSha256 = "badbad",
+            )
+        }
+
+        assertThat(error).hasMessageThat().contains("签名证书")
+    }
+
+    @Test
+    fun validateRuntimeArchiveTrust_rejectsUnsignedOrUnverifiedImportedPojavApk() {
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            validateRuntimeArchiveTrust(
+                archiveKind = JavaRuntimeArchiveKind.PojavApk,
+                source = JavaRuntimeArchiveSource.UserImport,
+                sha256 = "deadbeef",
+                displayName = "community-pojav.apk",
+                signerCertSha256 = null,
+            )
+        }
+
+        assertThat(error).hasMessageThat().contains("签名证书")
+    }
+
+    @Test
     fun validateRuntimeArchiveTrust_rejectsUntrustedImportedTarXz() {
         val error = assertFailsWith<JavaRuntimeInstallException> {
             validateRuntimeArchiveTrust(
