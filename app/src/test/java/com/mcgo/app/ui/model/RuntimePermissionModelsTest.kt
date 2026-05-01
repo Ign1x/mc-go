@@ -20,7 +20,6 @@ class RuntimePermissionModelsTest {
             "前台服务通知",
             "保持 CPU 唤醒",
             "前台服务运行",
-            "Termux 启动桥接",
             "服务器目录",
             "电池优化白名单",
         )
@@ -28,7 +27,6 @@ class RuntimePermissionModelsTest {
             "android.permission.POST_NOTIFICATIONS",
             "android.permission.WAKE_LOCK",
             "android.permission.FOREGROUND_SERVICE",
-            "com.termux.permission.RUN_COMMAND",
         )
         assertThat(state.permissionItems.mapNotNull { it.androidPermission }).doesNotContain("android.permission." + "MANAGE_EXTERNAL_" + "STORAGE")
 
@@ -47,12 +45,7 @@ class RuntimePermissionModelsTest {
         assertThat(directory.status).isEqualTo(RuntimePermissionStatus.NeedsRequest)
         assertThat(directory.required).isFalse()
         assertThat(directory.actionLabel).isEqualTo("授权")
-        assertThat(directory.detail).contains("仍可通过 Termux 启动")
-
-        val termuxBridge = state.permissionItems.single { it.title == "Termux 启动桥接" }
-        assertThat(termuxBridge.status).isEqualTo(RuntimePermissionStatus.NeedsRequest)
-        assertThat(termuxBridge.required).isTrue()
-        assertThat(termuxBridge.detail).contains("allow-external-apps")
+        assertThat(directory.detail).contains("仅影响导入、备份与编辑")
     }
 
     @Test
@@ -63,10 +56,9 @@ class RuntimePermissionModelsTest {
             foregroundServiceGranted = true,
             serverDirectorySelected = true,
             batteryOptimizationIgnored = true,
-            termuxRunCommandGranted = true,
         )
 
         assertThat(state.permissionItems.all { it.status == RuntimePermissionStatus.Granted }).isTrue()
-        assertThat(state.permissionItems.map { it.actionLabel }).containsExactly(null, null, null, null, null, null)
+        assertThat(state.permissionItems.map { it.actionLabel }).containsExactly(null, null, null, null, null)
     }
 }

@@ -2,9 +2,9 @@ package com.mcgo.app.ui
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.app.ActivityManager
 import android.provider.OpenableColumns
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,37 +56,48 @@ import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
 import com.mcgo.app.network.measureTcpLatency
 import com.mcgo.app.network.parseTcpEndpoint
-import com.mcgo.app.server.PaperServerService
-import com.mcgo.app.server.PaperServerEvents
 import com.mcgo.app.server.PaperServerEventStatus
-import com.mcgo.app.server.TermuxRunCommandBridge
-import com.mcgo.app.server.TermuxRunCommandPermission
+import com.mcgo.app.server.PaperServerEvents
+import com.mcgo.app.server.PaperServerService
+import com.mcgo.app.server.reconcilePersistedRuntimeState
+import com.mcgo.app.server.reducePaperRuntimeEvent
+import com.mcgo.app.server.stopRequestMessage
 import com.mcgo.app.server.JavaRuntimeArchiveKind
+import com.mcgo.app.server.JavaRuntimeArchiveSource
 import com.mcgo.app.server.JavaRuntimeInstallException
+import com.mcgo.app.server.OfficialPojavLauncherApkSha256
 import com.mcgo.app.server.classifyJavaRuntimeArchiveName
 import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fetchPaperVersions
+import com.mcgo.app.server.filterProvisionablePaperVersions
 import com.mcgo.app.server.installPojavRuntimeFromApk
-import com.mcgo.app.server.installRuntimeFromTarXz
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
+import com.mcgo.app.server.managedPaperServerLogFile
 import com.mcgo.app.server.scanInstalledJavaVersions
+import com.mcgo.app.server.sha256Hex
+import com.mcgo.app.server.validateRuntimeArchiveTrust
 import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearancePreferencesSaver
 import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.ServerCardState
-import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.TunnelLatencyResult
 import com.mcgo.app.ui.model.applyTunnelLatencyResults
 import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.detachDeletedTunnel
+import com.mcgo.app.ui.model.isManagedRuntimeProvisioningAvailable
 import com.mcgo.app.ui.model.removeTunnelProfile
+import com.mcgo.app.ui.model.finalizePendingServerDeletion
+import com.mcgo.app.ui.model.canStartServerFromUi
+import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markLaunchFailed
-import com.mcgo.app.ui.model.markLaunchRunning
+import com.mcgo.app.ui.model.markUnsupportedManagedRuntime
+import com.mcgo.app.ui.model.requestServerDeletion
+import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.startWithTunnel
 import com.mcgo.app.ui.model.withLaunchProgress
 import com.mcgo.app.ui.model.stopServer
@@ -112,6 +123,7 @@ import java.nio.file.Path
 private const val RuntimePrefsName = "mcgo_runtime_permissions"
 private const val ServerDirectoryUriKey = "server_directory_uri"
 private const val ServerDirectoryGrantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+private const val PaperRuntimeProcessSuffix = ":paper_runtime"
 
 private data class PendingStartRequest(
     val serverId: String,
@@ -149,11 +161,26 @@ fun MCGoApp() {
     var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
         mutableStateOf(AppearancePreferences())
     }
+    val runtimeAliveOnLaunch = remember(context) { isPaperRuntimeProcessAlive(context) }
+    val persistedServers = remember(serverStore) { serverStore.load() }
+    val reconciledPersistedServers = remember(persistedServers, runtimeAliveOnLaunch) {
+        finalizePendingServerDeletion(
+            reconcilePersistedRuntimeState(
+                servers = persistedServers,
+                runtimeAlive = runtimeAliveOnLaunch,
+            ).map { it.markUnsupportedManagedRuntime() },
+        )
+    }
     var servers by remember(serverStore) {
-        mutableStateOf(serverStore.load())
+        mutableStateOf(reconciledPersistedServers)
     }
     var tunnels by remember(tunnelStore) { mutableStateOf(tunnelStore.load()) }
-    val paperVersions by produceState(initialValue = fallbackPaperVersions()) {
+    LaunchedEffect(reconciledPersistedServers) {
+        if (reconciledPersistedServers != persistedServers) {
+            serverStore.save(reconciledPersistedServers)
+        }
+    }
+    val paperVersions by produceState(initialValue = filterProvisionablePaperVersions(fallbackPaperVersions())) {
         value = withContext(Dispatchers.IO) { fetchPaperVersions() }
     }
 
@@ -226,9 +253,7 @@ private fun MCGoAppScaffold(
     var serverDirectoryUriText by remember(appContext) {
         mutableStateOf(runtimePrefs.getString(ServerDirectoryUriKey, null))
     }
-    var pendingStartRequest by remember { mutableStateOf<PendingStartRequest?>(null) }
     var pendingServerDirectoryAction by remember { mutableStateOf<PendingServerDirectoryAction?>(null) }
-    var resumeStartAfterTermuxPermission by remember { mutableStateOf(false) }
     val latestServers by rememberUpdatedState(servers)
     fun persistServerDirectoryUri(uri: Uri?) {
         serverDirectoryUriText = uri?.toString()
@@ -253,17 +278,8 @@ private fun MCGoAppScaffold(
             persistServerDirectoryUri(uri)
             scope.launch { snackbarHostState.showSnackbar("服务器目录已授权") }
         } else {
-            pendingStartRequest = null
             pendingServerDirectoryAction = null
-            scope.launch { snackbarHostState.showSnackbar("启动、控制台和编辑都需要先授权服务器目录") }
-        }
-    }
-    val termuxPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        resumeStartAfterTermuxPermission = granted
-        scope.launch {
-            snackbarHostState.showSnackbar(if (granted) "Termux 启动桥接已授权" else "未授权 Termux 启动桥接")
+            scope.launch { snackbarHostState.showSnackbar("目录功能需要先授权服务器目录") }
         }
     }
     fun requestServerDirectory(action: PendingServerDirectoryAction) {
@@ -277,31 +293,52 @@ private fun MCGoAppScaffold(
             scope.launch { snackbarHostState.showSnackbar("未找到服务器") }
             return
         }
-        if (!TermuxRunCommandBridge.isTermuxInstalled(appContext)) {
-            onServersChange(servers.map { server ->
+        if (!canStartServerFromUi(targetServer)) {
+            scope.launch { snackbarHostState.showSnackbar("${targetServer.name} 已在启动或运行中") }
+            return
+        }
+        if (servers.any { it.id != request.serverId && it.isRuntimeBusy() }) {
+            scope.launch { snackbarHostState.showSnackbar("当前版本先支持单服运行，请先停止其他服务器") }
+            return
+        }
+        if (targetServer.javaMajorVersion !in installedJavaVersions) {
+            val guidance = if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion)) {
+                "缺少 Java ${targetServer.javaMajorVersion} 托管运行时，请先到设置 > Java 管理安装"
+            } else {
+                "当前版本暂不提供 Java ${targetServer.javaMajorVersion} 托管运行时；该 Minecraft 版本暂不支持一键开服"
+            }
+            val failedServers = servers.map { server ->
                 if (server.id == request.serverId) {
-                    server.markLaunchFailed("未安装 Termux；请安装 F-Droid/GitHub 版 Termux，并在 Termux 执行：pkg update && pkg install openjdk-21")
+                    server.markLaunchFailed(guidance)
                 } else {
                     server
                 }
-            })
-            scope.launch { snackbarHostState.showSnackbar("请先安装 Termux，并安装 OpenJDK") }
+            }
+            onServersChange(failedServers)
+            onPersistServers(failedServers)
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion)) {
+                        "请先安装 Java ${targetServer.javaMajorVersion} 托管 JRE"
+                    } else {
+                        "当前暂不支持该 Minecraft 版本所需的 Java ${targetServer.javaMajorVersion} 运行时"
+                    },
+                )
+            }
             return
         }
-        if (appContext.checkSelfPermission(TermuxRunCommandPermission) != PackageManager.PERMISSION_GRANTED) {
-            pendingStartRequest = request
-            termuxPermissionLauncher.launch(TermuxRunCommandPermission)
-            return
-        }
+        val runtimeLogPath = managedPaperServerLogFile(appContext.filesDir.toPath(), request.serverId).toString()
         val updatedServers = servers.map { server ->
             if (server.id != request.serverId) {
                 server
             } else {
                 server.startWithTunnel(tunnel = tunnel, startupPort = request.startupPort)
-                    .withLaunchProgress(8, "已提交启动任务，准备通过 Termux 桥接运行")
+                    .copy(runtimeLogPath = runtimeLogPath)
+                    .withLaunchProgress(8, "已提交启动任务，准备使用内置 HotSpot 运行")
             }
         }
         onServersChange(updatedServers)
+        onPersistServers(updatedServers)
         updatedServers.firstOrNull { it.id == request.serverId }?.let { PaperServerService.start(appContext, it) }
         scope.launch {
             snackbarHostState.showSnackbar(
@@ -310,52 +347,34 @@ private fun MCGoAppScaffold(
         }
     }
 
-    LaunchedEffect(serverDirectoryUriText) {
-        val pending = pendingStartRequest
-        if (pending != null && hasServerDirectoryGrant()) {
-            pendingStartRequest = null
-            pendingServerDirectoryAction = null
-            startServerNow(pending)
-        }
-    }
-
-    LaunchedEffect(resumeStartAfterTermuxPermission) {
-        if (resumeStartAfterTermuxPermission) {
-            resumeStartAfterTermuxPermission = false
-            val pending = pendingStartRequest
-            if (pending != null) {
-                pendingStartRequest = null
-                startServerNow(pending)
-            }
-        }
-    }
-
     LaunchedEffect(Unit) {
         PaperServerEvents.events.collect { event ->
-            onServersChange(
+            val updatedServers = finalizePendingServerDeletion(
                 latestServers.map { server ->
-                    if (server.id != event.serverId) {
-                        server
-                    } else {
-                        when (event.status) {
-                            PaperServerEventStatus.Running -> server.markLaunchRunning(event.message)
-                            PaperServerEventStatus.Failed -> server.markLaunchFailed(event.message)
-                            PaperServerEventStatus.Stopped -> server.copy(
-                                isOnline = false,
-                                launchStatus = ServerLaunchStatus.Stopped,
-                                launchProgress = 0,
-                                runtimeLogs = (server.runtimeLogs + event.message).takeLast(12),
-                            )
-                            else -> server.withLaunchProgress(
-                                progress = event.progress ?: server.launchProgress,
-                                logLine = event.message,
-                                status = ServerLaunchStatus.Launching,
-                                online = false,
-                            )
-                        }
-                    }
+                    if (server.id == event.serverId) reducePaperRuntimeEvent(server, event) else server
                 },
             )
+            onServersChange(updatedServers)
+            onPersistServers(updatedServers)
+        }
+    }
+
+    LaunchedEffect(appContext) {
+        while (true) {
+            val serverSnapshot = latestServers
+            if (serverSnapshot.any { it.isRuntimeBusy() } && !isPaperRuntimeProcessAlive(appContext)) {
+                val reconciledServers = finalizePendingServerDeletion(
+                    reconcilePersistedRuntimeState(
+                        servers = serverSnapshot,
+                        runtimeAlive = false,
+                    ).map { it.markUnsupportedManagedRuntime() },
+                )
+                if (reconciledServers != serverSnapshot) {
+                    onServersChange(reconciledServers)
+                    onPersistServers(reconciledServers)
+                }
+            }
+            delay(1500)
         }
     }
 
@@ -591,19 +610,38 @@ private fun MCGoAppScaffold(
                         onStopServer = { serverId ->
                             val targetServer = servers.firstOrNull { it.id == serverId }
                             val updatedServers = servers.map { server ->
-                                if (server.id == serverId) server.stopServer() else server
+                                if (server.id == serverId) {
+                                    server.copy(
+                                        launchStatus = ServerLaunchStatus.Stopping,
+                                        launchProgress = 0,
+                                        runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(12),
+                                    )
+                                } else {
+                                    server
+                                }
                             }
                             onServersChange(updatedServers)
                             onPersistServers(updatedServers)
                             PaperServerService.stop(appContext, serverId)
                             scope.launch {
-                                snackbarHostState.showSnackbar("${targetServer?.name ?: "服务器"} 已停止")
+                                snackbarHostState.showSnackbar("已请求停止 ${targetServer?.name ?: "服务器"}")
                             }
                         },
                         onDeleteServer = { serverId ->
                             val targetServer = servers.firstOrNull { it.id == serverId }
-                            if (targetServer?.isOnline == true) {
+                            if (targetServer?.isRuntimeBusy() == true) {
+                                val updatedServers = finalizePendingServerDeletion(
+                                    servers.map { server ->
+                                        if (server.id == serverId) requestServerDeletion(server) else server
+                                    },
+                                )
+                                onServersChange(updatedServers)
+                                onPersistServers(updatedServers)
                                 PaperServerService.stop(appContext, serverId)
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("已请求删除 ${targetServer.name}，将在服务停止后自动移除")
+                                }
+                                return@ServersScreen
                             }
                             val updatedServers = servers.filterNot { it.id == serverId }
                             onServersChange(updatedServers)
@@ -685,6 +723,12 @@ private fun downloadAndInstallPojavRuntime(
     try {
         val urls = runtimeDownloadUrlsForRegion(context)
         downloadFileToPath(urls, tempFile) { progress -> onProgress(progress.coerceIn(1, 82)) }
+        validateRuntimeArchiveTrust(
+            archiveKind = JavaRuntimeArchiveKind.PojavApk,
+            source = JavaRuntimeArchiveSource.OfficialDownload,
+            sha256 = sha256Hex(tempFile),
+            displayName = "PojavLauncher.apk",
+        )
         onProgress(86)
         return installPojavRuntimeFromApk(
             apkPath = tempFile,
@@ -715,7 +759,7 @@ private fun downloadSingleFileToPath(url: String, target: Path, onProgress: (Int
         connectTimeout = 20_000
         readTimeout = 60_000
         requestMethod = "GET"
-        setRequestProperty("User-Agent", "MC-GO/0.2.10")
+        setRequestProperty("User-Agent", "MC-GO/0.2.11")
     }
     try {
         val statusCode = connection.responseCode
@@ -748,6 +792,15 @@ private fun runtimeDownloadUrlsForRegion(context: Context): List<String> {
     return if (language == "zh") listOf(mirror, github) else listOf(github, mirror)
 }
 
+private fun isPaperRuntimeProcessAlive(context: Context): Boolean {
+    val activityManager = context.getSystemService(ActivityManager::class.java) ?: return false
+    val targetProcessName = context.packageName + PaperRuntimeProcessSuffix
+    @Suppress("DEPRECATION")
+    return activityManager.runningAppProcesses?.any { process ->
+        process.processName == targetProcessName
+    } == true
+}
+
 private const val PojavLauncherApkUrl = "https://github.com/PojavLauncherTeam/PojavLauncher/releases/download/gladiolus/PojavLauncher.apk"
 
 private fun installJavaRuntimeFromUri(
@@ -763,16 +816,20 @@ private fun installJavaRuntimeFromUri(
         suffix = javaRuntimeArchiveTempSuffix(displayName),
     )
     return try {
+        validateRuntimeArchiveTrust(
+            archiveKind = archiveKind,
+            source = JavaRuntimeArchiveSource.UserImport,
+            sha256 = sha256Hex(tempFile),
+            displayName = displayName,
+        )
         when (archiveKind) {
             JavaRuntimeArchiveKind.PojavApk -> installPojavRuntimeFromApk(
                 apkPath = tempFile,
                 filesDir = context.filesDir.toPath(),
                 majorVersion = majorVersion,
             )
-            JavaRuntimeArchiveKind.TarXz -> installRuntimeFromTarXz(
-                archivePath = tempFile,
-                filesDir = context.filesDir.toPath(),
-                majorVersion = majorVersion,
+            JavaRuntimeArchiveKind.TarXz -> throw JavaRuntimeInstallException(
+                "当前仅允许通过可信校验的官方 Pojav APK 导入运行时；tar.xz/txz 直导入已暂时禁用",
             )
         }
     } finally {

@@ -62,12 +62,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
+import com.mcgo.app.server.initialProvisionablePaperVersion
+import com.mcgo.app.server.resolveProvisionablePaperVersionOptions
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.formatPlayerCapacity
+import com.mcgo.app.ui.model.isRuntimeBusy
+import java.io.File
 
 @Composable
 fun ServersScreen(
@@ -230,17 +235,27 @@ private fun ServerCard(
                 label = { Text(stringResource(R.string.server_action_console)) },
                 leadingIcon = { Icon(Icons.Outlined.Dns, contentDescription = null) },
             )
+            val startEnabled = canStartServerFromUi(server)
+            val stopEnabled = server.isRuntimeBusy()
             AssistChip(
-                onClick = { if (server.isOnline) onStopClick() else onStartClick() },
+                onClick = {
+                    when {
+                        stopEnabled -> onStopClick()
+                        startEnabled -> onStartClick()
+                    }
+                },
+                enabled = stopEnabled || startEnabled,
                 label = {
                     Text(
-                        if (server.isOnline) stringResource(R.string.server_action_stop)
-                        else stringResource(R.string.server_action_start),
+                        when {
+                            stopEnabled -> if (server.launchStatus == ServerLaunchStatus.Launching) "停止启动" else stringResource(R.string.server_action_stop)
+                            else -> stringResource(R.string.server_action_start)
+                        },
                     )
                 },
                 leadingIcon = {
                     Icon(
-                        imageVector = if (server.isOnline) Icons.Outlined.StopCircle else Icons.Outlined.PlayCircle,
+                        imageVector = if (stopEnabled) Icons.Outlined.StopCircle else Icons.Outlined.PlayCircle,
                         contentDescription = null,
                     )
                 },
@@ -262,7 +277,7 @@ private fun ServerCard(
 @Composable
 private fun RuntimeProgressPanel(server: ServerCardState) {
     val context = LocalContext.current
-    val logsText = remember(server.runtimeLogs) { server.runtimeLogs.joinToString(separator = "\n") }
+    val fallbackLogsText = remember(server.runtimeLogs) { server.runtimeLogs.joinToString(separator = "\n") }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -285,10 +300,16 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
                     fontWeight = FontWeight.Medium,
                 )
                 IconButton(
-                    enabled = logsText.isNotBlank(),
+                    enabled = fallbackLogsText.isNotBlank() || server.runtimeLogPath != null,
                     onClick = {
+                        val copiedText = server.runtimeLogPath
+                            ?.let(::File)
+                            ?.takeIf { it.isFile }
+                            ?.readText()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: fallbackLogsText
                         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                            ClipData.newPlainText("${server.name} MC-GO logs", logsText),
+                            ClipData.newPlainText("${server.name} MC-GO logs", copiedText),
                         )
                         Toast.makeText(context, "日志已复制", Toast.LENGTH_SHORT).show()
                     },
@@ -340,9 +361,9 @@ private fun CreatePaperServerDialog(
     onDismiss: () -> Unit,
     onCreate: (ServerCardState) -> Unit,
 ) {
-    val versionOptions = paperVersions.ifEmpty { listOf("1.21.4") }
+    val versionOptions = remember(paperVersions) { resolveProvisionablePaperVersionOptions(paperVersions) }
     var name by remember { mutableStateOf("Paper 生存服") }
-    var minecraftVersion by remember(versionOptions) { mutableStateOf(versionOptions.last()) }
+    var minecraftVersion by remember(versionOptions) { mutableStateOf(initialProvisionablePaperVersion(versionOptions)) }
     var versionMenuExpanded by remember { mutableStateOf(false) }
     var maxPlayers by remember { mutableStateOf("20") }
     var memoryMb by remember { mutableStateOf("2048") }

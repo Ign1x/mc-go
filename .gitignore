@@ -3,5 +3,6 @@
 /.idea/
 *.iml
 **/build/
+**/.cxx/
 /captures/
 .DS_Store

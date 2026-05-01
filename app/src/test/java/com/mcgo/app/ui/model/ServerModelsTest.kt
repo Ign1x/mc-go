@@ -1,6 +1,9 @@
 package com.mcgo.app.ui.model
 
 import com.google.common.truth.Truth.assertThat
+import com.mcgo.app.server.PaperServerEvent
+import com.mcgo.app.server.PaperServerEventStatus
+import com.mcgo.app.server.reducePaperRuntimeEvent
 import kotlin.test.Test
 
 class ServerModelsTest {
@@ -50,5 +53,149 @@ class ServerModelsTest {
         assertThat(started.launchPlan?.arguments).contains("-Xmx2048M")
         assertThat(started.launchPlan?.arguments).contains("nogui")
         assertThat(started.activeTunnelLabel).isNull()
+    }
+
+    @Test
+    fun canStartServerFromUi_rejectsLaunchingOrRunningServerButAllowsReadyOrFailedState() {
+        val ready = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+        val launching = ready.startPaperServer(tunnel = null, startupPort = 25566)
+        val running = launching.markLaunchRunning()
+        val failed = ready.markLaunchFailed("boom")
+
+        assertThat(canStartServerFromUi(ready)).isTrue()
+        assertThat(canStartServerFromUi(launching)).isFalse()
+        assertThat(canStartServerFromUi(running)).isFalse()
+        assertThat(canStartServerFromUi(failed)).isTrue()
+    }
+
+    @Test
+    fun recommendedJavaMajorVersion_matchesPaperCompatibilityTable() {
+        assertThat(recommendedJavaMajorVersion("1.11")).isEqualTo(8)
+        assertThat(recommendedJavaMajorVersion("1.12.2")).isEqualTo(11)
+        assertThat(recommendedJavaMajorVersion("1.16.5")).isEqualTo(16)
+        assertThat(recommendedJavaMajorVersion("1.17.1")).isEqualTo(17)
+        assertThat(recommendedJavaMajorVersion("1.19.4")).isEqualTo(17)
+        assertThat(recommendedJavaMajorVersion("1.20.1")).isEqualTo(21)
+        assertThat(recommendedJavaMajorVersion("1.21.4")).isEqualTo(21)
+    }
+
+    @Test
+    fun reducePaperRuntimeEvent_failedClearsTransientPortAndTunnelState() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.example.com:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38100",
+        )
+        val launching = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+        ).startPaperServer(tunnel = tunnel, startupPort = 25577)
+
+        val reduced = reducePaperRuntimeEvent(
+            launching,
+            PaperServerEvent(
+                serverId = launching.id,
+                status = PaperServerEventStatus.Failed,
+                progress = 0,
+                message = "JLI_Launch failed",
+            ),
+        )
+
+        assertThat(reduced.launchStatus).isEqualTo(ServerLaunchStatus.Failed)
+        assertThat(reduced.port).isEqualTo(launching.defaultPort)
+        assertThat(reduced.activeTunnelLabel).isNull()
+    }
+
+    @Test
+    fun reducePaperRuntimeEvent_stoppedClearsTransientPortAndTunnelState() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.example.com:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38100",
+        )
+        val launching = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+        ).startPaperServer(tunnel = tunnel, startupPort = 25577)
+
+        val reduced = reducePaperRuntimeEvent(
+            launching,
+            PaperServerEvent(
+                serverId = launching.id,
+                status = PaperServerEventStatus.Stopped,
+                progress = 0,
+                message = "Paper 已退出",
+            ),
+        )
+
+        assertThat(reduced.launchStatus).isEqualTo(ServerLaunchStatus.Stopped)
+        assertThat(reduced.port).isEqualTo(launching.defaultPort)
+        assertThat(reduced.activeTunnelLabel).isNull()
+    }
+
+    @Test
+    fun reducePaperRuntimeEvent_stoppingPreservesRuntimeBindingUntilRuntimeActuallyExits() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.example.com:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38100",
+        )
+        val launching = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+        ).startPaperServer(tunnel = tunnel, startupPort = 25577)
+        val running = launching.markLaunchRunning("Paper 已监听 127.0.0.1:25577")
+
+        val reduced = reducePaperRuntimeEvent(
+            running,
+            PaperServerEvent(
+                serverId = running.id,
+                status = PaperServerEventStatus.Stopping,
+                progress = 0,
+                message = "已请求停止内置 Paper 进程，等待运行时退出",
+            ),
+        )
+
+        assertThat(reduced.launchStatus).isEqualTo(ServerLaunchStatus.Stopping)
+        assertThat(reduced.isOnline).isTrue()
+        assertThat(reduced.port).isEqualTo(running.port)
+        assertThat(reduced.activeTunnelLabel).isEqualTo(running.activeTunnelLabel)
+        assertThat(reduced.runtimeLogs.last()).contains("已请求停止")
+    }
+
+    @Test
+    fun pendingDeletion_blocksRestartUntilTerminalCleanupCompletes() {
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+        val pending = requestServerDeletion(server)
+        val finalized = finalizePendingServerDeletion(listOf(pending))
+
+        assertThat(pending.pendingDeletion).isTrue()
+        assertThat(canStartServerFromUi(pending)).isFalse()
+        assertThat(finalized).isEmpty()
     }
 }

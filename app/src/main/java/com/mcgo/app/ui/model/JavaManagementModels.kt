@@ -24,13 +24,11 @@ fun defaultJavaManagementState(
     downloadProgressByMajor: Map<Int, Int> = emptyMap(),
 ): JavaManagementState = JavaManagementState(
     sectionTitle = "托管 JRE",
-    summaryLabel = "JRE 8 / 11 / 17 / 21 / 25",
+    summaryLabel = "JRE 8 / 17 / 21",
     runtimeOptions = listOf(
-        jreOption(8, "旧版 Minecraft 1.16 及以下服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor),
-        jreOption(11, "部分过渡版本与插件工具链使用；支持在线下载或导入 Android JRE 包。", installedVersions, downloadProgressByMajor),
-        jreOption(17, "Minecraft 1.18 - 1.20.4 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor),
-        jreOption(21, "Minecraft 1.20.5+ / 1.21.x Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor),
-        jreOption(25, "Minecraft 与 Paper 新版本使用；支持在线下载或导入 Android JRE 包。", installedVersions, downloadProgressByMajor),
+        jreOption(8, "Minecraft 1.7.10 - 1.11 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
+        jreOption(17, "Minecraft 1.17 - 1.19 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
+        jreOption(21, "Minecraft 1.20 - 1.21.x Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
     ),
 )
 
@@ -39,7 +37,8 @@ private fun jreOption(
     description: String,
     installedVersions: Set<Int>,
     downloadProgressByMajor: Map<Int, Int>,
-    onlineInstallAvailable: Boolean = true,
+    onlineInstallAvailable: Boolean,
+    importLabel: String?,
 ): JavaRuntimeOption {
     val installed = majorVersion in installedVersions
     val progress = downloadProgressByMajor[majorVersion]?.coerceIn(0, 100)
@@ -57,7 +56,8 @@ private fun jreOption(
             installed -> null
             progress != null -> null
             onlineInstallAvailable -> "下载安装"
-            else -> "导入文件"
+            importLabel != null -> importLabel
+            else -> null
         },
         deleteActionLabel = if (installed && progress == null) "删除" else null,
         downloadProgressPercent = progress,

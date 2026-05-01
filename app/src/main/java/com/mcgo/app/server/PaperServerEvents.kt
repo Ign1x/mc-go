@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 enum class PaperServerEventStatus {
     Launching,
+    Stopping,
     Running,
     Failed,
     Stopped,

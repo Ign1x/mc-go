@@ -9,13 +9,14 @@ plugins {
 android {
     namespace = "com.mcgo.app"
     compileSdk = 36
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.mcgo.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.2.10"
+        versionCode = 21
+        versionName = "0.2.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -38,6 +39,13 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     packaging {

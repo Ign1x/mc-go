@@ -6,25 +6,23 @@ import kotlin.test.Test
 class JavaManagementModelsTest {
 
     @Test
-    fun defaultJavaManagementState_listsAppManagedJreVersionsForMinecraftWithoutPermissionItems() {
+    fun defaultJavaManagementState_listsOnlyProvisionableManagedJreVersionsForMinecraft() {
         val state = defaultJavaManagementState()
 
         assertThat(state.summaryLabel).contains("JRE")
         assertThat(state.sectionTitle).isEqualTo("托管 JRE")
-        assertThat(state.runtimeOptions.map { it.majorVersion }).containsExactly(8, 11, 17, 21, 25).inOrder()
+        assertThat(state.runtimeOptions.map { it.majorVersion }).containsExactly(8, 17, 21).inOrder()
         assertThat(state.runtimeOptions.map { it.title }).containsExactly(
             "Java 8",
-            "Java 11",
             "Java 17",
             "Java 21",
-            "Java 25",
         ).inOrder()
         assertThat(state.runtimeOptions.all { it.managedByApp }).isTrue()
-        assertThat(state.runtimeOptions.map { it.statusLabel }).containsExactly("未安装", "未安装", "未安装", "未安装", "未安装")
-        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("下载安装", "下载安装", "下载安装", "下载安装", "下载安装")
-        assertThat(state.runtimeOptions.map { it.deleteActionLabel }).containsExactly(null, null, null, null, null)
+        assertThat(state.runtimeOptions.map { it.statusLabel }).containsExactly("未安装", "未安装", "未安装")
+        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("下载安装", "下载安装", "下载安装")
+        assertThat(state.runtimeOptions.map { it.deleteActionLabel }).containsExactly(null, null, null)
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("Minecraft")
-        assertThat(state.runtimeOptions.filter { it.onlineInstallAvailable }.map { it.majorVersion }).containsExactly(8, 11, 17, 21, 25).inOrder()
+        assertThat(state.runtimeOptions.filter { it.onlineInstallAvailable }.map { it.majorVersion }).containsExactly(8, 17, 21).inOrder()
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("系统 " + "PATH")
     }
 

@@ -8,23 +8,32 @@ import kotlin.test.Test
 class PaperServerRuntimeTest {
 
     @Test
-    fun buildPaperDownloadUrl_usesLatestBuildAndDownloadNameFromApi() {
+    fun buildPaperDownloadUrl_usesLatestBuildNameAndSha256FromApi() {
         val build = parseLatestPaperBuild(
             """
                 {"project_id":"paper","project_name":"Paper","version":"1.21.4","builds":[1,2,227]}
             """.trimIndent(),
         )
+        val sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         val download = parsePaperDownloadName(
             """
-                {"downloads":{"application":{"name":"paper-1.21.4-227.jar","sha256":"abc"}}}
+                {"downloads":{"application":{"name":"paper-1.21.4-227.jar","sha256":"$sha256"}}}
+            """.trimIndent(),
+        )
+        val parsedSha256 = parsePaperDownloadSha256(
+            """
+                {"downloads":{"application":{"name":"paper-1.21.4-227.jar","sha256":"$sha256"}}}
             """.trimIndent(),
         )
 
         assertThat(build).isEqualTo(227)
         assertThat(download).isEqualTo("paper-1.21.4-227.jar")
+        assertThat(parsedSha256).isEqualTo(sha256)
         val url = "https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/227/downloads/paper-1.21.4-227.jar"
         assertThat(buildPaperDownloadUrl("1.21.4", build, download)).isEqualTo(url)
-        assertThat(PaperDownloadArtifact("1.21.4", build, download, url).downloadUrl).isEqualTo(url)
+        val artifact = PaperDownloadArtifact("1.21.4", build, download, sha256, url)
+        assertThat(artifact.sha256).isEqualTo(sha256)
+        assertThat(artifact.downloadUrl).isEqualTo(url)
     }
 
     @Test
@@ -42,23 +51,14 @@ class PaperServerRuntimeTest {
     }
 
     @Test
-    fun buildTermuxPaperLaunchScript_usesTermuxJavaWithoutExecutingManagedBinary() {
-        val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
-        val artifact = PaperDownloadArtifact(
-            version = "1.21.4",
-            build = 227,
-            downloadName = "paper-1.21.4-227.jar",
-            downloadUrl = "https://example.invalid/paper.jar",
-        )
+    fun managedPaperServerPaths_useAppPrivateDirectoryAndLogFile() {
+        val filesDir = Files.createTempDirectory("mcgo-paper-paths")
 
-        val script = buildTermuxPaperLaunchScript(server, artifact)
+        val serverDir = managedPaperServerDirectory(filesDir, "server-demo")
+        val logFile = managedPaperServerLogFile(filesDir, "server-demo")
 
-        assertThat(script).contains("Termux 桥接启动")
-        assertThat(script).contains("command -v java")
-        assertThat(script).contains("java '-Xms1024M' '-Xmx2048M' -jar")
-        assertThat(script).contains("https://example.invalid/paper.jar")
-        assertThat(script).doesNotContain("/bin/java")
-        assertThat(script).doesNotContain("files/jre")
+        assertThat(serverDir).isEqualTo(filesDir.resolve("servers/server-demo"))
+        assertThat(logFile).isEqualTo(filesDir.resolve("servers/server-demo/logs/mcgo-latest.log"))
     }
 
     @Test
@@ -84,9 +84,10 @@ class PaperServerRuntimeTest {
         assertThat(error).hasMessageThat().contains("Java 17")
         assertThat(isRuntimeReady(filesDir, 17)).isFalse()
     }
+
     @Test
     fun paperDownloadUserAgentUsesCurrentVersion() {
-        assertThat(PaperDownloadUserAgent).isEqualTo("MC-GO/0.2.10")
+        assertThat(PaperDownloadUserAgent).isEqualTo("MC-GO/0.2.11")
     }
 
     @Test
@@ -101,4 +102,21 @@ class PaperServerRuntimeTest {
         assertThat(events).containsExactly(20, 50, 80).inOrder()
     }
 
+    @Test
+    fun shouldReusePaperJar_requiresMatchingRecordedSha256() {
+        val tempDir = Files.createTempDirectory("mcgo-paper-jar-reuse")
+        val missing = tempDir.resolve("missing.jar")
+        val empty = tempDir.resolve("empty.jar")
+        val valid = tempDir.resolve("paper.jar")
+        Files.write(empty, byteArrayOf())
+        Files.write(valid, "verified-paper".toByteArray())
+
+        assertThat(shouldReusePaperJar(missing)).isFalse()
+        assertThat(shouldReusePaperJar(empty)).isFalse()
+        assertThat(shouldReusePaperJar(valid)).isFalse()
+        Files.write(paperJarSha256File(valid), "deadbeef\n".toByteArray())
+        assertThat(shouldReusePaperJar(valid)).isFalse()
+        Files.write(paperJarSha256File(valid), (sha256Hex(valid) + "\n").toByteArray())
+        assertThat(shouldReusePaperJar(valid)).isTrue()
+    }
 }

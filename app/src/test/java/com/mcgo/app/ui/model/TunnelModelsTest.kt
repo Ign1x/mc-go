@@ -214,4 +214,22 @@ class TunnelModelsTest {
         assertThat(stopped.selectedTunnelId).isEqualTo(tunnel.id)
         assertThat(directRestart.port).isEqualTo(25567)
     }
+
+    @Test
+    fun launchingServer_isRuntimeBusyAndStopResetsBusyState() {
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+
+        val launching = server.startWithTunnel(tunnel = null, startupPort = 25566)
+        val stopped = launching.stopServer()
+
+        assertThat(canStartServerFromUi(launching)).isFalse()
+        assertThat(launching.isRuntimeBusy()).isTrue()
+        assertThat(canStartServerFromUi(stopped)).isTrue()
+        assertThat(stopped.isRuntimeBusy()).isFalse()
+    }
 }

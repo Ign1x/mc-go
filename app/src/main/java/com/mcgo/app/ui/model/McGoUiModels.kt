@@ -24,6 +24,7 @@ enum class MinecraftServerType(val label: String) {
 enum class ServerLaunchStatus(val label: String) {
     Ready("就绪"),
     Launching("启动中"),
+    Stopping("停止中"),
     Running("运行中"),
     Failed("启动失败"),
     Stopped("已停止"),
@@ -64,6 +65,8 @@ data class ServerCardState(
     val launchPlan: PaperLaunchPlan? = null,
     val launchProgress: Int = if (isOnline) 100 else 0,
     val runtimeLogs: List<String> = emptyList(),
+    val runtimeLogPath: String? = null,
+    val pendingDeletion: Boolean = false,
 )
 
 data class SettingsSectionState(
@@ -95,9 +98,10 @@ fun recommendedJavaMajorVersion(minecraftVersion: String): Int {
     val minor = parts.getOrNull(1) ?: return 21
     val patch = parts.getOrNull(2) ?: 0
     return when {
-        minor <= 16 -> 8
-        minor == 17 -> 11
-        minor in 18..20 && patch <= 4 -> 17
+        minor <= 11 -> 8
+        minor in 12..16 && patch <= 4 -> 11
+        minor == 16 && patch >= 5 -> 16
+        minor in 17..19 -> 17
         else -> 21
     }
 }
@@ -154,10 +158,46 @@ fun ServerCardState.markLaunchRunning(logLine: String = "服务端进程已进�
 
 fun ServerCardState.markLaunchFailed(error: String): ServerCardState = copy(
     isOnline = false,
+    port = defaultPort,
+    activeTunnelLabel = null,
     launchStatus = ServerLaunchStatus.Failed,
     launchProgress = 0,
     runtimeLogs = (runtimeLogs + "启动失败：$error").takeLast(12),
 )
+
+fun ServerCardState.isRuntimeBusy(): Boolean =
+    isOnline || launchStatus == ServerLaunchStatus.Launching || launchStatus == ServerLaunchStatus.Stopping || launchStatus == ServerLaunchStatus.Running
+
+fun canStartServerFromUi(server: ServerCardState): Boolean = !server.isRuntimeBusy() && !server.pendingDeletion
+
+fun requestServerDeletion(server: ServerCardState): ServerCardState = server.copy(
+    pendingDeletion = true,
+    runtimeLogs = (server.runtimeLogs + "已请求删除，待服务停止后自动移除").takeLast(12),
+)
+
+fun finalizePendingServerDeletion(servers: List<ServerCardState>): List<ServerCardState> =
+    servers.filterNot { it.pendingDeletion && !it.isRuntimeBusy() }
+
+fun isManagedRuntimeProvisioningAvailable(majorVersion: Int): Boolean = majorVersion in setOf(8, 17, 21)
+
+fun unsupportedManagedRuntimeReason(majorVersion: Int): String? = if (isManagedRuntimeProvisioningAvailable(majorVersion)) {
+    null
+} else {
+    "当前版本暂不提供 Java $majorVersion 托管运行时；该 Minecraft 版本暂不支持一键开服"
+}
+
+fun ServerCardState.markUnsupportedManagedRuntime(): ServerCardState = unsupportedManagedRuntimeReason(javaMajorVersion)
+    ?.let { reason ->
+        copy(
+            isOnline = false,
+            port = defaultPort,
+            activeTunnelLabel = null,
+            launchStatus = ServerLaunchStatus.Failed,
+            launchProgress = 0,
+            runtimeLogs = (runtimeLogs + reason).distinct().takeLast(12),
+        )
+    }
+    ?: this
 
 private fun parseMemoryMb(memoryLabel: String): Int {
     val value = memoryLabel.substringBefore(' ').toFloatOrNull() ?: return 1024

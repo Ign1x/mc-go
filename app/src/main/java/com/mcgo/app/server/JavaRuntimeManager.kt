@@ -34,8 +34,9 @@ fun classifyJavaRuntimeArchiveName(name: String): JavaRuntimeArchiveKind {
     val normalizedName = name.lowercase()
     return when {
         normalizedName.endsWith(".apk") -> JavaRuntimeArchiveKind.PojavApk
-        normalizedName.endsWith(".tar.xz") || normalizedName.endsWith(".txz") -> JavaRuntimeArchiveKind.TarXz
-        else -> throw JavaRuntimeInstallException("仅支持 Pojav APK 或 Android JRE tar.xz/txz 包")
+        normalizedName.endsWith(".tar.xz") || normalizedName.endsWith(".txz") ->
+            throw JavaRuntimeInstallException("当前仅支持通过可信校验的官方 Pojav APK 导入托管 JRE")
+        else -> throw JavaRuntimeInstallException("当前仅支持通过可信校验的官方 Pojav APK 导入托管 JRE")
     }
 }
 

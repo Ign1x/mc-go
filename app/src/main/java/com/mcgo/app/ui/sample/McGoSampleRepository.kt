@@ -11,8 +11,8 @@ import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.SettingsCategoryIcon
 import com.mcgo.app.ui.model.SettingsSectionState
 import com.mcgo.app.ui.model.ThemeModePreference
-import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.formatBatteryCurrent
 
 object McGoSampleRepository {
@@ -61,7 +61,7 @@ object McGoSampleRepository {
         ),
         SettingsSectionState(
             title = "Java 管理",
-            subtitle = "JRE 8/11/17/21/25 托管",
+            subtitle = "JRE 8/17/21 托管",
             highlight = defaultJavaManagementState().summaryLabel,
             icon = SettingsCategoryIcon.JavaRuntime,
         ),

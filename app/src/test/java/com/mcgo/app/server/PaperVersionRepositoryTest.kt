@@ -18,4 +18,28 @@ class PaperVersionRepositoryTest {
     fun fallbackVersions_includeOldAndModernMinecraftVersions() {
         assertThat(fallbackPaperVersions()).containsAtLeast("1.8.8", "1.12.2", "1.16.5", "1.20.1", "1.21.4")
     }
+
+    @Test
+    fun filterProvisionablePaperVersions_removesUnsupportedJavaRequirementsAndPrereleases() {
+        assertThat(
+            filterProvisionablePaperVersions(
+                listOf("1.8.8", "1.12.2", "1.16.5", "1.17.1", "1.20.1", "1.21.4", "1.21.9-pre2"),
+            ),
+        ).containsExactly("1.8.8", "1.17.1", "1.20.1", "1.21.4").inOrder()
+    }
+
+    @Test
+    fun resolveProvisionablePaperVersionOptions_filtersDialogDefaultsThroughSameProvisioningRule() {
+        assertThat(
+            resolveProvisionablePaperVersionOptions(
+                listOf("1.12.2", "1.16.5", "1.17.1", "1.20.1", "1.21.4"),
+            ),
+        ).containsExactly("1.17.1", "1.20.1", "1.21.4").inOrder()
+    }
+
+    @Test
+    fun initialProvisionablePaperVersion_usesFilteredNewestVersionAndFallsBackWhenNeeded() {
+        assertThat(initialProvisionablePaperVersion(listOf("1.12.2", "1.20.1", "1.21.4"))).isEqualTo("1.21.4")
+        assertThat(initialProvisionablePaperVersion(listOf("1.12.2", "1.16.5"))).isEqualTo("1.21.4")
+    }
 }

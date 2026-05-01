@@ -27,7 +27,23 @@ class ServerProfileStore(
             val memoryMb = properties.getProperty(prefix + "memoryMb")?.toIntOrNull() ?: 2048
             val defaultPort = properties.getProperty(prefix + "defaultPort")?.toIntOrNull() ?: 25565
             val worldName = properties.getProperty(prefix + "worldName") ?: "world"
-            val serverType = enumValueOrNull<MinecraftServerType>(properties.getProperty(prefix + "serverType")) ?: MinecraftServerType.Paper
+            val serverType = enumValueOrNull<MinecraftServerType>(properties.getProperty(prefix + "serverType"))
+                ?: MinecraftServerType.Paper
+            val launchStatus = enumValueOrNull<ServerLaunchStatus>(properties.getProperty(prefix + "launchStatus"))
+                ?: ServerLaunchStatus.Ready
+            val isOnline = properties.getProperty(prefix + "isOnline")?.toBooleanStrictOrNull()
+                ?: (launchStatus == ServerLaunchStatus.Running)
+            val port = properties.getProperty(prefix + "port")?.toIntOrNull() ?: defaultPort
+            val selectedTunnelId = properties.getProperty(prefix + "selectedTunnelId")
+            val activeTunnelLabel = properties.getProperty(prefix + "activeTunnelLabel")
+            val launchProgress = properties.getProperty(prefix + "launchProgress")?.toIntOrNull()
+                ?: if (isOnline) 100 else 0
+            val runtimeLogPath = properties.getProperty(prefix + "runtimeLogPath")
+            val pendingDeletion = properties.getProperty(prefix + "pendingDeletion")?.toBooleanStrictOrNull() ?: false
+            val runtimeLogCount = properties.getProperty(prefix + "runtimeLogCount")?.toIntOrNull() ?: 0
+            val runtimeLogs = (0 until runtimeLogCount).mapNotNull { logIndex ->
+                properties.getProperty(prefix + "runtimeLog.$logIndex")
+            }
             when (serverType) {
                 MinecraftServerType.Paper -> createPaperServer(
                     name = name,
@@ -38,9 +54,16 @@ class ServerProfileStore(
                     worldName = worldName,
                 ).copy(
                     id = id,
-                    isOnline = false,
-                    launchStatus = ServerLaunchStatus.Ready,
+                    port = port,
+                    isOnline = isOnline,
+                    selectedTunnelId = selectedTunnelId,
+                    activeTunnelLabel = activeTunnelLabel,
+                    launchStatus = launchStatus,
                     launchPlan = null,
+                    launchProgress = launchProgress,
+                    runtimeLogs = runtimeLogs,
+                    runtimeLogPath = runtimeLogPath,
+                    pendingDeletion = pendingDeletion,
                 )
             }
         }
@@ -49,7 +72,7 @@ class ServerProfileStore(
     fun save(servers: List<ServerCardState>) {
         storePath.parent?.let { parent -> Files.createDirectories(parent) }
         val properties = Properties()
-        properties.setProperty("version", "1")
+        properties.setProperty("version", "2")
         properties.setProperty("count", servers.size.toString())
         servers.forEachIndexed { index, server ->
             val prefix = "server.$index."
@@ -60,7 +83,19 @@ class ServerProfileStore(
             properties.setProperty(prefix + "maxPlayers", server.maxPlayers.toString())
             properties.setProperty(prefix + "memoryMb", server.memoryMb.toString())
             properties.setProperty(prefix + "defaultPort", server.defaultPort.toString())
+            properties.setProperty(prefix + "port", server.port.toString())
             properties.setProperty(prefix + "worldName", server.worldName)
+            properties.setProperty(prefix + "isOnline", server.isOnline.toString())
+            properties.setProperty(prefix + "launchStatus", server.launchStatus.name)
+            properties.setProperty(prefix + "launchProgress", server.launchProgress.toString())
+            properties.setProperty(prefix + "runtimeLogCount", server.runtimeLogs.size.toString())
+            server.selectedTunnelId?.let { properties.setProperty(prefix + "selectedTunnelId", it) }
+            server.activeTunnelLabel?.let { properties.setProperty(prefix + "activeTunnelLabel", it) }
+            server.runtimeLogPath?.let { properties.setProperty(prefix + "runtimeLogPath", it) }
+            properties.setProperty(prefix + "pendingDeletion", server.pendingDeletion.toString())
+            server.runtimeLogs.forEachIndexed { logIndex, logLine ->
+                properties.setProperty(prefix + "runtimeLog.$logIndex", logLine)
+            }
         }
         Files.newOutputStream(storePath).use { output ->
             properties.store(output, "MC-GO server profiles")

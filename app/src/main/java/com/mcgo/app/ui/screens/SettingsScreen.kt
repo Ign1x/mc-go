@@ -59,7 +59,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.mcgo.app.server.TermuxRunCommandPermission
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.AccentPreset
 import com.mcgo.app.ui.model.AppearancePreferences
@@ -133,14 +132,6 @@ fun SettingsScreen(
     ) { granted ->
         postNotificationsGranted = granted
     }
-    var termuxRunCommandGranted by remember {
-        mutableStateOf(context.checkSelfPermission(TermuxRunCommandPermission) == PackageManager.PERMISSION_GRANTED)
-    }
-    val termuxPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        termuxRunCommandGranted = granted
-    }
     @Suppress("UNUSED_VARIABLE")
     val keepServerDirectoryCallback = onServerDirectorySelected
     var pendingJavaInstallVersion by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -155,7 +146,7 @@ fun SettingsScreen(
     }
     val requestJavaArchive: (Int) -> Unit = { version ->
         pendingJavaInstallVersion = version
-        javaArchivePickerLauncher.launch(arrayOf("application/vnd.android.package-archive", "application/x-xz", "application/octet-stream"))
+        javaArchivePickerLauncher.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
     }
     val runtimePermissionState = defaultRuntimePermissionState(
         postNotificationsGranted = postNotificationsGranted,
@@ -168,7 +159,6 @@ fun SettingsScreen(
         serverDirectorySelected = serverDirectoryUri != null,
         batteryOptimizationIgnored = batteryOptimizationIgnored,
         serverDirectoryUri = serverDirectoryUri,
-        termuxRunCommandGranted = termuxRunCommandGranted,
     )
     val onRuntimePermissionAction: (RuntimePermissionItem) -> Unit = { item ->
         when (item.id) {
@@ -176,7 +166,6 @@ fun SettingsScreen(
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
             "server-directory" -> onRequestServerDirectory()
-            "termux-run-command" -> termuxPermissionLauncher.launch(TermuxRunCommandPermission)
             "battery-optimization" -> {
                 val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     Intent(
