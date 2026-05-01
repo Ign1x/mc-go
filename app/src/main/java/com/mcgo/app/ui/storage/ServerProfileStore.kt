@@ -4,6 +4,7 @@ import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.createPaperServer
+import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
@@ -29,6 +30,7 @@ class ServerProfileStore(
             val worldName = properties.getProperty(prefix + "worldName") ?: "world"
             val serverType = enumValueOrNull<MinecraftServerType>(properties.getProperty(prefix + "serverType"))
                 ?: MinecraftServerType.Paper
+            val requestedJavaMajorVersion = properties.getProperty(prefix + "javaMajorVersion")?.toIntOrNull()
             val launchStatus = enumValueOrNull<ServerLaunchStatus>(properties.getProperty(prefix + "launchStatus"))
                 ?: ServerLaunchStatus.Ready
             val isOnline = properties.getProperty(prefix + "isOnline")?.toBooleanStrictOrNull()
@@ -54,6 +56,10 @@ class ServerProfileStore(
                     worldName = worldName,
                 ).copy(
                     id = id,
+                    javaMajorVersion = migrateManagedJavaMajorVersion(
+                        minecraftVersion = minecraftVersion,
+                        requestedJavaMajorVersion = requestedJavaMajorVersion,
+                    ),
                     port = port,
                     isOnline = isOnline,
                     selectedTunnelId = selectedTunnelId,
@@ -100,6 +106,18 @@ class ServerProfileStore(
         Files.newOutputStream(storePath).use { output ->
             properties.store(output, "MC-GO server profiles")
         }
+    }
+}
+
+private fun migrateManagedJavaMajorVersion(
+    minecraftVersion: String,
+    requestedJavaMajorVersion: Int?,
+): Int {
+    val recommended = recommendedJavaMajorVersion(minecraftVersion)
+    return when (requestedJavaMajorVersion) {
+        null -> recommended
+        11, 16 -> recommended
+        else -> requestedJavaMajorVersion
     }
 }
 

@@ -11,7 +11,7 @@ class PaperJvmLaunchConfigTest {
     fun buildManagedPaperLaunchConfig_usesHeadlessManagedRuntimeAndAppPrivatePaths() {
         val filesDir = Files.createTempDirectory("mcgo-launch-files")
         val cacheDir = Files.createTempDirectory("mcgo-launch-cache")
-        createRuntime(filesDir)
+        createRuntime(filesDir, majorVersion = 21)
         val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
 
         val config = buildManagedPaperLaunchConfig(
@@ -36,10 +36,94 @@ class PaperJvmLaunchConfigTest {
     }
 
     @Test
+    fun buildManagedPaperLaunchConfig_prefersJvmLibDirAtFrontOfLdLibraryPathToAvoidAndroidReexecFailures() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-jvm-first")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-jvm-first")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        val ldLibraryPath = config.environment
+            .single { it.startsWith("LD_LIBRARY_PATH=") }
+            .removePrefix("LD_LIBRARY_PATH=")
+            .split(':')
+
+        assertThat(ldLibraryPath.first()).endsWith("/lib/server")
+        assertThat(ldLibraryPath).containsAtLeast(
+            filesDir.resolve("jre/java-21/lib").toString(),
+            filesDir.resolve("jre/java-21/lib/server").toString(),
+        )
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_forcesForkLaunchMechanismOnModernJavaToAvoidAndroidJspawnhelperExec() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-fork")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-fork")
+        createRuntime(filesDir, majorVersion = 17, javaVersion = "17.0.14")
+        val server = createPaperServer("生存服", "1.18.2", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("-Djdk.lang.Process.launchMechanism=FORK")
+        assertThat(config.arguments).doesNotContain("-DPaper.IgnoreJavaVersion=true")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_addsPaperIgnoreJavaVersionForPaper12Through16WhenUsingOnlineJava17() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-ignore-gate")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-ignore-gate")
+        createRuntime(filesDir, majorVersion = 17, javaVersion = "17.0.14")
+        val server = createPaperServer("生存服", "1.16.5", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("-Djdk.lang.Process.launchMechanism=FORK")
+        assertThat(config.arguments).contains("-DPaper.IgnoreJavaVersion=true")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_addsPaperIgnoreJavaVersionForPaper112WhenUsingOnlineJava17() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-ignore-gate-112")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-ignore-gate-112")
+        createRuntime(filesDir, majorVersion = 17, javaVersion = "17.0.14")
+        val server = createPaperServer("经典服", "1.12.2", maxPlayers = 20, memoryMb = 1024, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("-Djdk.lang.Process.launchMechanism=FORK")
+        assertThat(config.arguments).contains("-DPaper.IgnoreJavaVersion=true")
+    }
+
+    @Test
     fun buildManagedPaperLaunchConfig_usesLauncherVersionMetadataFromRuntimeReleaseFile() {
         val filesDir = Files.createTempDirectory("mcgo-launch-files")
         val cacheDir = Files.createTempDirectory("mcgo-launch-cache")
-        createRuntime(filesDir)
+        createRuntime(filesDir, majorVersion = 21)
         val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
 
         val config = buildManagedPaperLaunchConfig(
@@ -58,8 +142,8 @@ class PaperJvmLaunchConfigTest {
     fun buildManagedPaperLaunchConfig_preservesJava8DotVersion() {
         val filesDir = Files.createTempDirectory("mcgo-launch-files-java8")
         val cacheDir = Files.createTempDirectory("mcgo-launch-cache-java8")
-        createRuntime(filesDir, javaVersion = "1.8.0_402")
-        val server = createPaperServer("经典服", "1.21.4", maxPlayers = 20, memoryMb = 1024, port = 25565)
+        createRuntime(filesDir, majorVersion = 8, javaVersion = "1.8.0_402")
+        val server = createPaperServer("经典服", "1.11.2", maxPlayers = 20, memoryMb = 1024, port = 25565)
 
         val config = buildManagedPaperLaunchConfig(
             server = server,
@@ -71,18 +155,22 @@ class PaperJvmLaunchConfigTest {
 
         assertThat(config.launcherFullVersion).isEqualTo("1.8.0_402")
         assertThat(config.launcherDotVersion).isEqualTo("1.8")
+        assertThat(config.arguments).doesNotContain("-Djdk.lang.Process.launchMechanism=FORK")
     }
 
-    private fun createRuntime(filesDir: java.nio.file.Path, javaVersion: String = "21.0.6") {
-        val javaHome = filesDir.resolve("jre/java-21")
+    private fun createRuntime(
+        filesDir: java.nio.file.Path,
+        majorVersion: Int,
+        javaVersion: String = "21.0.6",
+    ) {
+        val javaHome = filesDir.resolve("jre/java-$majorVersion")
         Files.createDirectories(javaHome.resolve("bin"))
         Files.write(javaHome.resolve("bin/java"), byteArrayOf(1))
         javaHome.resolve("bin/java").toFile().setExecutable(true, false)
         Files.write(javaHome.resolve("release"), "OS_ARCH=\"aarch64\"\nJAVA_VERSION=\"$javaVersion\"\n".toByteArray())
-        val javaLibDir = javaHome.resolve("lib/aarch64")
-        Files.createDirectories(javaLibDir.resolve("jli"))
+        val javaLibDir = javaHome.resolve("lib")
         Files.createDirectories(javaLibDir.resolve("server"))
-        Files.write(javaLibDir.resolve("jli/libjli.so"), byteArrayOf(1))
+        Files.write(javaLibDir.resolve("libjli.so"), byteArrayOf(1))
         Files.write(javaLibDir.resolve("server/libjvm.so"), byteArrayOf(1))
         Files.write(javaLibDir.resolve("libverify.so"), byteArrayOf(1))
         Files.write(javaLibDir.resolve("libjava.so"), byteArrayOf(1))

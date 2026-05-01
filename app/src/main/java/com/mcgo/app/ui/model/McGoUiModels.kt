@@ -96,11 +96,9 @@ data class AppearanceSettingsState(
 fun recommendedJavaMajorVersion(minecraftVersion: String): Int {
     val parts = minecraftVersion.split('.').mapNotNull { it.toIntOrNull() }
     val minor = parts.getOrNull(1) ?: return 21
-    val patch = parts.getOrNull(2) ?: 0
     return when {
         minor <= 11 -> 8
-        minor in 12..16 && patch <= 4 -> 11
-        minor == 16 && patch >= 5 -> 16
+        minor in 12..16 -> 17
         minor in 17..19 -> 17
         else -> 21
     }
@@ -178,7 +176,7 @@ fun requestServerDeletion(server: ServerCardState): ServerCardState = server.cop
 fun finalizePendingServerDeletion(servers: List<ServerCardState>): List<ServerCardState> =
     servers.filterNot { it.pendingDeletion && !it.isRuntimeBusy() }
 
-fun isManagedRuntimeProvisioningAvailable(majorVersion: Int): Boolean = majorVersion in setOf(8, 11, 17, 21)
+fun isManagedRuntimeProvisioningAvailable(majorVersion: Int): Boolean = majorVersion in setOf(8, 17, 21)
 
 fun unsupportedManagedRuntimeReason(majorVersion: Int): String? = if (isManagedRuntimeProvisioningAvailable(majorVersion)) {
     null

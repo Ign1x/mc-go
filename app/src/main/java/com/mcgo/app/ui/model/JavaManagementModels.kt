@@ -24,11 +24,10 @@ fun defaultJavaManagementState(
     downloadProgressByMajor: Map<Int, Int> = emptyMap(),
 ): JavaManagementState = JavaManagementState(
     sectionTitle = "托管 JRE",
-    summaryLabel = "JRE 8 / 11 / 17 / 21",
+    summaryLabel = "JRE 8 / 17 / 21",
     runtimeOptions = listOf(
         jreOption(8, "Minecraft 1.7.10 - 1.11 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
-        jreOption(11, "Minecraft 1.12 - 1.16.4 Paper 服务端使用；当前提供可信 APK 导入。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = false, importLabel = "导入 APK"),
-        jreOption(17, "Minecraft 1.17 - 1.19 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
+        jreOption(17, "Minecraft 1.12 - 1.19 Paper 服务端使用；支持在线下载托管 JRE；对 1.13 - 1.16.5 会自动兼容旧版 Paper Java 限制。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
         jreOption(21, "Minecraft 1.20 - 1.21.x Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
     ),
 )

@@ -119,15 +119,15 @@ fun resolveManagedJavaRuntimeLayout(
             .forEach(::add)
     }.distinct()
     val libraryPath = buildList {
-        add(javaLibDir.toString())
-        add(jliLibDir.toString())
         add(jvmLibDir.toString())
+        add(jliLibDir.toString())
+        add(javaLibDir.toString())
         add(Paths.get("/system", if (is64BitProcess) "lib64" else "lib").toString())
         add(Paths.get("/vendor", if (is64BitProcess) "lib64" else "lib").toString())
         add(Paths.get("/vendor", if (is64BitProcess) "lib64" else "lib", "hw").toString())
         add(Paths.get("/system_ext", if (is64BitProcess) "lib64" else "lib").toString())
         add(nativeLibraryDir)
-    }.distinct().joinToString(":" )
+    }.distinct().joinToString(":")
     return ManagedJavaRuntimeLayout(
         javaHome = javaHome,
         javaBinary = javaHome.resolve("bin/java"),

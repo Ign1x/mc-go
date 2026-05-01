@@ -76,8 +76,8 @@ class ServerModelsTest {
     @Test
     fun recommendedJavaMajorVersion_matchesPaperCompatibilityTable() {
         assertThat(recommendedJavaMajorVersion("1.11")).isEqualTo(8)
-        assertThat(recommendedJavaMajorVersion("1.12.2")).isEqualTo(11)
-        assertThat(recommendedJavaMajorVersion("1.16.5")).isEqualTo(16)
+        assertThat(recommendedJavaMajorVersion("1.12.2")).isEqualTo(17)
+        assertThat(recommendedJavaMajorVersion("1.16.5")).isEqualTo(17)
         assertThat(recommendedJavaMajorVersion("1.17.1")).isEqualTo(17)
         assertThat(recommendedJavaMajorVersion("1.19.4")).isEqualTo(17)
         assertThat(recommendedJavaMajorVersion("1.20.1")).isEqualTo(21)

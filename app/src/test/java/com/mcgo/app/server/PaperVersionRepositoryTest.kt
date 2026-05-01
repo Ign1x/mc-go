@@ -20,12 +20,12 @@ class PaperVersionRepositoryTest {
     }
 
     @Test
-    fun filterProvisionablePaperVersions_restoresJava11CompatiblePaperVersionsWhenJava11ProvisioningIsAvailable() {
+    fun filterProvisionablePaperVersions_keepsPaperVersionsServedByManagedJava8or17or21() {
         assertThat(
             filterProvisionablePaperVersions(
                 listOf("1.8.8", "1.12.2", "1.16.5", "1.17.1", "1.20.1", "1.21.4", "1.21.9-pre2"),
             ),
-        ).containsExactly("1.8.8", "1.12.2", "1.17.1", "1.20.1", "1.21.4").inOrder()
+        ).containsExactly("1.8.8", "1.12.2", "1.16.5", "1.17.1", "1.20.1", "1.21.4").inOrder()
     }
 
     @Test
@@ -34,12 +34,12 @@ class PaperVersionRepositoryTest {
             resolveProvisionablePaperVersionOptions(
                 listOf("1.12.2", "1.16.5", "1.17.1", "1.20.1", "1.21.4"),
             ),
-        ).containsExactly("1.12.2", "1.17.1", "1.20.1", "1.21.4").inOrder()
+        ).containsExactly("1.12.2", "1.16.5", "1.17.1", "1.20.1", "1.21.4").inOrder()
     }
 
     @Test
     fun initialProvisionablePaperVersion_usesFilteredNewestVersionAndFallsBackWhenNeeded() {
         assertThat(initialProvisionablePaperVersion(listOf("1.12.2", "1.20.1", "1.21.4"))).isEqualTo("1.21.4")
-        assertThat(initialProvisionablePaperVersion(listOf("1.12.2", "1.16.5"))).isEqualTo("1.12.2")
+        assertThat(initialProvisionablePaperVersion(listOf("1.12.2", "1.16.5"))).isEqualTo("1.16.5")
     }
 }

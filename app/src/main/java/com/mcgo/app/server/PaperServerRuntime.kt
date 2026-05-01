@@ -11,7 +11,7 @@ import java.nio.file.StandardCopyOption
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
 private const val DefaultProvisionablePaperVersion = "1.21.4"
-const val PaperDownloadUserAgent = "MC-GO/0.2.12"
+const val PaperDownloadUserAgent = "MC-GO/0.2.13"
 
 data class PreparedPaperServerFiles(
     val workDir: Path,
@@ -99,7 +99,7 @@ fun paperJarFileName(version: String): String = "paper-${validatePaperVersion(ve
 fun paperJarSha256File(targetJar: Path): Path = targetJar.resolveSibling("${targetJar.fileName}.sha256")
 
 fun filterProvisionablePaperVersions(versions: List<String>): List<String> = versions.filter { version ->
-    validatePaperVersionOrNull(version) != null && recommendedJavaMajorVersion(version) in setOf(8, 11, 17, 21)
+    validatePaperVersionOrNull(version) != null && recommendedJavaMajorVersion(version) in setOf(8, 17, 21)
 }
 
 fun resolveProvisionablePaperVersionOptions(versions: List<String>): List<String> =
@@ -152,6 +152,12 @@ private fun String.asServerPropertyValue(): String = trim()
     .replace(':', '-')
     .ifBlank { "MC-GO Server" }
 
+private fun String.shouldIgnorePaperJavaVersionGate(): Boolean {
+    val parts = split('.').mapNotNull { it.toIntOrNull() }
+    val minor = parts.getOrNull(1) ?: return false
+    return minor in 12..16
+}
+
 fun requireManagedJavaHome(filesDir: Path, majorVersion: Int): Path {
     val javaHome = managedJavaHome(filesDir, majorVersion)
     if (!isRuntimeReady(filesDir, majorVersion)) {
@@ -162,10 +168,16 @@ fun requireManagedJavaHome(filesDir: Path, majorVersion: Int): Path {
     return javaHome
 }
 
-fun buildPaperJvmArguments(server: ServerCardState): List<String> = listOf(
-    "-Xms${(server.memoryMb / 2).coerceAtLeast(512)}M",
-    "-Xmx${server.memoryMb}M",
-)
+fun buildPaperJvmArguments(server: ServerCardState): List<String> = buildList {
+    add("-Xms${(server.memoryMb / 2).coerceAtLeast(512)}M")
+    add("-Xmx${server.memoryMb}M")
+    if (server.javaMajorVersion >= 9) {
+        add("-Djdk.lang.Process.launchMechanism=FORK")
+    }
+    if (server.minecraftVersion.shouldIgnorePaperJavaVersionGate()) {
+        add("-DPaper.IgnoreJavaVersion=true")
+    }
+}
 
 fun shouldReusePaperJar(targetJar: Path): Boolean = runCatching {
     if (!Files.isRegularFile(targetJar) || Files.size(targetJar) <= 0L) {
