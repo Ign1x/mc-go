@@ -87,7 +87,7 @@ class PaperServerRuntimeTest {
 
     @Test
     fun paperDownloadUserAgentUsesCurrentVersion() {
-        assertThat(PaperDownloadUserAgent).isEqualTo("MC-GO/0.2.13")
+        assertThat(PaperDownloadUserAgent).isEqualTo("MC-GO/0.2.14")
     }
 
     @Test

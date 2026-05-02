@@ -116,7 +116,8 @@ private fun migrateManagedJavaMajorVersion(
     val recommended = recommendedJavaMajorVersion(minecraftVersion)
     return when (requestedJavaMajorVersion) {
         null -> recommended
-        11, 16 -> recommended
+        11 -> if (recommended == 11) 11 else recommended
+        16 -> recommended
         else -> requestedJavaMajorVersion
     }
 }

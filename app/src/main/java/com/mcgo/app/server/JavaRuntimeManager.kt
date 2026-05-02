@@ -271,23 +271,34 @@ fun resolvePojavRuntimeComponent(zip: ZipFile, majorVersion: Int): String {
 }
 
 private fun detectPojavComponentMajorVersion(zip: ZipFile, component: String): Int? {
-    val releaseEntry = zip.getEntry("assets/components/$component/universal.tar.xz") ?: return null
-    return zip.getInputStream(releaseEntry).use { input ->
-        XZCompressorInputStream(input).use { xz ->
-            TarArchiveInputStream(xz).use { tar ->
-                var entry = tar.nextTarEntry
-                while (entry != null) {
-                    val normalized = entry.name.replace('\\', '/').removePrefix("./").trimEnd('/')
-                    if (!entry.isDirectory && normalized == "release") {
-                        val releaseText = tar.readBytes().toString(Charsets.UTF_8)
-                        return@use parseJavaMajorVersionFromReleaseText(releaseText)
+    val candidateArchives = listOf(
+        "bin-arm64.tar.xz",
+        "bin-arm.tar.xz",
+        "bin-x86.tar.xz",
+        "bin-x86_64.tar.xz",
+        "universal.tar.xz",
+    )
+    candidateArchives.forEach { archiveName ->
+        val releaseEntry = zip.getEntry("assets/components/$component/$archiveName") ?: return@forEach
+        val detectedVersion = zip.getInputStream(releaseEntry).use { input ->
+            XZCompressorInputStream(input).use { xz ->
+                TarArchiveInputStream(xz).use { tar ->
+                    var entry = tar.nextTarEntry
+                    while (entry != null) {
+                        val normalized = entry.name.replace('\\', '/').removePrefix("./").trimEnd('/')
+                        if (!entry.isDirectory && normalized == "release") {
+                            val releaseText = tar.readBytes().toString(Charsets.UTF_8)
+                            return@use parseJavaMajorVersionFromReleaseText(releaseText)
+                        }
+                        entry = tar.nextTarEntry
                     }
-                    entry = tar.nextTarEntry
+                    null
                 }
-                null
             }
         }
+        if (detectedVersion != null) return detectedVersion
     }
+    return null
 }
 
 private fun parseJavaMajorVersionFromReleaseText(releaseText: String): Int? {

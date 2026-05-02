@@ -17,7 +17,7 @@ class ServerProfileStoreTest {
     }
 
     @Test
-    fun load_migratesLegacyJava11AndJava16SlotsToOnlineJava17ForManagedPaperServers() {
+    fun load_preservesLegacyJava11ButMigratesLegacyJava16ToJava11ForManagedPaperServers() {
         val storePath = Files.createTempDirectory("mcgo-server-store-java-migrate").resolve("servers.properties")
         val store = ServerProfileStore(storePath)
         Files.write(
@@ -60,9 +60,41 @@ class ServerProfileStoreTest {
 
         assertThat(loaded).hasSize(2)
         assertThat(loaded[0].minecraftVersion).isEqualTo("1.12.2")
-        assertThat(loaded[0].javaMajorVersion).isEqualTo(17)
+        assertThat(loaded[0].javaMajorVersion).isEqualTo(11)
         assertThat(loaded[1].minecraftVersion).isEqualTo("1.16.5")
-        assertThat(loaded[1].javaMajorVersion).isEqualTo(17)
+        assertThat(loaded[1].javaMajorVersion).isEqualTo(11)
+    }
+
+    @Test
+    fun load_migratesLegacyJava11ForwardWhenMinecraftVersionNowRequiresNewerRuntime() {
+        val storePath = Files.createTempDirectory("mcgo-server-store-java11-forward").resolve("servers.properties")
+        val store = ServerProfileStore(storePath)
+        Files.write(
+            storePath,
+            """
+            version=2
+            count=1
+            server.0.id=legacy-java11-modern
+            server.0.name=旧服11新版本
+            server.0.serverType=Paper
+            server.0.minecraftVersion=1.20.1
+            server.0.maxPlayers=20
+            server.0.memoryMb=2048
+            server.0.defaultPort=25565
+            server.0.port=25565
+            server.0.worldName=world
+            server.0.isOnline=false
+            server.0.launchStatus=Ready
+            server.0.launchProgress=0
+            server.0.javaMajorVersion=11
+            server.0.runtimeLogCount=0
+            """.trimIndent().toByteArray(),
+        )
+
+        val loaded = store.load().single()
+
+        assertThat(loaded.minecraftVersion).isEqualTo("1.20.1")
+        assertThat(loaded.javaMajorVersion).isEqualTo(21)
     }
 
     @Test

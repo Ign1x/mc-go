@@ -11,7 +11,7 @@ import java.nio.file.StandardCopyOption
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
 private const val DefaultProvisionablePaperVersion = "1.21.4"
-const val PaperDownloadUserAgent = "MC-GO/0.2.13"
+const val PaperDownloadUserAgent = "MC-GO/0.2.14"
 
 data class PreparedPaperServerFiles(
     val workDir: Path,
@@ -99,7 +99,7 @@ fun paperJarFileName(version: String): String = "paper-${validatePaperVersion(ve
 fun paperJarSha256File(targetJar: Path): Path = targetJar.resolveSibling("${targetJar.fileName}.sha256")
 
 fun filterProvisionablePaperVersions(versions: List<String>): List<String> = versions.filter { version ->
-    validatePaperVersionOrNull(version) != null && recommendedJavaMajorVersion(version) in setOf(8, 17, 21)
+    validatePaperVersionOrNull(version) != null && recommendedJavaMajorVersion(version) in setOf(8, 11, 17, 21)
 }
 
 fun resolveProvisionablePaperVersionOptions(versions: List<String>): List<String> =
@@ -174,7 +174,7 @@ fun buildPaperJvmArguments(server: ServerCardState): List<String> = buildList {
     if (server.javaMajorVersion >= 9) {
         add("-Djdk.lang.Process.launchMechanism=FORK")
     }
-    if (server.minecraftVersion.shouldIgnorePaperJavaVersionGate()) {
+    if (server.javaMajorVersion >= 17 && server.minecraftVersion.shouldIgnorePaperJavaVersionGate()) {
         add("-DPaper.IgnoreJavaVersion=true")
     }
 }

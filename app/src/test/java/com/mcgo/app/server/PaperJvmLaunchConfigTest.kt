@@ -86,7 +86,7 @@ class PaperJvmLaunchConfigTest {
         val filesDir = Files.createTempDirectory("mcgo-launch-files-ignore-gate")
         val cacheDir = Files.createTempDirectory("mcgo-launch-cache-ignore-gate")
         createRuntime(filesDir, majorVersion = 17, javaVersion = "17.0.14")
-        val server = createPaperServer("生存服", "1.16.5", maxPlayers = 20, memoryMb = 2048, port = 25565)
+        val server = createPaperServer("生存服", "1.16.5", maxPlayers = 20, memoryMb = 2048, port = 25565).copy(javaMajorVersion = 17)
 
         val config = buildManagedPaperLaunchConfig(
             server = server,
@@ -101,11 +101,30 @@ class PaperJvmLaunchConfigTest {
     }
 
     @Test
+    fun buildManagedPaperLaunchConfig_doesNotAddPaperIgnoreJavaVersionForPaper16WhenUsingJava11() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-java11-paper16")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-java11-paper16")
+        createRuntime(filesDir, majorVersion = 11, javaVersion = "11.0.31")
+        val server = createPaperServer("生存服", "1.16.5", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("-Djdk.lang.Process.launchMechanism=FORK")
+        assertThat(config.arguments).doesNotContain("-DPaper.IgnoreJavaVersion=true")
+    }
+
+    @Test
     fun buildManagedPaperLaunchConfig_addsPaperIgnoreJavaVersionForPaper112WhenUsingOnlineJava17() {
         val filesDir = Files.createTempDirectory("mcgo-launch-files-ignore-gate-112")
         val cacheDir = Files.createTempDirectory("mcgo-launch-cache-ignore-gate-112")
         createRuntime(filesDir, majorVersion = 17, javaVersion = "17.0.14")
-        val server = createPaperServer("经典服", "1.12.2", maxPlayers = 20, memoryMb = 1024, port = 25565)
+        val server = createPaperServer("经典服", "1.12.2", maxPlayers = 20, memoryMb = 1024, port = 25565).copy(javaMajorVersion = 17)
 
         val config = buildManagedPaperLaunchConfig(
             server = server,

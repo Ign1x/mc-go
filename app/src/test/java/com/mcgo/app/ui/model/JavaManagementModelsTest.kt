@@ -11,19 +11,22 @@ class JavaManagementModelsTest {
 
         assertThat(state.summaryLabel).contains("JRE")
         assertThat(state.sectionTitle).isEqualTo("托管 JRE")
-        assertThat(state.runtimeOptions.map { it.majorVersion }).containsExactly(8, 17, 21).inOrder()
+        assertThat(state.runtimeOptions.map { it.majorVersion }).containsExactly(8, 11, 17, 21).inOrder()
         assertThat(state.runtimeOptions.map { it.title }).containsExactly(
             "Java 8",
+            "Java 11",
             "Java 17",
             "Java 21",
         ).inOrder()
         assertThat(state.runtimeOptions.all { it.managedByApp }).isTrue()
-        assertThat(state.runtimeOptions.map { it.statusLabel }).containsExactly("未安装", "未安装", "未安装")
-        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("下载安装", "下载安装", "下载安装")
-        assertThat(state.runtimeOptions.map { it.deleteActionLabel }).containsExactly(null, null, null)
+        assertThat(state.runtimeOptions.map { it.statusLabel }).containsExactly("未安装", "未安装", "未安装", "未安装")
+        assertThat(state.runtimeOptions.map { it.primaryActionLabel }).containsExactly("下载安装", "导入 APK", "下载安装", "下载安装")
+        assertThat(state.runtimeOptions.map { it.deleteActionLabel }).containsExactly(null, null, null, null)
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("Minecraft")
         assertThat(state.runtimeOptions.filter { it.onlineInstallAvailable }.map { it.majorVersion }).containsExactly(8, 17, 21).inOrder()
-        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("1.13 - 1.16.5")
+        assertThat(state.runtimeOptions.single { it.majorVersion == 11 }.onlineInstallAvailable).isFalse()
+        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("1.12 - 1.16.5")
+        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("1.17 - 1.19")
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("系统 " + "PATH")
     }
 
@@ -62,10 +65,14 @@ class JavaManagementModelsTest {
 
     @Test
     fun installedJreRowsShowDeleteWithoutInstallAction() {
-        val state = defaultJavaManagementState(installedVersions = setOf(17, 21))
+        val state = defaultJavaManagementState(installedVersions = setOf(11, 17, 21))
+        val java11 = state.runtimeOptions.single { it.majorVersion == 11 }
         val java17 = state.runtimeOptions.single { it.majorVersion == 17 }
         val java21 = state.runtimeOptions.single { it.majorVersion == 21 }
 
+        assertThat(java11.statusLabel).isEqualTo("已安装")
+        assertThat(java11.primaryActionLabel).isNull()
+        assertThat(java11.deleteActionLabel).isEqualTo("删除")
         assertThat(java17.statusLabel).isEqualTo("已安装")
         assertThat(java17.primaryActionLabel).isNull()
         assertThat(java17.deleteActionLabel).isEqualTo("删除")

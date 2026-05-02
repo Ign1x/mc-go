@@ -67,10 +67,12 @@ class JavaRuntimeManagerTest {
             apk = apk,
             component = "jre-new",
             universal = tarXz(
-                file("./release", "JAVA_VERSION=\"17.0.14\"\n"),
+                directory("./conf"),
+                file("./conf/net.properties", "managed=true\n"),
             ),
             abiArchiveName = "bin-arm64.tar.xz",
             abi = tarXz(
+                file("./release", "JAVA_VERSION=\"17.0.14\"\nOS_ARCH=\"aarch64\"\n"),
                 directory("./bin"),
                 file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
             ),
@@ -85,6 +87,7 @@ class JavaRuntimeManagerTest {
 
         assertThat(javaHome).isEqualTo(filesDir.resolve("jre/java-17"))
         assertThat(String(Files.readAllBytes(javaHome.resolve("release")))).contains("17.0.14")
+        assertThat(String(Files.readAllBytes(javaHome.resolve("conf/net.properties")))).contains("managed=true")
         assertThat(Files.exists(javaHome.resolve("bin/java"))).isTrue()
         assertThat(javaHome.resolve("bin/java").toFile().canExecute()).isTrue()
         assertThat(scanInstalledJavaVersions(filesDir)).contains(17)
@@ -97,11 +100,10 @@ class JavaRuntimeManagerTest {
         writeFakePojavApk(
             apk = apk,
             component = "jre-11",
-            universal = tarXz(
-                file("./release", "JAVA_VERSION=\"11.0.25\"\nOS_ARCH=\"aarch64\"\n"),
-            ),
+            universal = tarXz(directory("./conf")),
             abiArchiveName = "bin-arm64.tar.xz",
             abi = tarXz(
+                file("./release", "JAVA_VERSION=\"11.0.25\"\nOS_ARCH=\"aarch64\"\n"),
                 directory("./bin"),
                 file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
             ),
@@ -126,11 +128,10 @@ class JavaRuntimeManagerTest {
         writeFakePojavApk(
             apk = apk,
             component = "jre-11",
-            universal = tarXz(
-                file("./release", "JAVA_VERSION=\"17.0.14\"\nOS_ARCH=\"aarch64\"\n"),
-            ),
+            universal = tarXz(directory("./conf")),
             abiArchiveName = "bin-arm64.tar.xz",
             abi = tarXz(
+                file("./release", "JAVA_VERSION=\"17.0.14\"\nOS_ARCH=\"aarch64\"\n"),
                 directory("./bin"),
                 file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
             ),
@@ -146,6 +147,34 @@ class JavaRuntimeManagerTest {
         }
 
         assertThat(error).hasMessageThat().contains("Java 11")
+    }
+
+    @Test
+    fun installPojavRuntimeFromApk_detectsJava21WhenReleaseExistsOnlyInAbiArchive() {
+        val filesDir = Files.createTempDirectory("mcgo-jre-install-java21")
+        val apk = filesDir.resolve("pojav-java21.apk")
+        writeFakePojavApk(
+            apk = apk,
+            component = "jre-21",
+            universal = tarXz(directory("./legal")),
+            abiArchiveName = "bin-arm64.tar.xz",
+            abi = tarXz(
+                file("./release", "JAVA_VERSION=\"21.0.6\"\nOS_ARCH=\"aarch64\"\n"),
+                directory("./bin"),
+                file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
+            ),
+        )
+
+        val javaHome = installPojavRuntimeFromApk(
+            apkPath = apk,
+            filesDir = filesDir,
+            majorVersion = 21,
+            androidAbi = "arm64-v8a",
+        )
+
+        assertThat(javaHome).isEqualTo(filesDir.resolve("jre/java-21"))
+        assertThat(String(Files.readAllBytes(javaHome.resolve("release")))).contains("21.0.6")
+        assertThat(scanInstalledJavaVersions(filesDir)).contains(21)
     }
 
     @Test
