@@ -56,6 +56,7 @@ class PaperServerService : Service() {
         when (intent?.action) {
             ActionStop -> stopRunningServer(intent)
             ActionStart -> startPaperServer(intent)
+            ActionCommand -> submitConsoleCommand(intent)
         }
         return START_NOT_STICKY
     }
@@ -212,6 +213,36 @@ class PaperServerService : Service() {
         }
     }
 
+    private fun submitConsoleCommand(intent: Intent) {
+        val requestedServerId = intent.getStringExtra("id")
+        val rawCommand = intent.getStringExtra("command")?.trim().orEmpty()
+        when (resolveCommandTargetAction(currentServerId = currentServerId, requestedServerId = requestedServerId)) {
+            CommandTargetAction.NoActiveRuntime -> {
+                requestedServerId?.let {
+                    publishEvent(PaperServerEvent(it, null, null, "当前没有运行中的 Paper 进程，无法发送控制台指令"))
+                }
+                return
+            }
+            CommandTargetAction.IgnoreMismatchedServer -> {
+                requestedServerId?.let {
+                    publishEvent(PaperServerEvent(it, null, null, "当前运行中的不是该服务器，已忽略控制台指令"))
+                }
+                return
+            }
+            CommandTargetAction.HandleCurrentServer -> Unit
+        }
+        val serverId = currentServerId ?: requestedServerId ?: return
+        if (rawCommand.isBlank()) {
+            publishEvent(PaperServerEvent(serverId, null, null, "控制台指令不能为空"))
+            return
+        }
+        if (PaperJvmLauncher.submitCommand(rawCommand + "\n")) {
+            publish(serverId, runtimeMonitorEventStatus(runtimeRunning = runtimeRunning, stopRequested = stopRequested), if (runtimeRunning && !stopRequested) 100 else null, runtimeCommandMessage(rawCommand))
+        } else {
+            publishEvent(PaperServerEvent(serverId, null, null, "当前 Paper 进程尚未接收标准输入，请稍后再试"))
+        }
+    }
+
     private fun ensureStopSignalDelivery(serverId: String) {
         if (stopSignalDelivered || stopSignalRetryJob?.isActive == true) return
         stopSignalRetryJob = serviceScope.launch {
@@ -317,6 +348,7 @@ class PaperServerService : Service() {
         private const val NotificationId = 2001
         private const val ActionStart = "com.mcgo.app.server.START_PAPER"
         private const val ActionStop = "com.mcgo.app.server.STOP_PAPER"
+        private const val ActionCommand = "com.mcgo.app.server.COMMAND_PAPER"
 
         fun start(context: Context, server: ServerCardState) {
             val intent = Intent(context, PaperServerService::class.java).apply {
@@ -345,10 +377,26 @@ class PaperServerService : Service() {
                 },
             )
         }
+
+        fun sendCommand(context: Context, serverId: String, command: String) {
+            context.startService(
+                Intent(context, PaperServerService::class.java).apply {
+                    action = ActionCommand
+                    putExtra("id", serverId)
+                    putExtra("command", command)
+                },
+            )
+        }
     }
 }
 
 enum class StopTargetAction {
+    NoActiveRuntime,
+    IgnoreMismatchedServer,
+    HandleCurrentServer,
+}
+
+enum class CommandTargetAction {
     NoActiveRuntime,
     IgnoreMismatchedServer,
     HandleCurrentServer,
@@ -366,6 +414,12 @@ fun resolveStopTargetAction(currentServerId: String?, requestedServerId: String?
     else -> StopTargetAction.IgnoreMismatchedServer
 }
 
+fun resolveCommandTargetAction(currentServerId: String?, requestedServerId: String?): CommandTargetAction = when {
+    currentServerId == null -> CommandTargetAction.NoActiveRuntime
+    requestedServerId == null || requestedServerId == currentServerId -> CommandTargetAction.HandleCurrentServer
+    else -> CommandTargetAction.IgnoreMismatchedServer
+}
+
 enum class StopHandlingAction {
     CancelPendingLaunch,
     AwaitStopSignalDelivery,
@@ -373,6 +427,8 @@ enum class StopHandlingAction {
 }
 
 fun stopRequestMessage(): String = "已请求停止内置 Paper 进程，等待运行时退出"
+
+fun runtimeCommandMessage(command: String): String = "已从控制台发送指令：$command"
 
 fun queuedStopRequestMessage(): String = "已排队 stop 指令，等待内置 Paper 进程接收"
 

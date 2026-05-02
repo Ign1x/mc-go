@@ -1,30 +1,43 @@
 package com.mcgo.app.ui
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.app.ActivityManager
 import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
@@ -32,22 +45,22 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,66 +69,72 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.R
 import com.mcgo.app.network.measureTcpLatency
 import com.mcgo.app.network.parseTcpEndpoint
-import com.mcgo.app.server.PaperServerEventStatus
-import com.mcgo.app.server.PaperServerEvents
-import com.mcgo.app.server.PaperServerService
-import com.mcgo.app.server.reconcilePersistedRuntimeState
-import com.mcgo.app.server.reducePaperRuntimeEvent
-import com.mcgo.app.server.stopRequestMessage
 import com.mcgo.app.server.JavaRuntimeArchiveKind
 import com.mcgo.app.server.JavaRuntimeArchiveSource
 import com.mcgo.app.server.JavaRuntimeInstallException
 import com.mcgo.app.server.OfficialPojavLauncherApkSha256
 import com.mcgo.app.server.OfficialPojavLauncherCertSha256
+import com.mcgo.app.server.PaperServerEvents
+import com.mcgo.app.server.PaperServerService
 import com.mcgo.app.server.abiArchiveName
 import com.mcgo.app.server.classifyJavaRuntimeArchiveName
 import com.mcgo.app.server.deleteJavaRuntime
+import com.mcgo.app.server.extractTarXzSafely
 import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fetchPaperVersions
 import com.mcgo.app.server.filterProvisionablePaperVersions
-import com.mcgo.app.server.trustedRuntimeArchivesForVersion
 import com.mcgo.app.server.installPojavRuntimeFromApk
 import com.mcgo.app.server.installRuntimeFromTarXz
 import com.mcgo.app.server.installRuntimeWithStaging
-import com.mcgo.app.server.extractTarXzSafely
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
 import com.mcgo.app.server.managedPaperServerLogFile
+import com.mcgo.app.server.reconcilePersistedRuntimeState
+import com.mcgo.app.server.reducePaperRuntimeEvent
 import com.mcgo.app.server.resolvePojavRuntimeComponent
 import com.mcgo.app.server.scanInstalledJavaVersions
 import com.mcgo.app.server.sha256Hex
+import com.mcgo.app.server.stopRequestMessage
+import com.mcgo.app.server.trustedRuntimeArchivesForVersion
 import com.mcgo.app.server.validateRuntimeArchiveTrust
 import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearancePreferencesSaver
+import com.mcgo.app.ui.model.ConsoleErrorColor
+import com.mcgo.app.ui.model.ConsoleInfoColor
+import com.mcgo.app.ui.model.ConsoleTimestampColor
+import com.mcgo.app.ui.model.ConsoleWarnColor
 import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.ServerCardState
-import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.TunnelLatencyResult
+import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.applyPaperServerEdits
 import com.mcgo.app.ui.model.applyTunnelLatencyResults
+import com.mcgo.app.ui.model.buildConsoleAnnotatedLog
+import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.detachDeletedTunnel
-import com.mcgo.app.ui.model.isManagedRuntimeProvisioningAvailable
-import com.mcgo.app.ui.model.removeTunnelProfile
 import com.mcgo.app.ui.model.finalizePendingServerDeletion
-import com.mcgo.app.ui.model.canStartServerFromUi
+import com.mcgo.app.ui.model.isManagedRuntimeProvisioningAvailable
 import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markUnsupportedManagedRuntime
+import com.mcgo.app.ui.model.normalizeConsoleCommand
+import com.mcgo.app.ui.model.removeTunnelProfile
 import com.mcgo.app.ui.model.requestServerDeletion
 import com.mcgo.app.ui.model.resolveServerConsoleText
-import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.startWithTunnel
-import com.mcgo.app.ui.model.withLaunchProgress
 import com.mcgo.app.ui.model.stopServer
 import com.mcgo.app.ui.model.upsertTunnelProfile
+import com.mcgo.app.ui.model.withLaunchProgress
 import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.screens.ServersScreen
 import com.mcgo.app.ui.screens.SettingsScreen
@@ -177,6 +196,9 @@ fun MCGoApp() {
     var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
         mutableStateOf(AppearancePreferences())
     }
+    val supportedProvisionableJavaVersions = remember {
+        if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") setOf(8, 11, 17, 21, 25) else setOf(8, 11, 17, 21)
+    }
     val runtimeAliveOnLaunch = remember(context) { isPaperRuntimeProcessAlive(context) }
     val persistedServers = remember(serverStore) { serverStore.load() }
     val reconciledPersistedServers = remember(persistedServers, runtimeAliveOnLaunch) {
@@ -184,7 +206,7 @@ fun MCGoApp() {
             reconcilePersistedRuntimeState(
                 servers = persistedServers,
                 runtimeAlive = runtimeAliveOnLaunch,
-            ).map { it.markUnsupportedManagedRuntime() },
+            ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
         )
     }
     var servers by remember(serverStore) {
@@ -206,6 +228,7 @@ fun MCGoApp() {
             servers = servers,
             tunnels = tunnels,
             paperVersions = paperVersions,
+            supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
             onAppearancePreferencesChange = { appearancePreferences = it },
             onServersChange = { servers = it },
             onTunnelsChange = { tunnels = it },
@@ -224,6 +247,7 @@ private fun MCGoAppScaffold(
     servers: List<ServerCardState>,
     tunnels: List<TunnelProfile>,
     paperVersions: List<String>,
+    supportedProvisionableJavaVersions: Set<Int>,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     onServersChange: (List<ServerCardState>) -> Unit,
     onTunnelsChange: (List<TunnelProfile>) -> Unit,
@@ -261,10 +285,11 @@ private fun MCGoAppScaffold(
         mutableStateOf(scanInstalledJavaVersions(appContext.filesDir.toPath()))
     }
     var javaDownloadProgress by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
-    val javaManagementState = remember(installedJavaVersions, javaDownloadProgress) {
+    val javaManagementState = remember(installedJavaVersions, javaDownloadProgress, supportedProvisionableJavaVersions) {
         defaultJavaManagementState(
             installedVersions = installedJavaVersions,
             downloadProgressByMajor = javaDownloadProgress,
+            supportedProvisionableVersions = supportedProvisionableJavaVersions,
         )
     }
     val runtimePrefs = remember(appContext) { appContext.getSharedPreferences(RuntimePrefsName, Context.MODE_PRIVATE) }
@@ -320,7 +345,7 @@ private fun MCGoAppScaffold(
             return
         }
         if (targetServer.javaMajorVersion !in installedJavaVersions) {
-            val guidance = if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion)) {
+            val guidance = if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
                 "缺少 Java ${targetServer.javaMajorVersion} 托管运行时，请先到设置 > Java 管理安装"
             } else {
                 "当前版本暂不提供 Java ${targetServer.javaMajorVersion} 托管运行时；该 Minecraft 版本暂不支持一键开服"
@@ -336,7 +361,7 @@ private fun MCGoAppScaffold(
             onPersistServers(failedServers)
             scope.launch {
                 snackbarHostState.showSnackbar(
-                    if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion)) {
+                    if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
                         "请先安装 Java ${targetServer.javaMajorVersion} 托管 JRE"
                     } else {
                         "当前暂不支持该 Minecraft 版本所需的 Java ${targetServer.javaMajorVersion} 运行时"
@@ -385,7 +410,7 @@ private fun MCGoAppScaffold(
                     reconcilePersistedRuntimeState(
                         servers = serverSnapshot,
                         runtimeAlive = false,
-                    ).map { it.markUnsupportedManagedRuntime() },
+                    ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
                 )
                 if (reconciledServers != serverSnapshot) {
                     onServersChange(reconciledServers)
@@ -507,73 +532,20 @@ private fun MCGoAppScaffold(
         FluidGradientBackground(
             spec = fluidBackgroundSpec,
             animate = appearancePreferences.dynamicBackground,
-            modifier = Modifier.fillMaxSize(),
         )
         Scaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            topBar = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp),
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(end = if (destination == McGoDestination.Settings) 96.dp else 0.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(
-                            text = stringResource(chrome.titleRes),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        )
-                        Text(
-                            text = stringResource(chrome.subtitleRes),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (destination == McGoDestination.Settings) {
-                        IconButton(
-                            modifier = Modifier.align(Alignment.TopEnd),
-                            onClick = { onAppearancePreferencesChange(appearancePreferences.copy(themeMode = appearancePreferences.themeMode.next())) },
-                        ) {
-                            Icon(
-                                imageVector = when (appearancePreferences.themeMode) {
-                                    ThemeModePreference.FollowSystem -> Icons.Outlined.Brightness4
-                                    ThemeModePreference.Light -> Icons.Outlined.WbSunny
-                                    ThemeModePreference.Dark -> Icons.Outlined.DarkMode
-                                },
-                                contentDescription = "切换主题：${appearancePreferences.themeMode.label}",
-                            )
-                        }
-                    }
-                }
-            },
             bottomBar = {
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = bottomBarAlpha),
-                    tonalElevation = 0.dp,
                 ) {
                     McGoDestination.entries.forEach { item ->
                         NavigationBarItem(
                             selected = destination == item,
                             onClick = { destination = item },
-                            icon = {
-                                Icon(
-                                    imageVector = item.icon,
-                                    contentDescription = stringResource(item.labelRes),
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = stringResource(item.labelRes),
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            },
+                            icon = { Icon(item.icon, contentDescription = null) },
+                            label = { Text(stringResource(item.labelRes)) },
                         )
                     }
                 }
@@ -582,20 +554,13 @@ private fun MCGoAppScaffold(
                 when (destination) {
                     McGoDestination.Servers -> ExtendedFloatingActionButton(
                         onClick = { showServerComposer = true },
-                        text = { Text(stringResource(R.string.action_create_server)) },
                         icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        text = { Text("创建 Paper") },
                     )
                     McGoDestination.Tunnels -> ExtendedFloatingActionButton(
-                        onClick = {
-                            editingTunnelId = null
-                            showTunnelComposer = true
-                        },
-                        text = { Text(stringResource(R.string.action_add_tunnel)) },
+                        onClick = { showTunnelComposer = true },
                         icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        text = { Text("新增隧道") },
                     )
                     else -> Unit
                 }
@@ -612,6 +577,14 @@ private fun MCGoAppScaffold(
                         ServerConsoleDialog(
                             server = server,
                             onDismiss = { consoleServerId = null },
+                            onSubmitCommand = { command ->
+                                val normalized = normalizeConsoleCommand(command)
+                                PaperServerService.sendCommand(appContext, server.id, normalized.trim())
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("已发送指令：${normalized.trim()}")
+                                }
+                                true
+                            },
                         )
                     }
                 }
@@ -634,64 +607,61 @@ private fun MCGoAppScaffold(
                 when (destination) {
                     McGoDestination.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
                     McGoDestination.Servers -> ServersScreen(
-                        modifier = Modifier.fillMaxSize(),
                         servers = servers,
                         availableTunnels = tunnels,
                         paperVersions = paperVersions,
+                        supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
+                        modifier = Modifier.fillMaxSize(),
                         showCreateServer = showServerComposer,
                         onDismissCreateServer = { showServerComposer = false },
                         onCreateServer = { server ->
-                            val updatedServers = servers + server
+                            val updatedServers = servers + server.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
                             onServersChange(updatedServers)
                             onPersistServers(updatedServers)
-                            scope.launch {
-                                snackbarHostState.showSnackbar("已创建 ${server.name}")
-                            }
+                            showServerComposer = false
+                            scope.launch { snackbarHostState.showSnackbar("已创建 ${server.name}") }
                         },
                         onStartServer = { serverId, tunnelId, startupPort ->
-                            startServerNow(PendingStartRequest(serverId, tunnelId, startupPort))
+                            if (!hasServerDirectoryGrant()) {
+                                requestServerDirectory(PendingServerDirectoryAction.StartServer)
+                            } else {
+                                startServerNow(PendingStartRequest(serverId, tunnelId, startupPort))
+                            }
                         },
                         onStopServer = { serverId ->
-                            val targetServer = servers.firstOrNull { it.id == serverId }
+                            PaperServerService.stop(appContext, serverId)
                             val updatedServers = servers.map { server ->
                                 if (server.id == serverId) {
-                                    server.copy(
-                                        launchStatus = ServerLaunchStatus.Stopping,
-                                        launchProgress = 0,
-                                        runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(12),
-                                    )
+                                    server.copy(runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(12))
+                                        .stopServer()
                                 } else {
                                     server
                                 }
                             }
                             onServersChange(updatedServers)
                             onPersistServers(updatedServers)
-                            PaperServerService.stop(appContext, serverId)
-                            scope.launch {
-                                snackbarHostState.showSnackbar("已请求停止 ${targetServer?.name ?: "服务器"}")
-                            }
                         },
                         onDeleteServer = { serverId ->
                             val targetServer = servers.firstOrNull { it.id == serverId }
                             if (targetServer?.isRuntimeBusy() == true) {
+                                PaperServerService.stop(appContext, serverId)
                                 val updatedServers = finalizePendingServerDeletion(
                                     servers.map { server ->
-                                        if (server.id == serverId) requestServerDeletion(server) else server
+                                        if (server.id == serverId) requestServerDeletion(server).copy(
+                                            runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(12),
+                                        ) else server
                                     },
                                 )
                                 onServersChange(updatedServers)
                                 onPersistServers(updatedServers)
-                                PaperServerService.stop(appContext, serverId)
+                                scope.launch { snackbarHostState.showSnackbar("已停止并删除 ${targetServer.name}") }
+                            } else {
+                                val updatedServers = finalizePendingServerDeletion(servers.filterNot { it.id == serverId })
+                                onServersChange(updatedServers)
+                                onPersistServers(updatedServers)
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("已请求删除 ${targetServer.name}，将在服务停止后自动移除")
+                                    snackbarHostState.showSnackbar("已删除 ${targetServer?.name ?: "服务器"}")
                                 }
-                                return@ServersScreen
-                            }
-                            val updatedServers = servers.filterNot { it.id == serverId }
-                            onServersChange(updatedServers)
-                            onPersistServers(updatedServers)
-                            scope.launch {
-                                snackbarHostState.showSnackbar("已删除 ${targetServer?.name ?: "服务器"}")
                             }
                         },
                         onOpenConsole = { serverId ->
@@ -702,7 +672,6 @@ private fun MCGoAppScaffold(
                         },
                     )
                     McGoDestination.Tunnels -> TunnelsScreen(
-                        modifier = Modifier.fillMaxSize(),
                         tunnels = tunnels,
                         showComposer = showTunnelComposer,
                         editingTunnelId = editingTunnelId,
@@ -711,32 +680,22 @@ private fun MCGoAppScaffold(
                             editingTunnelId = null
                         },
                         onSaveTunnel = { profile ->
-                            val existed = tunnels.any { it.id == profile.id }
-                            val updatedTunnels = upsertTunnelProfile(tunnels, profile)
-                            onTunnelsChangeAndPersist(updatedTunnels)
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    if (existed) "已更新 ${profile.name}" else "已添加 ${profile.name}",
-                                )
-                            }
+                            val updated = upsertTunnelProfile(tunnels, profile)
+                            onTunnelsChangeAndPersist(updated)
+                            editingTunnelId = null
                         },
                         onEditTunnel = { tunnelId ->
                             editingTunnelId = tunnelId
                             showTunnelComposer = true
                         },
                         onDeleteTunnel = { tunnelId ->
-                            val tunnelName = tunnels.firstOrNull { it.id == tunnelId }?.name ?: "该隧道"
                             val updatedTunnels = removeTunnelProfile(tunnels, tunnelId)
                             onTunnelsChangeAndPersist(updatedTunnels)
-                            onServersChange(detachDeletedTunnel(servers, tunnelId))
-                            if (editingTunnelId == tunnelId) {
-                                editingTunnelId = null
-                                showTunnelComposer = false
-                            }
-                            scope.launch {
-                                snackbarHostState.showSnackbar("已删除 $tunnelName")
-                            }
+                            val updatedServers = detachDeletedTunnel(servers, tunnelId)
+                            onServersChange(updatedServers)
+                            onPersistServers(updatedServers)
                         },
+                        modifier = Modifier.fillMaxSize(),
                     )
                     McGoDestination.Settings -> SettingsScreen(
                         modifier = Modifier.fillMaxSize(),
@@ -747,15 +706,15 @@ private fun MCGoAppScaffold(
                         onInstallJavaArchive = onInstallJavaArchive,
                         onDeleteJava = onDeleteJava,
                         serverDirectoryUri = serverDirectoryUriText,
-                        onServerDirectorySelected = { uri -> persistServerDirectoryUri(uri) },
-                        onRequestServerDirectory = { requestServerDirectory(PendingServerDirectoryAction.SettingsRequest) },
+                        onRequestServerDirectory = {
+                            requestServerDirectory(PendingServerDirectoryAction.SettingsRequest)
+                        },
                     )
                 }
             }
         }
     }
 }
-
 
 private fun downloadAndInstallPojavRuntime(
     context: Context,
@@ -769,26 +728,32 @@ private fun downloadAndInstallPojavRuntime(
     )
     val tempFiles = mutableListOf<Path>()
     try {
-        val universalArchive = archives.first { it.displayName.endsWith("universal.tar.xz") }
-        val abiArchive = archives.first { it != universalArchive }
         fun downloadArchive(archive: com.mcgo.app.server.TrustedJavaRuntimeTarball, start: Int, end: Int): Path {
             val suffix = archive.url.substringAfterLast('/').let { if (it.endsWith(".tar.xz")) ".tar.xz" else ".archive" }
             val tempFile = Files.createTempFile(context.cacheDir.toPath(), "mcgo-runtime-", suffix)
             tempFiles.add(tempFile)
-            downloadFileToPath(runtimeDownloadUrlsForRegion(context, archive.url), tempFile) { progress ->
+            downloadVerifiedFileToPath(
+                urls = runtimeDownloadUrlsForRegion(context, archive.url),
+                target = tempFile,
+                expectedArchive = archive,
+            ) { progress ->
                 val mapped = start + ((end - start) * progress.coerceIn(0, 100) / 100)
                 onProgress(mapped.coerceIn(start, end))
             }
-            validateRuntimeArchiveTrust(
-                archiveKind = JavaRuntimeArchiveKind.TarXz,
-                source = JavaRuntimeArchiveSource.OfficialDownload,
-                sha256 = sha256Hex(tempFile),
-                displayName = archive.displayName,
-                signerCertSha256 = null,
-            )
             return tempFile
         }
 
+        if (majorVersion == 25) {
+            val arm64Archive = archives.single()
+            val tempArchive = downloadArchive(arm64Archive, start = 1, end = 90)
+            onProgress(94)
+            return installRuntimeWithStaging(filesDir = filesDir, majorVersion = majorVersion) { tempDir ->
+                Files.newInputStream(tempArchive).use { input -> extractTarXzSafely(input, tempDir) }
+            }
+        }
+
+        val universalArchive = archives.first { it.displayName.endsWith("universal.tar.xz") }
+        val abiArchive = archives.first { it != universalArchive }
         val universalTemp = downloadArchive(universalArchive, start = 1, end = 48)
         val abiTemp = downloadArchive(abiArchive, start = 49, end = 86)
         onProgress(90)
@@ -807,6 +772,49 @@ private fun downloadFileToPath(urls: List<String>, target: Path, onProgress: (In
     urls.distinct().forEach { url ->
         try {
             downloadSingleFileToPath(url, target, onProgress)
+            return
+        } catch (error: Exception) {
+            lastError = error
+        }
+    }
+    throw JavaRuntimeInstallException("下载 JRE 失败", lastError)
+}
+
+private fun downloadVerifiedFileToPath(
+    urls: List<String>,
+    target: Path,
+    expectedArchive: com.mcgo.app.server.TrustedJavaRuntimeTarball,
+    onProgress: (Int) -> Unit = {},
+) {
+    downloadVerifiedFileFromAnyUrl(
+        urls = urls,
+        target = target,
+        expectedSha256 = expectedArchive.sha256,
+        expectedDisplayName = expectedArchive.displayName,
+        downloader = ::downloadSingleFileToPath,
+        onProgress = onProgress,
+    )
+}
+
+internal fun downloadVerifiedFileFromAnyUrl(
+    urls: List<String>,
+    target: Path,
+    expectedSha256: String,
+    expectedDisplayName: String,
+    downloader: (String, Path, (Int) -> Unit) -> Unit,
+    onProgress: (Int) -> Unit = {},
+) {
+    var lastError: Exception? = null
+    urls.distinct().forEach { url ->
+        try {
+            Files.deleteIfExists(target)
+            downloader(url, target, onProgress)
+            val actualSha256 = sha256Hex(target)
+            if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+                throw JavaRuntimeInstallException(
+                    "JRE 安装包可信校验失败：$expectedDisplayName 的 SHA-256 与预期不匹配",
+                )
+            }
             return
         } catch (error: Exception) {
             lastError = error
@@ -852,7 +860,6 @@ private fun runtimeDownloadUrlsForRegion(context: Context, canonicalUrl: String)
     val language = context.resources.configuration.locales.get(0).language.lowercase()
     return if (language == "zh") listOf(mirror, canonicalUrl) else listOf(canonicalUrl, mirror)
 }
-
 
 private fun isPaperRuntimeProcessAlive(context: Context): Boolean {
     val activityManager = context.getSystemService(ActivityManager::class.java) ?: return false
@@ -973,24 +980,134 @@ private fun Throwable.userFacingInstallMessage(majorVersion: Int): String {
 private fun ServerConsoleDialog(
     server: ServerCardState,
     onDismiss: () -> Unit,
+    onSubmitCommand: (String) -> Boolean,
 ) {
     val consoleText = remember(server.runtimeLogPath, server.runtimeLogs) { resolveServerConsoleText(server) }
+    val annotatedLog = remember(consoleText) { buildConsoleAnnotatedLog(consoleText) }
+    var command by remember(server.id) { mutableStateOf("") }
+    var inlineError by remember(server.id) { mutableStateOf<String?>(null) }
+    val scrollState = rememberScrollState()
+    LaunchedEffect(annotatedLog.text) {
+        scrollState.scrollTo(scrollState.maxValue)
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+        confirmButton = {},
+        dismissButton = {},
+        containerColor = Color(0xFF1F1F1F),
+        tonalElevation = 0.dp,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = server.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                                .background(
+                                    when (server.launchStatus) {
+                                        ServerLaunchStatus.Running -> ConsoleInfoColor
+                                        ServerLaunchStatus.Failed -> ConsoleErrorColor
+                                        ServerLaunchStatus.Stopping -> ConsoleWarnColor
+                                        else -> ConsoleTimestampColor
+                                    },
+                                    CircleShape,
+                                ),
+                        )
+                        Text(
+                            text = server.launchStatus.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFFD0D7DE),
+                        )
+                    }
+                }
+                OutlinedButton(onClick = onDismiss) {
+                    Text("关闭")
+                }
+            }
         },
-        title = { Text("控制台 · ${server.name}") },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(520.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = if (consoleText.isBlank()) "暂无运行日志，启动服务器后这里会显示最新控制台输出。" else consoleText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    color = Color(0xFF050505),
+                    shape = CardDefaults.shape,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(14.dp)
+                            .verticalScroll(scrollState),
+                    ) {
+                        BasicText(
+                            text = annotatedLog,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = Color(0xFFE6EDF3),
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.35,
+                            ),
+                        )
+                    }
+                }
+                inlineError?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    OutlinedTextField(
+                        value = command,
+                        onValueChange = {
+                            command = it
+                            if (inlineError != null) inlineError = null
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("发送指令") },
+                        placeholder = { Text("例如：list / say hello / stop") },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    )
+                    IconButton(
+                        onClick = {
+                            val result = runCatching {
+                                val normalized = normalizeConsoleCommand(command)
+                                if (!onSubmitCommand(normalized)) {
+                                    error("当前 Paper 进程尚未接收标准输入，请稍后再试")
+                                }
+                                command = ""
+                            }
+                            inlineError = result.exceptionOrNull()?.message
+                        },
+                    ) {
+                        Icon(Icons.Outlined.ArrowUpward, contentDescription = "发送指令")
+                    }
+                }
             }
         },
     )

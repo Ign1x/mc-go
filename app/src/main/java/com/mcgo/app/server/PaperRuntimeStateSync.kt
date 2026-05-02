@@ -14,12 +14,13 @@ fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): S
     PaperServerEventStatus.Failed -> server.markLaunchFailed(event.message)
     PaperServerEventStatus.Stopping -> server.markLaunchStopping(event.message)
     PaperServerEventStatus.Stopped -> server.clearRuntimeState(ServerLaunchStatus.Stopped, event.message)
-    else -> server.withLaunchProgress(
+    PaperServerEventStatus.Launching -> server.withLaunchProgress(
         progress = event.progress ?: server.launchProgress,
         logLine = event.message,
         status = ServerLaunchStatus.Launching,
         online = false,
     )
+    null -> server.copy(runtimeLogs = (server.runtimeLogs + event.message).takeLast(12))
 }
 
 fun syncPaperRuntimeEvent(filesDir: Path, event: PaperServerEvent) {

@@ -22,6 +22,8 @@ object PaperJvmLauncher {
 
     fun queueStopRequest(): Boolean = nativeQueueStopRequest()
 
+    fun submitCommand(command: String): Boolean = nativeSubmitCommand(command)
+
     fun clearPendingStopRequest() {
         nativeClearPendingStopRequest()
     }
@@ -39,5 +41,6 @@ object PaperJvmLauncher {
 
     private external fun nativeRequestStop(): Boolean
     private external fun nativeQueueStopRequest(): Boolean
+    private external fun nativeSubmitCommand(command: String): Boolean
     private external fun nativeClearPendingStopRequest()
 }

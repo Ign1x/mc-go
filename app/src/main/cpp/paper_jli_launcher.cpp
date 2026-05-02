@@ -212,6 +212,22 @@ Java_com_mcgo_app_server_PaperJvmLauncher_nativeQueueStopRequest(
 }
 
 extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_mcgo_app_server_PaperJvmLauncher_nativeSubmitCommand(
+    JNIEnv *env,
+    jobject /* this */,
+    jstring commandValue
+) {
+    const std::string command = readString(env, commandValue);
+    if (command.empty()) return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(g_stop_mutex);
+    if (g_stdin_write_fd >= 0) {
+        return writeAll(g_stdin_write_fd, command.c_str(), command.size()) ? JNI_TRUE : JNI_FALSE;
+    }
+    return JNI_FALSE;
+}
+
+extern "C"
 JNIEXPORT void JNICALL
 Java_com_mcgo_app_server_PaperJvmLauncher_nativeClearPendingStopRequest(
     JNIEnv * /* env */,
@@ -301,14 +317,15 @@ Java_com_mcgo_app_server_PaperJvmLauncher_nativeLaunchJvm(
     }
 
     std::vector<char *> argv;
-    argv.reserve(arguments.size());
+    argv.reserve(arguments.size() + 1);
     for (auto &argument : arguments) {
         argv.push_back(argument.data());
     }
+    argv.push_back(nullptr);
 
-    fprintf(stdout, "[MC-GO] calling JLI_Launch with %zu args\n", argv.size());
+    fprintf(stdout, "[MC-GO] calling JLI_Launch with %zu args\n", arguments.size());
     return launch(
-        static_cast<int>(argv.size()),
+        static_cast<int>(arguments.size()),
         argv.data(),
         0,
         nullptr,

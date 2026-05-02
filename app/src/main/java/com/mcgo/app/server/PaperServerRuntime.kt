@@ -11,7 +11,8 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
-private const val DefaultProvisionablePaperVersion = "1.21.4"
+private const val PaperDownloadsPageUrl = "https://papermc.io/downloads/paper"
+private const val DefaultProvisionablePaperVersion = "1.21.11"
 val PaperDownloadUserAgent: String = McGoUserAgent
 
 data class PreparedPaperServerFiles(
@@ -48,6 +49,8 @@ fun fallbackPaperVersions(): List<String> = listOf(
     "1.20.6",
     "1.21.1",
     "1.21.4",
+    "1.21.11",
+    "26.1.2",
 )
 
 fun parsePaperVersions(responseBody: String): List<String> =
@@ -100,19 +103,32 @@ fun paperJarFileName(version: String): String = "paper-${validatePaperVersion(ve
 fun paperJarSha256File(targetJar: Path): Path = targetJar.resolveSibling("${targetJar.fileName}.sha256")
 
 fun filterProvisionablePaperVersions(versions: List<String>): List<String> = versions.filter { version ->
-    validatePaperVersionOrNull(version) != null && recommendedJavaMajorVersion(version) in setOf(8, 11, 17, 21)
+    validatePaperVersionOrNull(version) != null && recommendedJavaMajorVersion(version) in setOf(8, 11, 17, 21, 25)
 }
 
-fun resolveProvisionablePaperVersionOptions(versions: List<String>): List<String> =
-    filterProvisionablePaperVersions(versions).ifEmpty { listOf(DefaultProvisionablePaperVersion) }
+fun resolveProvisionablePaperVersionOptions(
+    versions: List<String>,
+    supportedProvisionableJavaVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
+): List<String> =
+    filterProvisionablePaperVersions(versions)
+        .filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+        .ifEmpty { listOf(DefaultProvisionablePaperVersion) }
 
-fun initialProvisionablePaperVersion(versions: List<String>): String =
-    resolveProvisionablePaperVersionOptions(versions).last()
+fun initialProvisionablePaperVersion(
+    versions: List<String>,
+    supportedProvisionableJavaVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
+): String =
+    resolveProvisionablePaperVersionOptions(versions, supportedProvisionableJavaVersions).last()
 
 fun fetchPaperVersions(): List<String> = runCatching {
-    val response = httpGet(PaperApiBase)
-    val versions = parsePaperVersions(response).ifEmpty { fallbackPaperVersions() }
-    filterProvisionablePaperVersions(versions)
+    val apiVersions = parsePaperVersions(httpGet(PaperApiBase))
+    val pageLatest = runCatching {
+        httpGet(PaperDownloadsPageUrl)
+            .let(::parseLatestPaperDownloadsPageArtifact)
+            ?.version
+    }.getOrNull()
+    val merged = (apiVersions.ifEmpty { fallbackPaperVersions() } + fallbackPaperVersions() + listOfNotNull(pageLatest)).distinct()
+    filterProvisionablePaperVersions(merged)
 }.getOrElse { filterProvisionablePaperVersions(fallbackPaperVersions()) }
 
 fun preparePaperServerFiles(server: ServerCardState, rootDir: Path): PreparedPaperServerFiles {
@@ -230,6 +246,20 @@ fun shouldReusePaperJar(targetJar: Path): Boolean = runCatching {
 
 fun resolveLatestPaperDownload(version: String): PaperDownloadArtifact {
     val safeVersion = validatePaperVersion(version)
+    val pageArtifact = runCatching {
+        httpGet(PaperDownloadsPageUrl)
+            .let(::parseLatestPaperDownloadsPageArtifact)
+            ?.takeIf { it.version == safeVersion }
+    }.getOrNull()
+    if (pageArtifact != null) {
+        return PaperDownloadArtifact(
+            version = pageArtifact.version,
+            build = pageArtifact.build,
+            downloadName = pageArtifact.downloadName,
+            sha256 = pageArtifact.sha256,
+            downloadUrl = pageArtifact.downloadUrl,
+        )
+    }
     val buildsBody = httpGet("$PaperApiBase/versions/$safeVersion")
     val build = parseLatestPaperBuild(buildsBody)
     val buildBody = httpGet("$PaperApiBase/versions/$safeVersion/builds/$build")

@@ -97,8 +97,10 @@ data class AppearanceSettingsState(
 
 fun recommendedJavaMajorVersion(minecraftVersion: String): Int {
     val parts = minecraftVersion.split('.').mapNotNull { it.toIntOrNull() }
-    val minor = parts.getOrNull(1) ?: return 21
+    val major = parts.getOrNull(0) ?: return 21
+    val minor = parts.getOrNull(1) ?: return if (major >= 26) 25 else 21
     return when {
+        major >= 26 -> 25
         minor <= 11 -> 8
         minor in 12..16 -> 11
         minor in 17..19 -> 17
@@ -207,15 +209,18 @@ fun requestServerDeletion(server: ServerCardState): ServerCardState = server.cop
 fun finalizePendingServerDeletion(servers: List<ServerCardState>): List<ServerCardState> =
     servers.filterNot { it.pendingDeletion && !it.isRuntimeBusy() }
 
-fun isManagedRuntimeProvisioningAvailable(majorVersion: Int): Boolean = majorVersion in setOf(8, 11, 17, 21)
+fun isManagedRuntimeProvisioningAvailable(majorVersion: Int, supportedProvisionableVersions: Set<Int> = setOf(8, 11, 17, 21, 25)): Boolean = majorVersion in supportedProvisionableVersions
 
-fun unsupportedManagedRuntimeReason(majorVersion: Int): String? = if (isManagedRuntimeProvisioningAvailable(majorVersion)) {
+fun unsupportedManagedRuntimeReason(
+    majorVersion: Int,
+    supportedProvisionableVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
+): String? = if (isManagedRuntimeProvisioningAvailable(majorVersion, supportedProvisionableVersions)) {
     null
 } else {
     "当前版本暂不提供 Java $majorVersion 托管运行时；该 Minecraft 版本暂不支持一键开服"
 }
 
-fun ServerCardState.markUnsupportedManagedRuntime(): ServerCardState = unsupportedManagedRuntimeReason(javaMajorVersion)
+fun ServerCardState.markUnsupportedManagedRuntime(supportedProvisionableVersions: Set<Int> = setOf(8, 11, 17, 21, 25)): ServerCardState = unsupportedManagedRuntimeReason(javaMajorVersion, supportedProvisionableVersions)
     ?.let { reason ->
         copy(
             isOnline = false,

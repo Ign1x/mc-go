@@ -61,7 +61,7 @@ object McGoSampleRepository {
         ),
         SettingsSectionState(
             title = "Java 管理",
-            subtitle = "JRE 8/11/17/21 托管",
+            subtitle = "托管 JRE 槽位",
             highlight = defaultJavaManagementState().summaryLabel,
             icon = SettingsCategoryIcon.JavaRuntime,
         ),

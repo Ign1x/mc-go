@@ -107,12 +107,15 @@ fun SettingsScreen(
     onRequestServerDirectory: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.fontScale, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground) {
+    val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.fontScale, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground, javaManagementState.summaryLabel) {
         McGoSampleRepository.settingsSections().map { section ->
-            if (section.icon == SettingsCategoryIcon.Appearance) {
-                section.copy(highlight = appearancePreferences.summaryLabel())
-            } else {
-                section
+            when (section.icon) {
+                SettingsCategoryIcon.Appearance -> section.copy(highlight = appearancePreferences.summaryLabel())
+                SettingsCategoryIcon.JavaRuntime -> section.copy(
+                    subtitle = javaManagementState.summaryLabel.replace(" / ", "/") + " 托管",
+                    highlight = javaManagementState.summaryLabel,
+                )
+                else -> section
             }
         }
     }
@@ -146,7 +149,7 @@ fun SettingsScreen(
     }
     val requestJavaArchive: (Int) -> Unit = { version ->
         pendingJavaInstallVersion = version
-        javaArchivePickerLauncher.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
+        javaArchivePickerLauncher.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream", "application/x-xz", "application/x-tar", "application/gzip", "*/*"))
     }
     val runtimePermissionState = defaultRuntimePermissionState(
         postNotificationsGranted = postNotificationsGranted,

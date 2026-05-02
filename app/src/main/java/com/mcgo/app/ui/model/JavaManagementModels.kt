@@ -22,16 +22,32 @@ data class JavaManagementState(
 fun defaultJavaManagementState(
     installedVersions: Set<Int> = emptySet(),
     downloadProgressByMajor: Map<Int, Int> = emptyMap(),
+    supportedProvisionableVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
 ): JavaManagementState = JavaManagementState(
     sectionTitle = "托管 JRE",
-    summaryLabel = "JRE 8 / 11 / 17 / 21",
-    runtimeOptions = listOf(
+    summaryLabel = "JRE 8 / 11 / 17 / 21 / 25",
+    runtimeOptions = listOfNotNull(
         jreOption(8, "Minecraft 1.7.10 - 1.11 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
         jreOption(11, "Minecraft 1.12 - 1.16.5 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
         jreOption(17, "Minecraft 1.17 - 1.19 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
         jreOption(21, "Minecraft 1.20 - 1.21.x Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
+        jreOptionOrNull(25 in supportedProvisionableVersions, 25, "Minecraft 26.1 - 26.1.2 服务端使用；支持在线下载 ARM64 托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
     ),
 )
+
+private fun jreOptionOrNull(
+    visible: Boolean,
+    majorVersion: Int,
+    description: String,
+    installedVersions: Set<Int>,
+    downloadProgressByMajor: Map<Int, Int>,
+    onlineInstallAvailable: Boolean,
+    importLabel: String?,
+): JavaRuntimeOption? = if (visible) {
+    jreOption(majorVersion, description, installedVersions, downloadProgressByMajor, onlineInstallAvailable, importLabel)
+} else {
+    null
+}
 
 private fun jreOption(
     majorVersion: Int,

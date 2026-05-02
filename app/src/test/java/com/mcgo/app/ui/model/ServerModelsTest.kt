@@ -83,6 +83,8 @@ class ServerModelsTest {
         assertThat(recommendedJavaMajorVersion("1.19.4")).isEqualTo(17)
         assertThat(recommendedJavaMajorVersion("1.20.1")).isEqualTo(21)
         assertThat(recommendedJavaMajorVersion("1.21.4")).isEqualTo(21)
+        assertThat(recommendedJavaMajorVersion("1.21.11")).isEqualTo(21)
+        assertThat(recommendedJavaMajorVersion("26.1.2")).isEqualTo(25)
     }
 
     @Test
@@ -182,6 +184,30 @@ class ServerModelsTest {
         assertThat(reduced.port).isEqualTo(running.port)
         assertThat(reduced.activeTunnelLabel).isEqualTo(running.activeTunnelLabel)
         assertThat(reduced.runtimeLogs.last()).contains("已请求停止")
+    }
+
+    @Test
+    fun reducePaperRuntimeEvent_launchingStatusDoesNotFlipServerToFailedForConsoleFeedback() {
+        val launching = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).startPaperServer(tunnel = null, startupPort = 25565)
+
+        val reduced = reducePaperRuntimeEvent(
+            launching,
+            PaperServerEvent(
+                serverId = launching.id,
+                status = null,
+                progress = null,
+                message = "当前 Paper 进程尚未接收标准输入，请稍后再试",
+            ),
+        )
+
+        assertThat(reduced.launchStatus).isEqualTo(ServerLaunchStatus.Launching)
+        assertThat(reduced.isOnline).isFalse()
+        assertThat(reduced.runtimeLogs.last()).contains("标准输入")
     }
 
     @Test

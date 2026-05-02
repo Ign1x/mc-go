@@ -9,6 +9,9 @@ data class TrustedJavaRuntimeTarball(
 private const val TrustedJavaRuntimeRepoCommit = "663faf38121ba7be7dd82567fc1595a6b9b60179"
 private const val TrustedJavaRuntimeBaseUrl =
     "https://raw.githubusercontent.com/aaaapai/android-openjdk-autobuild/$TrustedJavaRuntimeRepoCommit/LatestJre"
+private const val DirectRuntimeReleaseTag = "20260223"
+private const val DirectRuntimeReleaseBaseUrl =
+    "https://github.com/aaaapai/android-openjdk-build/releases/download/$DirectRuntimeReleaseTag"
 
 fun javaRuntimeTarballKey(majorVersion: Int, archiveName: String): String = "jre-$majorVersion/$archiveName"
 
@@ -23,6 +26,18 @@ val TrustedJavaRuntimeTarballMetadata: Map<String, TrustedJavaRuntimeTarball> = 
             TrustedJavaRuntimeTarball(
                 displayName = displayName,
                 url = "$TrustedJavaRuntimeBaseUrl/jre-$majorVersion/$archiveName",
+                sha256 = sha256,
+            ),
+        )
+    }
+
+    fun registerDirect(majorVersion: Int, archiveName: String, fileName: String, sha256: String) {
+        val displayName = javaRuntimeTarballKey(majorVersion, archiveName)
+        put(
+            displayName,
+            TrustedJavaRuntimeTarball(
+                displayName = displayName,
+                url = "$DirectRuntimeReleaseBaseUrl/$fileName",
                 sha256 = sha256,
             ),
         )
@@ -51,4 +66,59 @@ val TrustedJavaRuntimeTarballMetadata: Map<String, TrustedJavaRuntimeTarball> = 
     register(21, "bin-arm.tar.xz", "46b9e0a84e7d5d1692a5a5896fe9f3a40010fbe9806c9cd06daabad6d370a246")
     register(21, "bin-x86.tar.xz", "6c0c076cedccdaa5ffd5390206ccd4cedf6b87534bc7be3a0fce1eb7d42a334d")
     register(21, "bin-x86_64.tar.xz", "d18bb65ff99fa73042d2bec04673eeba79620cdee8d81703f8422de331e84950")
+
+    registerDirect(
+        25,
+        archiveName = "bin-arm64.tar.xz",
+        fileName = "jre25-arm64-20260223-release.tar.xz",
+        sha256 = "0fdf6d19fe66ea61c12caa24bd655227ddb0d7d9c16c0f13281a7c2878635286",
+    )
+}
+
+data class LatestPaperDownloadsPageArtifact(
+    val version: String,
+    val build: Int,
+    val downloadName: String,
+    val sha256: String,
+    val downloadUrl: String,
+)
+
+fun parseLatestPaperDownloadsPageArtifact(html: String): LatestPaperDownloadsPageArtifact? {
+    val latestVersion = Regex("""latestStableVersion(?:&quot;|\"):\[0,(?:&quot;|\")([^\"&]+)(?:&quot;|\")]""")
+        .find(html)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    val build = Regex("""stableBuildsResult.*?latest(?:&quot;|\"):\[0,\{.*?id(?:&quot;|\"):\[0,(\d+)]""", RegexOption.DOT_MATCHES_ALL)
+        .find(html)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+        ?: return null
+    val downloadName = Regex("""server:default(?:&quot;|\"):\[0,\{.*?name(?:&quot;|\"):\[0,(?:&quot;|\")([^\"&]+)(?:&quot;|\")]""", RegexOption.DOT_MATCHES_ALL)
+        .find(html)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    val downloadUrl = Regex("""server:default(?:&quot;|\"):\[0,\{.*?url(?:&quot;|\"):\[0,(?:&quot;|\")([^\"&]+)(?:&quot;|\")]""", RegexOption.DOT_MATCHES_ALL)
+        .find(html)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    val sha256 = Regex("""checksums(?:&quot;|\"):\[0,\{.*?sha256(?:&quot;|\"):\[0,(?:&quot;|\")([A-Fa-f0-9]{64})(?:&quot;|\")]""", RegexOption.DOT_MATCHES_ALL)
+        .find(html)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.lowercase()
+        ?: return null
+    return LatestPaperDownloadsPageArtifact(
+        version = latestVersion,
+        build = build,
+        downloadName = downloadName,
+        sha256 = sha256,
+        downloadUrl = downloadUrl,
+    )
 }

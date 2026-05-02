@@ -3,6 +3,8 @@ package com.mcgo.app.server
 import android.os.Build
 import java.io.IOException
 import java.io.InputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.CopyOption
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -125,7 +127,7 @@ fun installRuntimeWithStaging(
         }
         javaBinary.toFile().setExecutable(true, false)
         deleteRecursively(javaHome)
-        Files.move(tempDir, javaHome, StandardCopyOption.ATOMIC_MOVE)
+        moveInstalledRuntimeIntoPlace(tempDir, javaHome)
         return javaHome
     } catch (error: JavaRuntimeInstallException) {
         deleteRecursively(tempDir)
@@ -133,6 +135,18 @@ fun installRuntimeWithStaging(
     } catch (error: Exception) {
         deleteRecursively(tempDir)
         throw JavaRuntimeInstallException("安装 JRE $majorVersion 失败", error)
+    }
+}
+
+fun moveInstalledRuntimeIntoPlace(
+    source: Path,
+    destination: Path,
+    mover: (Path, Path, Array<out CopyOption>) -> Path = { from, to, options -> Files.move(from, to, *options) },
+) {
+    try {
+        mover(source, destination, arrayOf(StandardCopyOption.ATOMIC_MOVE))
+    } catch (_: AtomicMoveNotSupportedException) {
+        mover(source, destination, emptyArray())
     }
 }
 
@@ -246,6 +260,7 @@ private fun pojavComponentName(majorVersion: Int): String = when (majorVersion) 
     11 -> "jre-11"
     17 -> "jre-new"
     21 -> "jre-21"
+    25 -> throw JavaRuntimeInstallException("Java 25 暂未在 Pojav 安装包中提供组件，请使用 MC-GO 提供的 ARM64 归档运行时")
     else -> throw JavaRuntimeInstallException("Java $majorVersion 暂未在 Pojav 安装包中找到可用组件，请导入匹配的 Android JRE 包")
 }
 
@@ -314,6 +329,15 @@ private fun parseJavaMajorVersionFromReleaseText(releaseText: String): Int? {
 fun trustedRuntimeArchiveNameForAbi(abi: String): String = abiArchiveName(abi)
 
 fun trustedRuntimeArchivesForVersion(majorVersion: Int, abi: String): List<TrustedJavaRuntimeTarball> {
+    if (majorVersion == 25) {
+        if (abi != "arm64-v8a") {
+            throw JavaRuntimeInstallException("Java 25 当前仅提供 ARM64 受信任运行时归档，请在 arm64-v8a 设备上使用")
+        }
+        return listOf(
+            trustedJavaRuntimeTarball(25, "bin-arm64.tar.xz")
+                ?: throw JavaRuntimeInstallException("Java 25 缺少受信任运行时清单：bin-arm64.tar.xz")
+        )
+    }
     val archiveNames = listOf("universal.tar.xz", trustedRuntimeArchiveNameForAbi(abi))
     return archiveNames.map { archiveName ->
         trustedJavaRuntimeTarball(majorVersion, archiveName)

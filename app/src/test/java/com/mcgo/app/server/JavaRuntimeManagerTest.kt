@@ -215,6 +215,26 @@ class JavaRuntimeManagerTest {
         assertThat(Files.exists(filesDir.resolve("jre/java-21/bin/java"))).isTrue()
     }
 
+    @Test
+    fun trustedRuntimeArchivesForVersion_supportsDirectJava25Arm64CatalogEntry() {
+        val archives = trustedRuntimeArchivesForVersion(25, "arm64-v8a")
+
+        assertThat(archives).hasSize(1)
+        assertThat(archives.single().displayName).contains("jre-25")
+        assertThat(archives.single().url).contains("jre25-arm64-20260223-release.tar.xz")
+        assertThat(archives.single().sha256).isEqualTo("0fdf6d19fe66ea61c12caa24bd655227ddb0d7d9c16c0f13281a7c2878635286")
+    }
+
+    @Test
+    fun trustedRuntimeArchivesForVersion_rejectsJava25OnUnsupportedAbi() {
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            trustedRuntimeArchivesForVersion(25, "x86_64")
+        }
+
+        assertThat(error).hasMessageThat().contains("Java 25")
+        assertThat(error).hasMessageThat().contains("ARM64")
+    }
+
     private data class TarSpec(
         val name: String,
         val bytes: ByteArray = byteArrayOf(),

@@ -65,6 +65,7 @@ import com.mcgo.app.R
 import com.mcgo.app.server.initialProvisionablePaperVersion
 import com.mcgo.app.server.resolveProvisionablePaperVersionOptions
 import com.mcgo.app.ui.components.GlassCard
+import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.TunnelProfile
@@ -79,6 +80,7 @@ fun ServersScreen(
     servers: List<ServerCardState>,
     availableTunnels: List<TunnelProfile>,
     paperVersions: List<String>,
+    supportedProvisionableJavaVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
     modifier: Modifier = Modifier,
     showCreateServer: Boolean = false,
     onDismissCreateServer: () -> Unit = {},
@@ -95,6 +97,7 @@ fun ServersScreen(
     if (showCreateServer) {
         CreatePaperServerDialog(
             paperVersions = paperVersions,
+            supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
             onDismiss = onDismissCreateServer,
             onCreate = onCreateServer,
         )
@@ -365,12 +368,17 @@ private fun DeleteServerDialog(
 @Composable
 private fun CreatePaperServerDialog(
     paperVersions: List<String>,
+    supportedProvisionableJavaVersions: Set<Int>,
     onDismiss: () -> Unit,
     onCreate: (ServerCardState) -> Unit,
 ) {
-    val versionOptions = remember(paperVersions) { resolveProvisionablePaperVersionOptions(paperVersions) }
+    val versionOptions = remember(paperVersions, supportedProvisionableJavaVersions) {
+        resolveProvisionablePaperVersionOptions(paperVersions, supportedProvisionableJavaVersions)
+    }
     var name by remember { mutableStateOf("Paper 生存服") }
-    var minecraftVersion by remember(versionOptions) { mutableStateOf(initialProvisionablePaperVersion(versionOptions)) }
+    var minecraftVersion by remember(versionOptions, supportedProvisionableJavaVersions) {
+        mutableStateOf(initialProvisionablePaperVersion(versionOptions, supportedProvisionableJavaVersions))
+    }
     var versionMenuExpanded by remember { mutableStateOf(false) }
     var maxPlayers by remember { mutableStateOf("20") }
     var memoryMb by remember { mutableStateOf("2048") }
