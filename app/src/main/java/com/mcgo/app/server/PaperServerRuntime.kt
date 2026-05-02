@@ -11,7 +11,7 @@ import java.nio.file.StandardCopyOption
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
 private const val DefaultProvisionablePaperVersion = "1.21.4"
-const val PaperDownloadUserAgent = "MC-GO/0.2.14"
+const val PaperDownloadUserAgent = "MC-GO/0.2.15"
 
 data class PreparedPaperServerFiles(
     val workDir: Path,

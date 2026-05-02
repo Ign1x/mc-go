@@ -765,7 +765,7 @@ private fun downloadSingleFileToPath(url: String, target: Path, onProgress: (Int
         connectTimeout = 20_000
         readTimeout = 60_000
         requestMethod = "GET"
-        setRequestProperty("User-Agent", "MC-GO/0.2.14")
+        setRequestProperty("User-Agent", "MC-GO/0.2.15")
     }
     try {
         val statusCode = connection.responseCode
