@@ -13,17 +13,11 @@ class JavaRuntimeImportTest {
     }
 
     @Test
-    fun classifyJavaRuntimeArchiveName_rejectsTarXzArchives() {
-        val tarXzError = assertFailsWith<JavaRuntimeInstallException> {
-            classifyJavaRuntimeArchiveName("android-jre-17.tar.xz")
-        }
-        val txzError = assertFailsWith<JavaRuntimeInstallException> {
-            classifyJavaRuntimeArchiveName("android-jre-21.txz")
-        }
-
-        assertThat(tarXzError).hasMessageThat().contains("Pojav APK")
-        assertThat(tarXzError).hasMessageThat().doesNotContain("tar.xz")
-        assertThat(txzError).hasMessageThat().contains("Pojav APK")
+    fun classifyJavaRuntimeArchiveName_acceptsTrustedTarXzArchives() {
+        assertThat(classifyJavaRuntimeArchiveName("android-jre-11.tar.xz"))
+            .isEqualTo(JavaRuntimeArchiveKind.TarXz)
+        assertThat(classifyJavaRuntimeArchiveName("android-jre-21.txz"))
+            .isEqualTo(JavaRuntimeArchiveKind.TarXz)
     }
 
     @Test
@@ -34,7 +28,7 @@ class JavaRuntimeImportTest {
 
         assertThat(error).hasMessageThat().contains("仅支持")
         assertThat(error).hasMessageThat().contains("APK")
-        assertThat(error).hasMessageThat().doesNotContain("tar.xz")
+        assertThat(error).hasMessageThat().contains("tar.xz")
     }
 
     @Test
@@ -94,6 +88,30 @@ class JavaRuntimeImportTest {
         }
 
         assertThat(error).hasMessageThat().contains("签名证书")
+    }
+
+    @Test
+    fun validateRuntimeArchiveTrust_allowsOfficialDownloadTarXzWhenPinnedByTrustManifest() {
+        validateRuntimeArchiveTrust(
+            archiveKind = JavaRuntimeArchiveKind.TarXz,
+            source = JavaRuntimeArchiveSource.OfficialDownload,
+            sha256 = "5b6e843e2ddd02ec7dd40b6f604bf2ca9104ccf8a0cc19d3d5a3126e1fba8907",
+            displayName = "jre-11/universal.tar.xz",
+        )
+    }
+
+    @Test
+    fun validateRuntimeArchiveTrust_rejectsUntrustedOfficialTarXz() {
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            validateRuntimeArchiveTrust(
+                archiveKind = JavaRuntimeArchiveKind.TarXz,
+                source = JavaRuntimeArchiveSource.OfficialDownload,
+                sha256 = "deadbeef",
+                displayName = "android-jre-21.tar.xz",
+            )
+        }
+
+        assertThat(error).hasMessageThat().contains("SHA-256")
     }
 
     @Test

@@ -34,9 +34,8 @@ fun classifyJavaRuntimeArchiveName(name: String): JavaRuntimeArchiveKind {
     val normalizedName = name.lowercase()
     return when {
         normalizedName.endsWith(".apk") -> JavaRuntimeArchiveKind.PojavApk
-        normalizedName.endsWith(".tar.xz") || normalizedName.endsWith(".txz") ->
-            throw JavaRuntimeInstallException("当前仅支持通过可信校验的官方 Pojav APK 导入托管 JRE")
-        else -> throw JavaRuntimeInstallException("当前仅支持通过可信校验的官方 Pojav APK 导入托管 JRE")
+        normalizedName.endsWith(".tar.xz") || normalizedName.endsWith(".txz") -> JavaRuntimeArchiveKind.TarXz
+        else -> throw JavaRuntimeInstallException("当前仅支持官方 Pojav APK 或受信任 Android JRE tar.xz/txz 运行时包")
     }
 }
 
@@ -108,7 +107,7 @@ fun installRuntimeFromTarXz(
     Files.newInputStream(archivePath).use { input -> extractTarXzSafely(input, tempDir) }
 }
 
-private fun installRuntimeWithStaging(
+fun installRuntimeWithStaging(
     filesDir: Path,
     majorVersion: Int,
     extractInto: (Path) -> Unit,
@@ -310,6 +309,16 @@ private fun parseJavaMajorVersionFromReleaseText(releaseText: String): Int? {
         ?.takeIf { it.isNotBlank() }
         ?: return null
     return if (version.startsWith("1.8")) 8 else version.substringBefore('.').toIntOrNull()
+}
+
+fun trustedRuntimeArchiveNameForAbi(abi: String): String = abiArchiveName(abi)
+
+fun trustedRuntimeArchivesForVersion(majorVersion: Int, abi: String): List<TrustedJavaRuntimeTarball> {
+    val archiveNames = listOf("universal.tar.xz", trustedRuntimeArchiveNameForAbi(abi))
+    return archiveNames.map { archiveName ->
+        trustedJavaRuntimeTarball(majorVersion, archiveName)
+            ?: throw JavaRuntimeInstallException("Java $majorVersion 缺少受信任运行时清单：$archiveName")
+    }
 }
 
 private fun deleteRecursively(path: Path) {

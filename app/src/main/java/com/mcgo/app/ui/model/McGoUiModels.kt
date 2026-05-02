@@ -1,5 +1,7 @@
 package com.mcgo.app.ui.model
 
+import java.io.File
+
 enum class MetricAccent {
     Blue,
     Green,
@@ -167,6 +169,35 @@ fun ServerCardState.isRuntimeBusy(): Boolean =
     isOnline || launchStatus == ServerLaunchStatus.Launching || launchStatus == ServerLaunchStatus.Stopping || launchStatus == ServerLaunchStatus.Running
 
 fun canStartServerFromUi(server: ServerCardState): Boolean = !server.isRuntimeBusy() && !server.pendingDeletion
+
+fun applyPaperServerEdits(
+    server: ServerCardState,
+    name: String,
+    minecraftVersion: String,
+    maxPlayers: Int,
+    memoryMb: Int,
+    port: Int,
+    worldName: String,
+): ServerCardState = server.copy(
+    name = name.ifBlank { server.name },
+    edition = "Paper $minecraftVersion",
+    worldName = worldName.ifBlank { "world" },
+    port = if (server.isRuntimeBusy()) server.port else port,
+    defaultPort = port,
+    maxPlayers = maxPlayers,
+    memoryLabel = formatMemoryMb(memoryMb),
+    memoryMb = memoryMb,
+    minecraftVersion = minecraftVersion,
+    javaMajorVersion = recommendedJavaMajorVersion(minecraftVersion),
+)
+
+fun resolveServerConsoleText(server: ServerCardState): String =
+    server.runtimeLogPath
+        ?.let(::File)
+        ?.takeIf { it.isFile }
+        ?.readText()
+        ?.takeIf { it.isNotBlank() }
+        ?: server.runtimeLogs.joinToString(separator = "\n")
 
 fun requestServerDeletion(server: ServerCardState): ServerCardState = server.copy(
     pendingDeletion = true,

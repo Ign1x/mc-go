@@ -86,7 +86,8 @@ fun ServersScreen(
     onStartServer: (serverId: String, tunnelId: String?, startupPort: Int) -> Unit,
     onStopServer: (serverId: String) -> Unit,
     onDeleteServer: (serverId: String) -> Unit,
-    onActionClick: () -> Unit,
+    onOpenConsole: (serverId: String) -> Unit,
+    onEditServer: (serverId: String) -> Unit,
 ) {
     var pendingStartServer by remember { mutableStateOf<ServerCardState?>(null) }
     var pendingDeleteServer by remember { mutableStateOf<ServerCardState?>(null) }
@@ -131,7 +132,8 @@ fun ServersScreen(
             ServerCard(
                 server = server,
                 modifier = Modifier.padding(horizontal = 20.dp),
-                onActionClick = onActionClick,
+                onOpenConsole = { onOpenConsole(server.id) },
+                onEditServer = { onEditServer(server.id) },
                 onStartClick = { pendingStartServer = server },
                 onStopClick = { onStopServer(server.id) },
                 onDeleteClick = { pendingDeleteServer = server },
@@ -145,7 +147,8 @@ fun ServersScreen(
 private fun ServerCard(
     server: ServerCardState,
     modifier: Modifier = Modifier,
-    onActionClick: () -> Unit,
+    onOpenConsole: () -> Unit,
+    onEditServer: () -> Unit,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit,
     onDeleteClick: () -> Unit,
@@ -235,7 +238,7 @@ private fun ServerCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             AssistChip(
-                onClick = onActionClick,
+                onClick = onOpenConsole,
                 label = { Text(stringResource(R.string.server_action_console)) },
                 leadingIcon = { Icon(Icons.Outlined.Dns, contentDescription = null) },
             )
@@ -265,7 +268,7 @@ private fun ServerCard(
                 },
             )
             AssistChip(
-                onClick = onActionClick,
+                onClick = onEditServer,
                 label = { Text(stringResource(R.string.server_action_edit)) },
                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
             )

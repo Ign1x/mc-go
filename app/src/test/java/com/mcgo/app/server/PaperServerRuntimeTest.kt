@@ -1,6 +1,8 @@
 package com.mcgo.app.server
 
 import com.google.common.truth.Truth.assertThat
+import com.mcgo.app.BuildConfig
+import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.ui.model.createPaperServer
 import java.nio.file.Files
 import kotlin.test.Test
@@ -40,6 +42,7 @@ class PaperServerRuntimeTest {
     fun preparePaperServerFiles_writesEulaAndServerProperties() {
         val workDir = Files.createTempDirectory("mcgo-paper-runtime")
         val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25566)
+            .copy(worldName = "world_nether")
 
         val prepared = preparePaperServerFiles(server, workDir)
 
@@ -47,6 +50,7 @@ class PaperServerRuntimeTest {
         val properties = String(Files.readAllBytes(prepared.serverPropertiesPath))
         assertThat(properties).contains("server-port=25566")
         assertThat(properties).contains("max-players=20")
+        assertThat(properties).contains("level-name=world_nether")
         assertThat(prepared.jarPath.fileName.toString()).isEqualTo("paper-1.21.4.jar")
     }
 
@@ -87,7 +91,8 @@ class PaperServerRuntimeTest {
 
     @Test
     fun paperDownloadUserAgentUsesCurrentVersion() {
-        assertThat(PaperDownloadUserAgent).isEqualTo("MC-GO/0.2.15")
+        assertThat(McGoUserAgent).isEqualTo("MC-GO/${BuildConfig.VERSION_NAME}")
+        assertThat(PaperDownloadUserAgent).isEqualTo(McGoUserAgent)
     }
 
     @Test

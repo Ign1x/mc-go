@@ -56,7 +56,7 @@ fun buildManagedPaperLaunchConfig(
     val launcherDotVersion = runtimeLauncherDotVersion(launcherFullVersion)
     val arguments = buildList {
         add(runtimeLayout.javaBinary.toString())
-        addAll(buildPaperJvmArguments(server))
+        addAll(buildPaperJvmArguments(server, javaHome))
         add("-Djava.awt.headless=true")
         add("-Djava.io.tmpdir=$cacheDir")
         add("-Duser.home=${preparedFiles.workDir}")
@@ -150,7 +150,7 @@ private fun defaultProcessPath(): String = System.getenv("PATH")
     ?.takeIf { it.isNotBlank() }
     ?: "/system/bin:/system/xbin"
 
-private fun readReleaseProperties(javaHome: Path): Map<String, String> {
+internal fun readReleaseProperties(javaHome: Path): Map<String, String> {
     val releaseFile = javaHome.resolve("release")
     if (!Files.isRegularFile(releaseFile)) {
         throw JavaRuntimeInstallException("托管 JRE 缺少 release 文件：$releaseFile")

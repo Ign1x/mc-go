@@ -55,6 +55,24 @@ class JavaRuntimeLayoutTest {
     }
 
     @Test
+    fun resolveManagedJavaRuntimeLayout_keepsLibjvmAheadOfLibjavaForJava8Layouts() {
+        val javaHome = createRuntimeLayout(
+            osArch = "aarch64",
+            withDedicatedJliDirectory = true,
+        )
+
+        val layout = resolveManagedJavaRuntimeLayout(
+            javaHome = javaHome,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+        val names = layout.bootstrapLibraries.map { it.fileName.toString() }
+
+        assertThat(names.indexOf("libjvm.so")).isLessThan(names.indexOf("libjava.so"))
+        assertThat(names.indexOf("libverify.so")).isLessThan(names.indexOf("libjava.so"))
+    }
+
+    @Test
     fun resolveManagedJavaRuntimeLayout_preloadsDependenciesBeforeLibzip() {
         val javaHome = createRuntimeLayout(
             osArch = "aarch64",

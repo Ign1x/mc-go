@@ -38,6 +38,8 @@ class PaperServerService : Service() {
     private var runtimeLaunchSubmitted = false
     @Volatile
     private var stopSignalDelivered = false
+    @Volatile
+    private var lastLaunchedJavaMajorVersion: Int? = null
     private var launchJob: Job? = null
     private var stopSignalRetryJob: Job? = null
     private var logTailJob: Job? = null
@@ -76,6 +78,17 @@ class PaperServerService : Service() {
                 if (runtimeRunning) 100 else null,
                 startConflictMessage(currentServerId = currentServerId, requestedServerId = server.id) ?: "该服务器已在启动或运行中，请稍候",
             )
+            return
+        }
+        if (javaRuntimeMayRequireFreshProcess(lastLaunchedJavaMajorVersion, server.javaMajorVersion)) {
+            publish(
+                server.id,
+                PaperServerEventStatus.Failed,
+                0,
+                "检测到切换 Java ${lastLaunchedJavaMajorVersion} → ${server.javaMajorVersion}；正在重置运行时进程后请重试启动",
+            )
+            stopSelf()
+            android.os.Process.killProcess(android.os.Process.myPid())
             return
         }
         startConflictMessage(currentServerId = currentServerId, requestedServerId = server.id)?.let { conflict ->
@@ -130,6 +143,7 @@ class PaperServerService : Service() {
                 publish(server.id, PaperServerEventStatus.Launching, 78, "正在通过内置 HotSpot 启动 Paper")
                 startRuntimeMonitors(server, config.logFile)
                 val exitCode = PaperJvmLauncher.launch(config)
+                lastLaunchedJavaMajorVersion = server.javaMajorVersion
                 publishEvent(runtimeExitEvent(server.id, exitCode, stopRequested && stopSignalDelivered, config.logFile))
             }
             stopRuntimeMonitors()
@@ -151,6 +165,7 @@ class PaperServerService : Service() {
             PaperJvmLauncher.clearPendingStopRequest()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+            android.os.Process.killProcess(android.os.Process.myPid())
         }
     }
 
@@ -376,6 +391,9 @@ fun shouldRetryQueuedStopSignal(
     stopRequested: Boolean,
     stopSignalDelivered: Boolean,
 ): Boolean = stopRequested && !stopSignalDelivered && currentServerId == serverId
+
+fun javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion: Int?, nextJavaMajorVersion: Int): Boolean =
+    previousJavaMajorVersion != null && previousJavaMajorVersion != nextJavaMajorVersion
 
 fun runtimeMonitorEventStatus(runtimeRunning: Boolean, stopRequested: Boolean): PaperServerEventStatus = when {
     stopRequested -> PaperServerEventStatus.Stopping

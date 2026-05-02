@@ -199,4 +199,73 @@ class ServerModelsTest {
         assertThat(canStartServerFromUi(pending)).isFalse()
         assertThat(finalized).isEmpty()
     }
+
+    @Test
+    fun applyPaperServerEdits_updatesProfileButPreservesRuntimeState() {
+        val original = createPaperServer(
+            name = "旧生存服",
+            minecraftVersion = "1.20.1",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+            worldName = "world",
+        ).copy(
+            id = "survival",
+            isOnline = true,
+            selectedTunnelId = "frp-home",
+            activeTunnelLabel = "家庭 FRP · 38 ms",
+            launchStatus = ServerLaunchStatus.Running,
+            launchProgress = 100,
+            runtimeLogs = listOf("Paper 已启动"),
+            runtimeLogPath = "/tmp/mcgo.log",
+        )
+
+        val edited = applyPaperServerEdits(
+            server = original,
+            name = "新生存服",
+            minecraftVersion = "1.16.5",
+            maxPlayers = 12,
+            memoryMb = 1024,
+            port = 25570,
+            worldName = "world_nether",
+        )
+
+        assertThat(edited.id).isEqualTo("survival")
+        assertThat(edited.name).isEqualTo("新生存服")
+        assertThat(edited.edition).isEqualTo("Paper 1.16.5")
+        assertThat(edited.minecraftVersion).isEqualTo("1.16.5")
+        assertThat(edited.javaMajorVersion).isEqualTo(11)
+        assertThat(edited.maxPlayers).isEqualTo(12)
+        assertThat(edited.memoryMb).isEqualTo(1024)
+        assertThat(edited.memoryLabel).isEqualTo("1.0 GB RAM")
+        assertThat(edited.defaultPort).isEqualTo(25570)
+        assertThat(edited.worldName).isEqualTo("world_nether")
+        assertThat(edited.isOnline).isEqualTo(true)
+        assertThat(edited.port).isEqualTo(original.port)
+        assertThat(edited.selectedTunnelId).isEqualTo("frp-home")
+        assertThat(edited.activeTunnelLabel).isEqualTo("家庭 FRP · 38 ms")
+        assertThat(edited.launchStatus).isEqualTo(ServerLaunchStatus.Running)
+        assertThat(edited.runtimeLogs).containsExactlyElementsIn(listOf("Paper 已启动"))
+        assertThat(edited.runtimeLogPath).isEqualTo("/tmp/mcgo.log")
+    }
+
+    @Test
+    fun resolveServerConsoleText_prefersRuntimeLogFileAndFallsBackToInMemoryLogs() {
+        val logFile = java.nio.file.Files.createTempFile("mcgo-console", ".log")
+        java.nio.file.Files.write(logFile, "line-a\nline-b\n".toByteArray())
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            runtimeLogs = listOf("fallback-1", "fallback-2"),
+            runtimeLogPath = logFile.toString(),
+        )
+
+        assertThat(resolveServerConsoleText(server)).contains("line-a")
+
+        val missing = server.copy(runtimeLogPath = logFile.resolveSibling("missing.log").toString())
+        assertThat(resolveServerConsoleText(missing)).isEqualTo("fallback-1\nfallback-2")
+    }
 }

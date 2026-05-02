@@ -56,12 +56,23 @@ fun validateRuntimeArchiveTrust(
             }
         }
         JavaRuntimeArchiveKind.TarXz -> {
-            throw JavaRuntimeInstallException(
-                when (source) {
-                    JavaRuntimeArchiveSource.OfficialDownload -> "当前没有可校验的官方 tar.xz 运行时清单，已阻止安装"
-                    JavaRuntimeArchiveSource.UserImport -> "当前仅允许通过可信校验的官方 Pojav APK 导入运行时；tar.xz/txz 直导入已暂时禁用"
-                },
-            )
+            when (source) {
+                JavaRuntimeArchiveSource.OfficialDownload -> {
+                    val expected = TrustedJavaRuntimeTarballMetadata.values
+                        .firstOrNull { it.displayName == displayName }
+                        ?.sha256
+                    if (expected == null || normalizedSha != expected) {
+                        throw JavaRuntimeInstallException(
+                            "JRE 安装包可信校验失败：$displayName 的 SHA-256 不匹配受信任的 Android 运行时清单",
+                        )
+                    }
+                }
+                JavaRuntimeArchiveSource.UserImport -> {
+                    throw JavaRuntimeInstallException(
+                        "当前仅允许导入受信任官方源下载的 Android 运行时；本地 tar.xz/txz 直导入仍未开放",
+                    )
+                }
+            }
         }
     }
 }

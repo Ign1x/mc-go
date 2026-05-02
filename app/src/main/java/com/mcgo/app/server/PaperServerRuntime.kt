@@ -1,5 +1,6 @@
 package com.mcgo.app.server
 
+import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import java.net.HttpURLConnection
@@ -11,7 +12,7 @@ import java.nio.file.StandardCopyOption
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
 private const val DefaultProvisionablePaperVersion = "1.21.4"
-const val PaperDownloadUserAgent = "MC-GO/0.2.15"
+val PaperDownloadUserAgent: String = McGoUserAgent
 
 data class PreparedPaperServerFiles(
     val workDir: Path,
@@ -135,6 +136,7 @@ fun buildPaperEula(): String = "eula=true\n"
 
 fun buildServerProperties(server: ServerCardState): String = buildString {
     appendLine("server-port=${server.port}")
+    appendLine("level-name=${server.worldName.asServerPropertyValue()}")
     appendLine("max-players=${server.maxPlayers}")
     appendLine("motd=${server.name.asServerPropertyValue()}")
     appendLine("online-mode=true")
@@ -158,6 +160,12 @@ private fun String.shouldIgnorePaperJavaVersionGate(): Boolean {
     return minor in 12..16
 }
 
+private fun String.requiresPaperJavaVersionBypassForModernPaper(): Boolean {
+    val parts = split('.').mapNotNull { it.toIntOrNull() }
+    val minor = parts.getOrNull(1) ?: return false
+    return minor >= 20
+}
+
 fun requireManagedJavaHome(filesDir: Path, majorVersion: Int): Path {
     val javaHome = managedJavaHome(filesDir, majorVersion)
     if (!isRuntimeReady(filesDir, majorVersion)) {
@@ -168,13 +176,40 @@ fun requireManagedJavaHome(filesDir: Path, majorVersion: Int): Path {
     return javaHome
 }
 
-fun buildPaperJvmArguments(server: ServerCardState): List<String> = buildList {
+private fun managedRuntimeRequiresPaperJavaVersionBypass(javaHome: Path): Boolean {
+    val releaseProperties = readReleaseProperties(javaHome)
+    val javaVersion = releaseProperties["JAVA_VERSION"]
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+    val runtimeVersion = releaseProperties["JAVA_RUNTIME_VERSION"]
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: return false
+
+    if (!javaVersion.isNullOrBlank()) {
+        if (runtimeVersion == javaVersion) return false
+        if (runtimeVersion.startsWith("$javaVersion-")) return true
+        if (runtimeVersion.startsWith("$javaVersion+")) return false
+    }
+
+    return runtimeVersion.substringBefore('+').contains('-')
+}
+
+fun buildPaperJvmArguments(server: ServerCardState, javaHome: Path? = null): List<String> = buildList {
     add("-Xms${(server.memoryMb / 2).coerceAtLeast(512)}M")
     add("-Xmx${server.memoryMb}M")
     if (server.javaMajorVersion >= 9) {
         add("-Djdk.lang.Process.launchMechanism=FORK")
     }
     if (server.javaMajorVersion >= 17 && server.minecraftVersion.shouldIgnorePaperJavaVersionGate()) {
+        add("-DPaper.IgnoreJavaVersion=true")
+    }
+    if (
+        server.javaMajorVersion >= 21 &&
+            server.minecraftVersion.requiresPaperJavaVersionBypassForModernPaper() &&
+            javaHome != null &&
+            managedRuntimeRequiresPaperJavaVersionBypass(javaHome)
+    ) {
         add("-DPaper.IgnoreJavaVersion=true")
     }
 }

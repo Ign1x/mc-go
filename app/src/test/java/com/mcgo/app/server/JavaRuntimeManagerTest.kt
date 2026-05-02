@@ -178,6 +178,30 @@ class JavaRuntimeManagerTest {
     }
 
     @Test
+    fun installRuntimeFromTarXz_installsJava11FromTrustedDirectRuntimeArchive() {
+        val filesDir = Files.createTempDirectory("mcgo-jre-install-java11-tarxz")
+        val archive = filesDir.resolve("jre11.tar.xz")
+        Files.write(
+            archive,
+            tarXz(
+                file("./release", "JAVA_VERSION=\"11.0.25\"\nOS_ARCH=\"aarch64\"\n"),
+                directory("./bin"),
+                file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
+            ),
+        )
+
+        val javaHome = installRuntimeFromTarXz(
+            archivePath = archive,
+            filesDir = filesDir,
+            majorVersion = 11,
+        )
+
+        assertThat(javaHome).isEqualTo(filesDir.resolve("jre/java-11"))
+        assertThat(String(Files.readAllBytes(javaHome.resolve("release")))).contains("11.0.25")
+        assertThat(scanInstalledJavaVersions(filesDir)).contains(11)
+    }
+
+    @Test
     fun deleteJavaRuntime_removesOnlyRequestedManagedRuntime() {
         val filesDir = Files.createTempDirectory("mcgo-jre-delete")
         Files.createDirectories(filesDir.resolve("jre/java-17/bin"))

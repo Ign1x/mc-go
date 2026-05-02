@@ -177,16 +177,88 @@ class PaperJvmLaunchConfigTest {
         assertThat(config.arguments).doesNotContain("-Djdk.lang.Process.launchMechanism=FORK")
     }
 
+    @Test
+    fun buildManagedPaperLaunchConfig_doesNotAddPaperIgnoreJavaVersionForTrustedOnlineJava21EvenWhenRuntimeVersionContainsBuildMetadata() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-java21-online-paper121")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-java21-online-paper121")
+        createRuntime(
+            filesDir,
+            majorVersion = 21,
+            javaVersion = "21.0.5",
+            javaRuntimeVersion = "21.0.5+-adhoc.runner.openjdk",
+        )
+        val server = createPaperServer("生存服", "1.21.11", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).doesNotContain("-DPaper.IgnoreJavaVersion=true")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_addsPaperIgnoreJavaVersionForPojavJava21InternalBuildOnPaper121() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-java21-pojav-paper121")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-java21-pojav-paper121")
+        createRuntime(
+            filesDir,
+            majorVersion = 21,
+            javaVersion = "21.0.1",
+            javaRuntimeVersion = "21.0.1-internal-adhoc.runner.openjdk-21",
+        )
+        val server = createPaperServer("生存服", "1.21.11", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("-DPaper.IgnoreJavaVersion=true")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_doesNotAddPaperIgnoreJavaVersionForGaJava21OnPaper121() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-java21-ga-paper121")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-java21-ga-paper121")
+        createRuntime(filesDir, majorVersion = 21, javaVersion = "21.0.5", javaRuntimeVersion = "21.0.5+13")
+        val server = createPaperServer("生存服", "1.21.11", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).doesNotContain("-DPaper.IgnoreJavaVersion=true")
+    }
+
     private fun createRuntime(
         filesDir: java.nio.file.Path,
         majorVersion: Int,
         javaVersion: String = "21.0.6",
+        javaRuntimeVersion: String? = null,
     ) {
         val javaHome = filesDir.resolve("jre/java-$majorVersion")
         Files.createDirectories(javaHome.resolve("bin"))
         Files.write(javaHome.resolve("bin/java"), byteArrayOf(1))
         javaHome.resolve("bin/java").toFile().setExecutable(true, false)
-        Files.write(javaHome.resolve("release"), "OS_ARCH=\"aarch64\"\nJAVA_VERSION=\"$javaVersion\"\n".toByteArray())
+        Files.write(
+            javaHome.resolve("release"),
+            buildString {
+                appendLine("OS_ARCH=\"aarch64\"")
+                appendLine("JAVA_VERSION=\"$javaVersion\"")
+                javaRuntimeVersion?.let { appendLine("JAVA_RUNTIME_VERSION=\"$it\"") }
+            }.toByteArray(),
+        )
         val javaLibDir = javaHome.resolve("lib")
         Files.createDirectories(javaLibDir.resolve("server"))
         Files.write(javaLibDir.resolve("libjli.so"), byteArrayOf(1))

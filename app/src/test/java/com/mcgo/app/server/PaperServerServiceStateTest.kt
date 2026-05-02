@@ -131,4 +131,12 @@ class PaperServerServiceStateTest {
         assertThat(runtimeExitEvent("survival", exitCode = 7, stopRequested = true, logFile = java.nio.file.Path.of("/tmp/mcgo.log")).status)
             .isEqualTo(PaperServerEventStatus.Failed)
     }
+
+    @Test
+    fun javaRuntimeMayRequireFreshProcess_restartsWhenJavaMajorChanges() {
+        assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = null, nextJavaMajorVersion = 8)).isEqualTo(false)
+        assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = 17, nextJavaMajorVersion = 17)).isEqualTo(false)
+        assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = 17, nextJavaMajorVersion = 8)).isEqualTo(true)
+        assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = 21, nextJavaMajorVersion = 11)).isEqualTo(true)
+    }
 }

@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Brightness4
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
@@ -29,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -53,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.R
 import com.mcgo.app.network.measureTcpLatency
 import com.mcgo.app.network.parseTcpEndpoint
@@ -73,7 +78,11 @@ import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fetchPaperVersions
 import com.mcgo.app.server.filterProvisionablePaperVersions
+import com.mcgo.app.server.trustedRuntimeArchivesForVersion
 import com.mcgo.app.server.installPojavRuntimeFromApk
+import com.mcgo.app.server.installRuntimeFromTarXz
+import com.mcgo.app.server.installRuntimeWithStaging
+import com.mcgo.app.server.extractTarXzSafely
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
 import com.mcgo.app.server.managedPaperServerLogFile
 import com.mcgo.app.server.resolvePojavRuntimeComponent
@@ -89,6 +98,7 @@ import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.TunnelLatencyResult
+import com.mcgo.app.ui.model.applyPaperServerEdits
 import com.mcgo.app.ui.model.applyTunnelLatencyResults
 import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.detachDeletedTunnel
@@ -100,6 +110,7 @@ import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markUnsupportedManagedRuntime
 import com.mcgo.app.ui.model.requestServerDeletion
+import com.mcgo.app.ui.model.resolveServerConsoleText
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.startWithTunnel
 import com.mcgo.app.ui.model.withLaunchProgress
@@ -224,6 +235,8 @@ private fun MCGoAppScaffold(
     var showTunnelComposer by remember { mutableStateOf(false) }
     var showServerComposer by remember { mutableStateOf(false) }
     var editingTunnelId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingServerId by rememberSaveable { mutableStateOf<String?>(null) }
+    var consoleServerId by rememberSaveable { mutableStateOf<String?>(null) }
     val chrome = McGoPageChrome.forPage(destination.page)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -426,6 +439,8 @@ private fun MCGoAppScaffold(
         }
         if (destination != McGoDestination.Servers) {
             showServerComposer = false
+            editingServerId = null
+            consoleServerId = null
         }
     }
 
@@ -592,6 +607,30 @@ private fun MCGoAppScaffold(
                     .fillMaxSize()
                     .padding(innerPadding),
             ) {
+                consoleServerId?.let { serverId ->
+                    servers.firstOrNull { it.id == serverId }?.let { server ->
+                        ServerConsoleDialog(
+                            server = server,
+                            onDismiss = { consoleServerId = null },
+                        )
+                    }
+                }
+                editingServerId?.let { serverId ->
+                    servers.firstOrNull { it.id == serverId }?.let { server ->
+                        EditPaperServerDialog(
+                            server = server,
+                            paperVersions = paperVersions,
+                            onDismiss = { editingServerId = null },
+                            onSave = { edited ->
+                                val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
+                                onServersChange(updatedServers)
+                                onPersistServers(updatedServers)
+                                editingServerId = null
+                                scope.launch { snackbarHostState.showSnackbar("已更新 ${edited.name}") }
+                            },
+                        )
+                    }
+                }
                 when (destination) {
                     McGoDestination.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
                     McGoDestination.Servers -> ServersScreen(
@@ -655,12 +694,11 @@ private fun MCGoAppScaffold(
                                 snackbarHostState.showSnackbar("已删除 ${targetServer?.name ?: "服务器"}")
                             }
                         },
-                        onActionClick = {
-                            if (!hasServerDirectoryGrant()) {
-                                requestServerDirectory(PendingServerDirectoryAction.EditServer)
-                            } else {
-                                notifyUnavailableFeature()
-                            }
+                        onOpenConsole = { serverId ->
+                            consoleServerId = serverId
+                        },
+                        onEditServer = { serverId ->
+                            editingServerId = serverId
                         },
                     )
                     McGoDestination.Tunnels -> TunnelsScreen(
@@ -724,26 +762,43 @@ private fun downloadAndInstallPojavRuntime(
     majorVersion: Int,
     onProgress: (Int) -> Unit = {},
 ): Path {
-    val tempFile = Files.createTempFile(context.cacheDir.toPath(), "mcgo-pojav-runtime-", ".apk")
+    val filesDir = context.filesDir.toPath()
+    val archives = trustedRuntimeArchivesForVersion(
+        majorVersion = majorVersion,
+        abi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+    )
+    val tempFiles = mutableListOf<Path>()
     try {
-        val urls = runtimeDownloadUrlsForRegion(context)
-        downloadFileToPath(urls, tempFile) { progress -> onProgress(progress.coerceIn(1, 82)) }
-        validateRuntimeArchiveTrust(
-            archiveKind = JavaRuntimeArchiveKind.PojavApk,
-            source = JavaRuntimeArchiveSource.OfficialDownload,
-            sha256 = sha256Hex(tempFile),
-            displayName = "PojavLauncher.apk",
-            signerCertSha256 = OfficialPojavLauncherCertSha256,
-        )
-        onProgress(86)
-        return installPojavRuntimeFromApk(
-            apkPath = tempFile,
-            filesDir = context.filesDir.toPath(),
-            majorVersion = majorVersion,
-        )
+        val universalArchive = archives.first { it.displayName.endsWith("universal.tar.xz") }
+        val abiArchive = archives.first { it != universalArchive }
+        fun downloadArchive(archive: com.mcgo.app.server.TrustedJavaRuntimeTarball, start: Int, end: Int): Path {
+            val suffix = archive.url.substringAfterLast('/').let { if (it.endsWith(".tar.xz")) ".tar.xz" else ".archive" }
+            val tempFile = Files.createTempFile(context.cacheDir.toPath(), "mcgo-runtime-", suffix)
+            tempFiles.add(tempFile)
+            downloadFileToPath(runtimeDownloadUrlsForRegion(context, archive.url), tempFile) { progress ->
+                val mapped = start + ((end - start) * progress.coerceIn(0, 100) / 100)
+                onProgress(mapped.coerceIn(start, end))
+            }
+            validateRuntimeArchiveTrust(
+                archiveKind = JavaRuntimeArchiveKind.TarXz,
+                source = JavaRuntimeArchiveSource.OfficialDownload,
+                sha256 = sha256Hex(tempFile),
+                displayName = archive.displayName,
+                signerCertSha256 = null,
+            )
+            return tempFile
+        }
+
+        val universalTemp = downloadArchive(universalArchive, start = 1, end = 48)
+        val abiTemp = downloadArchive(abiArchive, start = 49, end = 86)
+        onProgress(90)
+        return installRuntimeWithStaging(filesDir = filesDir, majorVersion = majorVersion) { tempDir ->
+            Files.newInputStream(universalTemp).use { input -> extractTarXzSafely(input, tempDir) }
+            Files.newInputStream(abiTemp).use { input -> extractTarXzSafely(input, tempDir) }
+        }
     } finally {
         onProgress(100)
-        Files.deleteIfExists(tempFile)
+        tempFiles.forEach { Files.deleteIfExists(it) }
     }
 }
 
@@ -765,7 +820,7 @@ private fun downloadSingleFileToPath(url: String, target: Path, onProgress: (Int
         connectTimeout = 20_000
         readTimeout = 60_000
         requestMethod = "GET"
-        setRequestProperty("User-Agent", "MC-GO/0.2.15")
+        setRequestProperty("User-Agent", McGoUserAgent)
     }
     try {
         val statusCode = connection.responseCode
@@ -782,8 +837,9 @@ private fun downloadSingleFileToPath(url: String, target: Path, onProgress: (Int
                     if (read < 0) break
                     output.write(buffer, 0, read)
                     copied += read
-                    contentLength?.let { onProgress(((copied * 80) / it).toInt().coerceIn(1, 82)) }
+                    contentLength?.let { onProgress(((copied * 100) / it).toInt().coerceIn(1, 100)) }
                 }
+                if (contentLength == null) onProgress(100)
             }
         }
     } finally {
@@ -791,12 +847,12 @@ private fun downloadSingleFileToPath(url: String, target: Path, onProgress: (Int
     }
 }
 
-private fun runtimeDownloadUrlsForRegion(context: Context): List<String> {
-    val github = PojavLauncherApkUrl
-    val mirror = "https://gh-proxy.com/$github"
+private fun runtimeDownloadUrlsForRegion(context: Context, canonicalUrl: String): List<String> {
+    val mirror = "https://gh-proxy.com/$canonicalUrl"
     val language = context.resources.configuration.locales.get(0).language.lowercase()
-    return if (language == "zh") listOf(mirror, github) else listOf(github, mirror)
+    return if (language == "zh") listOf(mirror, canonicalUrl) else listOf(canonicalUrl, mirror)
 }
+
 
 private fun isPaperRuntimeProcessAlive(context: Context): Boolean {
     val activityManager = context.getSystemService(ActivityManager::class.java) ?: return false
@@ -806,8 +862,6 @@ private fun isPaperRuntimeProcessAlive(context: Context): Boolean {
         process.processName == targetProcessName
     } == true
 }
-
-private const val PojavLauncherApkUrl = "https://github.com/PojavLauncherTeam/PojavLauncher/releases/download/gladiolus/PojavLauncher.apk"
 
 private fun installJavaRuntimeFromUri(
     context: Context,
@@ -838,8 +892,10 @@ private fun installJavaRuntimeFromUri(
                 filesDir = context.filesDir.toPath(),
                 majorVersion = majorVersion,
             )
-            JavaRuntimeArchiveKind.TarXz -> throw JavaRuntimeInstallException(
-                "当前仅允许通过可信校验的官方 Pojav APK 导入运行时；tar.xz/txz 直导入已暂时禁用",
+            JavaRuntimeArchiveKind.TarXz -> installRuntimeFromTarXz(
+                archivePath = tempFile,
+                filesDir = context.filesDir.toPath(),
+                majorVersion = majorVersion,
             )
         }
     } finally {
@@ -911,4 +967,140 @@ private fun Throwable.userFacingInstallMessage(majorVersion: Int): String {
     } else {
         "Java $majorVersion 安装失败：${baseMessage.take(80)}"
     }
+}
+
+@Composable
+private fun ServerConsoleDialog(
+    server: ServerCardState,
+    onDismiss: () -> Unit,
+) {
+    val consoleText = remember(server.runtimeLogPath, server.runtimeLogs) { resolveServerConsoleText(server) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+        title = { Text("控制台 · ${server.name}") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = if (consoleText.isBlank()) "暂无运行日志，启动服务器后这里会显示最新控制台输出。" else consoleText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun EditPaperServerDialog(
+    server: ServerCardState,
+    paperVersions: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (ServerCardState) -> Unit,
+) {
+    val versionOptions = remember(paperVersions) { com.mcgo.app.server.resolveProvisionablePaperVersionOptions(paperVersions) }
+    var name by remember(server.id) { mutableStateOf(server.name) }
+    var minecraftVersion by remember(server.id) { mutableStateOf(server.minecraftVersion) }
+    var versionMenuExpanded by remember(server.id) { mutableStateOf(false) }
+    var maxPlayers by remember(server.id) { mutableStateOf(server.maxPlayers.toString()) }
+    var memoryMb by remember(server.id) { mutableStateOf(server.memoryMb.toString()) }
+    var port by remember(server.id) { mutableStateOf(server.defaultPort.toString()) }
+    var worldName by remember(server.id) { mutableStateOf(server.worldName) }
+    val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: server.maxPlayers
+    val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: server.memoryMb
+    val resolvedPort = port.toIntOrNull()?.coerceIn(1, 65535) ?: server.defaultPort
+    val canSave = name.isNotBlank() && minecraftVersion.isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                enabled = canSave,
+                onClick = {
+                    onSave(
+                        applyPaperServerEdits(
+                            server = server,
+                            name = name,
+                            minecraftVersion = minecraftVersion,
+                            maxPlayers = resolvedMaxPlayers,
+                            memoryMb = resolvedMemoryMb,
+                            port = resolvedPort,
+                            worldName = worldName,
+                        ),
+                    )
+                },
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        title = { Text("编辑 ${server.name}") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("服务器名称") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = minecraftVersion,
+                    onValueChange = { minecraftVersion = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Minecraft 版本") },
+                    supportingText = { Text("可直接填写，也可参考官方版本列表") },
+                    singleLine = true,
+                )
+                Text(
+                    text = "可选版本：${versionOptions.takeLast(8).joinToString(" / ")}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = worldName,
+                    onValueChange = { worldName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("世界名称") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = maxPlayers,
+                    onValueChange = { maxPlayers = it.filter(Char::isDigit) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("最大玩家数") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = memoryMb,
+                    onValueChange = { memoryMb = it.filter(Char::isDigit) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("内存 MB") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { port = it.filter(Char::isDigit) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("默认端口") },
+                    singleLine = true,
+                )
+                if (server.isRuntimeBusy()) {
+                    Text(
+                        text = "服务器当前正在启动/运行；本次仅更新配置资料，不会强制改动当前运行中的端口与日志状态。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+    )
 }
