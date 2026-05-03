@@ -15,8 +15,9 @@ class PaperVersionRepositoryTest {
     }
 
     @Test
-    fun fallbackVersions_includeOldAndModernMinecraftVersions() {
+    fun fallbackVersions_includeOldAndModernMinecraftVersions_withoutHardPinningLatest26Patch() {
         assertThat(fallbackPaperVersions()).containsAtLeast("1.8.8", "1.12.2", "1.16.5", "1.20.1", "1.21.11")
+        assertThat(fallbackPaperVersions()).doesNotContain("26.1.2")
     }
 
     @Test

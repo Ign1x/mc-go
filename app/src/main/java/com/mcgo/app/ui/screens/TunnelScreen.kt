@@ -63,6 +63,7 @@ fun TunnelsScreen(
     onSaveTunnel: (TunnelProfile) -> Unit,
     onEditTunnel: (String) -> Unit,
     onDeleteTunnel: (String) -> Unit,
+    onRefreshTunnelLatency: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val editingTunnel = remember(editingTunnelId, tunnels) {
@@ -88,7 +89,16 @@ fun TunnelsScreen(
         if (tunnels.isEmpty()) {
             item {
                 GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    Text(text = "还没有隧道", style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = "还没有隧道", style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { onRefreshTunnelLatency(null) }) {
+                            Text("刷新延迟")
+                        }
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = "默认先留空。你可以按自己的 FRP、NPS、Playit 或 Tailscale 方案逐个添加。",
@@ -108,6 +118,7 @@ fun TunnelsScreen(
                 TunnelCard(
                     tunnel = tunnel,
                     modifier = Modifier.padding(horizontal = 20.dp),
+                    onRefresh = { onRefreshTunnelLatency(tunnel.id) },
                     onEdit = { onEditTunnel(tunnel.id) },
                     onDelete = { onDeleteTunnel(tunnel.id) },
                 )
@@ -120,6 +131,7 @@ fun TunnelsScreen(
 @Composable
 private fun TunnelCard(
     tunnel: TunnelProfile,
+    onRefresh: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -155,7 +167,15 @@ private fun TunnelCard(
                     )
                 }
             }
-            LatencyBadge(lines = tunnel.latencyBadgeLines(), accent = accent)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                LatencyBadge(lines = listOf(tunnel.latencyLabel()), accent = accent)
+                TextButton(onClick = onRefresh) {
+                    Text("刷新")
+                }
+            }
         }
         Spacer(modifier = Modifier.height(14.dp))
         Text(

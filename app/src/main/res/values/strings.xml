@@ -20,6 +20,10 @@
     <string name="server_action_stop">停止</string>
     <string name="server_action_start">启动</string>
     <string name="server_action_edit">编辑</string>
+    <string name="server_action_delete">删除</string>
+    <string name="server_action_copy_address">复制连接地址</string>
+    <string name="server_action_copy_logs">复制日志</string>
+    <string name="server_action_refresh_latency">刷新延迟</string>
     <string name="server_status_online">在线</string>
     <string name="server_status_offline">离线</string>
 </resources>

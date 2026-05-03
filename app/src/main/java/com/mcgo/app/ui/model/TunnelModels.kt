@@ -227,6 +227,7 @@ fun ServerCardState.stopServer(): ServerCardState = copy(
     launchStatus = ServerLaunchStatus.Stopped,
     launchProgress = 0,
     runtimeLogs = (runtimeLogs + "服务器已停止").takeLast(12),
+    runtimeSlot = null,
 )
 
 fun upsertTunnelProfile(

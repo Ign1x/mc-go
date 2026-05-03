@@ -31,7 +31,7 @@ fun defaultJavaManagementState(
         jreOption(11, "Minecraft 1.12 - 1.16.5 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
         jreOption(17, "Minecraft 1.17 - 1.19 Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
         jreOption(21, "Minecraft 1.20 - 1.21.x Paper 服务端使用；支持在线下载托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
-        jreOptionOrNull(25 in supportedProvisionableVersions, 25, "Minecraft 26.1 - 26.1.2 服务端使用；支持在线下载 ARM64 托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
+        jreOptionOrNull(25 in supportedProvisionableVersions, 25, "Minecraft 26.x Paper 服务端使用；支持在线下载 ARM64 托管 JRE。", installedVersions, downloadProgressByMajor, onlineInstallAvailable = true, importLabel = null),
     ),
 )
 

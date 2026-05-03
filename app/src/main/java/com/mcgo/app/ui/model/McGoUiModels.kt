@@ -32,6 +32,11 @@ enum class ServerLaunchStatus(val label: String) {
     Stopped("已停止"),
 }
 
+enum class JavaSelectionMode {
+    Recommended,
+    Manual,
+}
+
 data class PaperLaunchPlan(
     val serverJarName: String,
     val javaMajorVersion: Int,
@@ -63,11 +68,13 @@ data class ServerCardState(
     val serverType: MinecraftServerType = MinecraftServerType.Paper,
     val minecraftVersion: String = edition.substringAfter(' ', "1.21.4"),
     val javaMajorVersion: Int = recommendedJavaMajorVersion(edition.substringAfter(' ', "1.21.4")),
+    val javaSelectionMode: JavaSelectionMode = JavaSelectionMode.Recommended,
     val launchStatus: ServerLaunchStatus = if (isOnline) ServerLaunchStatus.Running else ServerLaunchStatus.Ready,
     val launchPlan: PaperLaunchPlan? = null,
     val launchProgress: Int = if (isOnline) 100 else 0,
     val runtimeLogs: List<String> = emptyList(),
     val runtimeLogPath: String? = null,
+    val runtimeSlot: Int? = null,
     val pendingDeletion: Boolean = false,
 )
 
@@ -121,6 +128,8 @@ fun createPaperServer(
     memoryMb: Int,
     port: Int = 25565,
     worldName: String = "world",
+    javaMajorVersion: Int = recommendedJavaMajorVersion(minecraftVersion),
+    javaSelectionMode: JavaSelectionMode = JavaSelectionMode.Recommended,
 ): ServerCardState = ServerCardState(
     id = createServerId(name.ifBlank { "Paper 服务器" }),
     name = name.ifBlank { "Paper 服务器" },
@@ -135,7 +144,8 @@ fun createPaperServer(
     isOnline = false,
     serverType = MinecraftServerType.Paper,
     minecraftVersion = minecraftVersion,
-    javaMajorVersion = recommendedJavaMajorVersion(minecraftVersion),
+    javaMajorVersion = javaMajorVersion,
+    javaSelectionMode = javaSelectionMode,
     launchStatus = ServerLaunchStatus.Ready,
 )
 
@@ -165,6 +175,7 @@ fun ServerCardState.markLaunchFailed(error: String): ServerCardState = copy(
     launchStatus = ServerLaunchStatus.Failed,
     launchProgress = 0,
     runtimeLogs = (runtimeLogs + "启动失败：$error").takeLast(12),
+    runtimeSlot = null,
 )
 
 fun ServerCardState.isRuntimeBusy(): Boolean =
@@ -180,6 +191,8 @@ fun applyPaperServerEdits(
     memoryMb: Int,
     port: Int,
     worldName: String,
+    javaMajorVersion: Int = if (server.javaSelectionMode == JavaSelectionMode.Manual) server.javaMajorVersion else recommendedJavaMajorVersion(minecraftVersion),
+    javaSelectionMode: JavaSelectionMode = server.javaSelectionMode,
 ): ServerCardState = server.copy(
     name = name.ifBlank { server.name },
     edition = "Paper $minecraftVersion",
@@ -190,7 +203,8 @@ fun applyPaperServerEdits(
     memoryLabel = formatMemoryMb(memoryMb),
     memoryMb = memoryMb,
     minecraftVersion = minecraftVersion,
-    javaMajorVersion = recommendedJavaMajorVersion(minecraftVersion),
+    javaMajorVersion = javaMajorVersion,
+    javaSelectionMode = javaSelectionMode,
 )
 
 fun resolveServerConsoleText(server: ServerCardState): String =
@@ -229,6 +243,7 @@ fun ServerCardState.markUnsupportedManagedRuntime(supportedProvisionableVersions
             launchStatus = ServerLaunchStatus.Failed,
             launchProgress = 0,
             runtimeLogs = (runtimeLogs + reason).distinct().takeLast(12),
+            runtimeSlot = null,
         )
     }
     ?: this

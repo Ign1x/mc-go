@@ -29,7 +29,8 @@ class JavaManagementModelsTest {
         assertThat(state.runtimeOptions.single { it.majorVersion == 25 }.onlineInstallAvailable).isTrue()
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("1.12 - 1.16.5")
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("1.17 - 1.19")
-        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("26.1 - 26.1.2")
+        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).contains("26.x")
+        assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("26.1.2")
         assertThat(state.runtimeOptions.joinToString("\n") { it.description }).doesNotContain("系统 PATH")
     }
 

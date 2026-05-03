@@ -1,5 +1,6 @@
 package com.mcgo.app.ui.storage
 
+import com.mcgo.app.ui.model.JavaSelectionMode
 import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
@@ -31,6 +32,8 @@ class ServerProfileStore(
             val serverType = enumValueOrNull<MinecraftServerType>(properties.getProperty(prefix + "serverType"))
                 ?: MinecraftServerType.Paper
             val requestedJavaMajorVersion = properties.getProperty(prefix + "javaMajorVersion")?.toIntOrNull()
+            val javaSelectionMode = enumValueOrNull<JavaSelectionMode>(properties.getProperty(prefix + "javaSelectionMode"))
+                ?: JavaSelectionMode.Recommended
             val launchStatus = enumValueOrNull<ServerLaunchStatus>(properties.getProperty(prefix + "launchStatus"))
                 ?: ServerLaunchStatus.Ready
             val isOnline = properties.getProperty(prefix + "isOnline")?.toBooleanStrictOrNull()
@@ -41,6 +44,7 @@ class ServerProfileStore(
             val launchProgress = properties.getProperty(prefix + "launchProgress")?.toIntOrNull()
                 ?: if (isOnline) 100 else 0
             val runtimeLogPath = properties.getProperty(prefix + "runtimeLogPath")
+            val runtimeSlot = properties.getProperty(prefix + "runtimeSlot")?.toIntOrNull()
             val pendingDeletion = properties.getProperty(prefix + "pendingDeletion")?.toBooleanStrictOrNull() ?: false
             val runtimeLogCount = properties.getProperty(prefix + "runtimeLogCount")?.toIntOrNull() ?: 0
             val runtimeLogs = (0 until runtimeLogCount).mapNotNull { logIndex ->
@@ -59,7 +63,9 @@ class ServerProfileStore(
                     javaMajorVersion = migrateManagedJavaMajorVersion(
                         minecraftVersion = minecraftVersion,
                         requestedJavaMajorVersion = requestedJavaMajorVersion,
+                        javaSelectionMode = javaSelectionMode,
                     ),
+                    javaSelectionMode = javaSelectionMode,
                     port = port,
                     isOnline = isOnline,
                     selectedTunnelId = selectedTunnelId,
@@ -69,6 +75,7 @@ class ServerProfileStore(
                     launchProgress = launchProgress,
                     runtimeLogs = runtimeLogs,
                     runtimeLogPath = runtimeLogPath,
+                    runtimeSlot = runtimeSlot,
                     pendingDeletion = pendingDeletion,
                 )
             }
@@ -86,6 +93,8 @@ class ServerProfileStore(
             properties.setProperty(prefix + "name", server.name)
             properties.setProperty(prefix + "serverType", server.serverType.name)
             properties.setProperty(prefix + "minecraftVersion", server.minecraftVersion)
+            properties.setProperty(prefix + "javaMajorVersion", server.javaMajorVersion.toString())
+            properties.setProperty(prefix + "javaSelectionMode", server.javaSelectionMode.name)
             properties.setProperty(prefix + "maxPlayers", server.maxPlayers.toString())
             properties.setProperty(prefix + "memoryMb", server.memoryMb.toString())
             properties.setProperty(prefix + "defaultPort", server.defaultPort.toString())
@@ -98,6 +107,7 @@ class ServerProfileStore(
             server.selectedTunnelId?.let { properties.setProperty(prefix + "selectedTunnelId", it) }
             server.activeTunnelLabel?.let { properties.setProperty(prefix + "activeTunnelLabel", it) }
             server.runtimeLogPath?.let { properties.setProperty(prefix + "runtimeLogPath", it) }
+            server.runtimeSlot?.let { properties.setProperty(prefix + "runtimeSlot", it.toString()) }
             properties.setProperty(prefix + "pendingDeletion", server.pendingDeletion.toString())
             server.runtimeLogs.forEachIndexed { logIndex, logLine ->
                 properties.setProperty(prefix + "runtimeLog.$logIndex", logLine)
@@ -112,13 +122,12 @@ class ServerProfileStore(
 private fun migrateManagedJavaMajorVersion(
     minecraftVersion: String,
     requestedJavaMajorVersion: Int?,
+    javaSelectionMode: JavaSelectionMode,
 ): Int {
     val recommended = recommendedJavaMajorVersion(minecraftVersion)
-    return when (requestedJavaMajorVersion) {
-        null -> recommended
-        11 -> if (recommended == 11) 11 else recommended
-        16 -> recommended
-        else -> requestedJavaMajorVersion
+    return when (javaSelectionMode) {
+        JavaSelectionMode.Recommended -> recommended
+        JavaSelectionMode.Manual -> requestedJavaMajorVersion ?: recommended
     }
 }
 

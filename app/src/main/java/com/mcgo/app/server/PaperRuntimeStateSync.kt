@@ -70,4 +70,5 @@ private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, messag
     launchStatus = status,
     launchProgress = 0,
     runtimeLogs = (runtimeLogs + message).takeLast(12),
+    runtimeSlot = null,
 )

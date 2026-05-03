@@ -1,6 +1,8 @@
 package com.mcgo.app.ui
 
 import android.app.ActivityManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -38,8 +40,14 @@ import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -109,6 +117,7 @@ import com.mcgo.app.ui.model.ConsoleErrorColor
 import com.mcgo.app.ui.model.ConsoleInfoColor
 import com.mcgo.app.ui.model.ConsoleTimestampColor
 import com.mcgo.app.ui.model.ConsoleWarnColor
+import com.mcgo.app.ui.model.JavaSelectionMode
 import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.ServerCardState
@@ -129,6 +138,7 @@ import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markUnsupportedManagedRuntime
 import com.mcgo.app.ui.model.normalizeConsoleCommand
 import com.mcgo.app.ui.model.removeTunnelProfile
+import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import com.mcgo.app.ui.model.requestServerDeletion
 import com.mcgo.app.ui.model.resolveServerConsoleText
 import com.mcgo.app.ui.model.startWithTunnel
@@ -140,6 +150,7 @@ import com.mcgo.app.ui.screens.ServersScreen
 import com.mcgo.app.ui.screens.SettingsScreen
 import com.mcgo.app.ui.screens.StatusScreen
 import com.mcgo.app.ui.screens.TunnelsScreen
+import com.mcgo.app.ui.storage.AppearancePreferencesStore
 import com.mcgo.app.ui.storage.ServerProfileStore
 import com.mcgo.app.ui.storage.TunnelProfileStore
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
@@ -193,8 +204,11 @@ fun MCGoApp() {
     val serverStore = remember(context) {
         ServerProfileStore(context.filesDir.toPath().resolve("server_profiles.properties"))
     }
+    val appearanceStore = remember(context) {
+        AppearancePreferencesStore(context.filesDir.toPath().resolve("appearance_preferences.properties"))
+    }
     var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
-        mutableStateOf(AppearancePreferences())
+        mutableStateOf(appearanceStore.load())
     }
     val supportedProvisionableJavaVersions = remember {
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") setOf(8, 11, 17, 21, 25) else setOf(8, 11, 17, 21)
@@ -229,7 +243,10 @@ fun MCGoApp() {
             tunnels = tunnels,
             paperVersions = paperVersions,
             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
-            onAppearancePreferencesChange = { appearancePreferences = it },
+            onAppearancePreferencesChange = {
+                appearancePreferences = it
+                appearanceStore.save(it)
+            },
             onServersChange = { servers = it },
             onTunnelsChange = { tunnels = it },
             onTunnelsChangeAndPersist = {
@@ -421,25 +438,24 @@ private fun MCGoAppScaffold(
         }
     }
 
-    LaunchedEffect(tunnels.map { it.id to it.serverAddress }) {
-        while (true) {
+    fun refreshTunnelLatency(targetTunnelId: String?) {
+        scope.launch {
             val tunnelSnapshot = latestTunnels
-            if (tunnelSnapshot.isNotEmpty()) {
-                val measuredResults = withContext(Dispatchers.IO) {
-                    tunnelSnapshot.map { profile ->
-                        val latencyMs = parseTcpEndpoint(profile.serverAddress)?.let { endpoint ->
-                            measureTcpLatency(endpoint)
-                        }
-                        TunnelLatencyResult(
-                            tunnelId = profile.id,
-                            serverAddress = profile.serverAddress,
-                            latencyMs = latencyMs,
-                        )
+            val selectedTunnels = targetTunnelId?.let { targetId -> tunnelSnapshot.filter { it.id == targetId } } ?: tunnelSnapshot
+            if (selectedTunnels.isEmpty()) return@launch
+            val measuredResults = withContext(Dispatchers.IO) {
+                selectedTunnels.map { profile ->
+                    val latencyMs = parseTcpEndpoint(profile.serverAddress)?.let { endpoint ->
+                        measureTcpLatency(endpoint)
                     }
+                    TunnelLatencyResult(
+                        tunnelId = profile.id,
+                        serverAddress = profile.serverAddress,
+                        latencyMs = latencyMs,
+                    )
                 }
-                onTunnelsChange(applyTunnelLatencyResults(latestTunnels, measuredResults))
             }
-            delay(5000)
+            onTunnelsChange(applyTunnelLatencyResults(latestTunnels, measuredResults))
         }
     }
 
@@ -593,6 +609,7 @@ private fun MCGoAppScaffold(
                         EditPaperServerDialog(
                             server = server,
                             paperVersions = paperVersions,
+                            supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                             onDismiss = { editingServerId = null },
                             onSave = { edited ->
                                 val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
@@ -695,6 +712,7 @@ private fun MCGoAppScaffold(
                             onServersChange(updatedServers)
                             onPersistServers(updatedServers)
                         },
+                        onRefreshTunnelLatency = ::refreshTunnelLatency,
                         modifier = Modifier.fillMaxSize(),
                     )
                     McGoDestination.Settings -> SettingsScreen(
@@ -983,6 +1001,7 @@ private fun ServerConsoleDialog(
     onSubmitCommand: (String) -> Boolean,
 ) {
     val consoleText = remember(server.runtimeLogPath, server.runtimeLogs) { resolveServerConsoleText(server) }
+    val context = LocalContext.current
     val annotatedLog = remember(consoleText) { buildConsoleAnnotatedLog(consoleText) }
     var command by remember(server.id) { mutableStateOf("") }
     var inlineError by remember(server.id) { mutableStateOf<String?>(null) }
@@ -1034,8 +1053,28 @@ private fun ServerConsoleDialog(
                         )
                     }
                 }
-                OutlinedButton(onClick = onDismiss) {
-                    Text("关闭")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = server.runtimeLogPath
+                                ?.let { java.io.File(it) }
+                                ?.takeIf { it.isFile }
+                                ?.readText()
+                                ?.takeIf { it.isNotBlank() }
+                                ?: consoleText
+                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                ClipData.newPlainText("${server.name} logs", clipboard),
+                            )
+                        },
+                    ) {
+                        Text("复制日志")
+                    }
+                    OutlinedButton(onClick = onDismiss) {
+                        Text("关闭")
+                    }
                 }
             }
         },
@@ -1113,10 +1152,12 @@ private fun ServerConsoleDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditPaperServerDialog(
     server: ServerCardState,
     paperVersions: List<String>,
+    supportedProvisionableJavaVersions: Set<Int>,
     onDismiss: () -> Unit,
     onSave: (ServerCardState) -> Unit,
 ) {
@@ -1124,6 +1165,8 @@ private fun EditPaperServerDialog(
     var name by remember(server.id) { mutableStateOf(server.name) }
     var minecraftVersion by remember(server.id) { mutableStateOf(server.minecraftVersion) }
     var versionMenuExpanded by remember(server.id) { mutableStateOf(false) }
+    var javaSelectionMode by remember(server.id) { mutableStateOf(server.javaSelectionMode) }
+    var selectedJavaMajorVersion by remember(server.id) { mutableStateOf(server.javaMajorVersion) }
     var maxPlayers by remember(server.id) { mutableStateOf(server.maxPlayers.toString()) }
     var memoryMb by remember(server.id) { mutableStateOf(server.memoryMb.toString()) }
     var port by remember(server.id) { mutableStateOf(server.defaultPort.toString()) }
@@ -1131,6 +1174,12 @@ private fun EditPaperServerDialog(
     val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: server.maxPlayers
     val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: server.memoryMb
     val resolvedPort = port.toIntOrNull()?.coerceIn(1, 65535) ?: server.defaultPort
+    val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
+    LaunchedEffect(minecraftVersion, javaSelectionMode) {
+        if (javaSelectionMode == JavaSelectionMode.Recommended) {
+            selectedJavaMajorVersion = recommendedJava
+        }
+    }
     val canSave = name.isNotBlank() && minecraftVersion.isNotBlank()
 
     AlertDialog(
@@ -1148,6 +1197,8 @@ private fun EditPaperServerDialog(
                             memoryMb = resolvedMemoryMb,
                             port = resolvedPort,
                             worldName = worldName,
+                            javaMajorVersion = selectedJavaMajorVersion,
+                            javaSelectionMode = javaSelectionMode,
                         ),
                     )
                 },
@@ -1179,6 +1230,30 @@ private fun EditPaperServerDialog(
                 )
                 Text(
                     text = "可选版本：${versionOptions.takeLast(8).joinToString(" / ")}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                JavaSelectionChipRow(
+                    title = "Java 版本策略",
+                    options = listOf("跟随推荐", "手动指定"),
+                    selectedOption = if (javaSelectionMode == JavaSelectionMode.Recommended) "跟随推荐" else "手动指定",
+                    onSelected = { selected ->
+                        javaSelectionMode = if (selected == "跟随推荐") JavaSelectionMode.Recommended else JavaSelectionMode.Manual
+                    },
+                )
+                if (javaSelectionMode == JavaSelectionMode.Manual) {
+                    JavaVersionChipRow(
+                        options = supportedProvisionableJavaVersions.toList().sorted(),
+                        selectedJavaMajorVersion = selectedJavaMajorVersion,
+                        onSelected = { selectedJavaMajorVersion = it },
+                    )
+                }
+                Text(
+                    text = if (javaSelectionMode == JavaSelectionMode.Recommended) {
+                        "当前推荐：Java $recommendedJava"
+                    } else {
+                        "当前手动指定：Java $selectedJavaMajorVersion；Minecraft 推荐 Java $recommendedJava"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1220,4 +1295,50 @@ private fun EditPaperServerDialog(
             }
         },
     )
+}
+
+@Composable
+private fun JavaSelectionChipRow(
+    title: String,
+    options: List<String>,
+    selectedOption: String,
+    onSelected: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(text = title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            options.forEach { option ->
+                FilterChip(
+                    selected = option == selectedOption,
+                    onClick = { onSelected(option) },
+                    label = { Text(option) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                        selectedLabelColor = MaterialTheme.colorScheme.primary,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun JavaVersionChipRow(
+    options: List<Int>,
+    selectedJavaMajorVersion: Int,
+    onSelected: (Int) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        options.forEach { option ->
+            FilterChip(
+                selected = option == selectedJavaMajorVersion,
+                onClick = { onSelected(option) },
+                label = { Text("Java $option") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                    selectedLabelColor = MaterialTheme.colorScheme.primary,
+                ),
+            )
+        }
+    }
 }

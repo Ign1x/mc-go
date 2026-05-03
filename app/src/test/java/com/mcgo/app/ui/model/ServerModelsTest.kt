@@ -261,6 +261,7 @@ class ServerModelsTest {
         assertThat(edited.edition).isEqualTo("Paper 1.16.5")
         assertThat(edited.minecraftVersion).isEqualTo("1.16.5")
         assertThat(edited.javaMajorVersion).isEqualTo(11)
+        assertThat(edited.javaSelectionMode).isEqualTo(JavaSelectionMode.Recommended)
         assertThat(edited.maxPlayers).isEqualTo(12)
         assertThat(edited.memoryMb).isEqualTo(1024)
         assertThat(edited.memoryLabel).isEqualTo("1.0 GB RAM")
@@ -273,6 +274,32 @@ class ServerModelsTest {
         assertThat(edited.launchStatus).isEqualTo(ServerLaunchStatus.Running)
         assertThat(edited.runtimeLogs).containsExactlyElementsIn(listOf("Paper 已启动"))
         assertThat(edited.runtimeLogPath).isEqualTo("/tmp/mcgo.log")
+    }
+
+    @Test
+    fun applyPaperServerEdits_preservesManualJavaOverrideAcrossMinecraftVersionChanges() {
+        val original = createPaperServer(
+            name = "旧生存服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            javaMajorVersion = 17,
+            javaSelectionMode = JavaSelectionMode.Manual,
+        )
+
+        val edited = applyPaperServerEdits(
+            server = original,
+            name = "新生存服",
+            minecraftVersion = "26.1.1",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+            worldName = "world",
+        )
+
+        assertThat(edited.javaMajorVersion).isEqualTo(17)
+        assertThat(edited.javaSelectionMode).isEqualTo(JavaSelectionMode.Manual)
     }
 
     @Test

@@ -27,11 +27,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.StopCircle
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,6 +65,7 @@ import com.mcgo.app.R
 import com.mcgo.app.server.initialProvisionablePaperVersion
 import com.mcgo.app.server.resolveProvisionablePaperVersionOptions
 import com.mcgo.app.ui.components.GlassCard
+import com.mcgo.app.ui.model.JavaSelectionMode
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
@@ -156,12 +157,14 @@ private fun ServerCard(
     onStopClick: () -> Unit,
     onDeleteClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     val statusColor = when (server.launchStatus) {
         ServerLaunchStatus.Running -> MaterialTheme.colorScheme.secondary
         ServerLaunchStatus.Launching -> MaterialTheme.colorScheme.primary
         ServerLaunchStatus.Failed -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val connectionAddress = server.port.let { "127.0.0.1:$it" }
     GlassCard(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -177,7 +180,7 @@ private fun ServerCard(
                     shape = RoundedCornerShape(20.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Dns,
+                        imageVector = Icons.Outlined.Terminal,
                         contentDescription = null,
                         modifier = Modifier.padding(12.dp),
                         tint = MaterialTheme.colorScheme.primary,
@@ -190,19 +193,48 @@ private fun ServerCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    server.activeTunnelLabel?.let { tunnelLabel ->
-                        Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Surface(
+                            modifier = Modifier.clickable {
+                                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                    ClipData.newPlainText("${server.name} address", connectionAddress),
+                                )
+                                Toast.makeText(context, "连接地址已复制", Toast.LENGTH_SHORT).show()
+                            },
                             shape = RoundedCornerShape(999.dp),
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                             contentColor = MaterialTheme.colorScheme.primary,
                         ) {
-                            Text(
-                                text = tunnelLabel,
+                            Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                            )
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Text(
+                                    text = connectionAddress,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                        server.activeTunnelLabel?.let { tunnelLabel ->
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
+                                contentColor = MaterialTheme.colorScheme.secondary,
+                            ) {
+                                Text(
+                                    text = tunnelLabel,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                     }
                 }
@@ -230,24 +262,18 @@ private fun ServerCard(
                 modifier = Modifier.weight(1f),
             )
         }
-        if (server.launchStatus == ServerLaunchStatus.Launching || server.runtimeLogs.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(14.dp))
-            RuntimeProgressPanel(server = server)
-        }
         Spacer(modifier = Modifier.height(16.dp))
-        FlowRow(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            AssistChip(
-                onClick = onOpenConsole,
-                label = { Text(stringResource(R.string.server_action_console)) },
-                leadingIcon = { Icon(Icons.Outlined.Dns, contentDescription = null) },
-            )
             val startEnabled = canStartServerFromUi(server)
             val stopEnabled = server.isRuntimeBusy()
-            AssistChip(
+            IconButton(onClick = onOpenConsole) {
+                Icon(Icons.Outlined.Terminal, contentDescription = stringResource(R.string.server_action_console))
+            }
+            IconButton(
                 onClick = {
                     when {
                         stopEnabled -> onStopClick()
@@ -255,31 +281,18 @@ private fun ServerCard(
                     }
                 },
                 enabled = stopEnabled || startEnabled,
-                label = {
-                    Text(
-                        when {
-                            stopEnabled -> if (server.launchStatus == ServerLaunchStatus.Launching) "停止启动" else stringResource(R.string.server_action_stop)
-                            else -> stringResource(R.string.server_action_start)
-                        },
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = if (stopEnabled) Icons.Outlined.StopCircle else Icons.Outlined.PlayCircle,
-                        contentDescription = null,
-                    )
-                },
-            )
-            AssistChip(
-                onClick = onEditServer,
-                label = { Text(stringResource(R.string.server_action_edit)) },
-                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-            )
-            AssistChip(
-                onClick = onDeleteClick,
-                label = { Text("删除") },
-                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
-            )
+            ) {
+                Icon(
+                    imageVector = if (stopEnabled) Icons.Outlined.StopCircle else Icons.Outlined.PlayCircle,
+                    contentDescription = if (stopEnabled) stringResource(R.string.server_action_stop) else stringResource(R.string.server_action_start),
+                )
+            }
+            IconButton(onClick = onEditServer) {
+                Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.server_action_edit))
+            }
+            IconButton(onClick = onDeleteClick) {
+                Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.server_action_delete))
+            }
         }
     }
 }
@@ -380,12 +393,21 @@ private fun CreatePaperServerDialog(
         mutableStateOf(initialProvisionablePaperVersion(versionOptions, supportedProvisionableJavaVersions))
     }
     var versionMenuExpanded by remember { mutableStateOf(false) }
+    var javaSelectionMode by remember { mutableStateOf(JavaSelectionMode.Recommended) }
+    var javaVersionMenuExpanded by remember { mutableStateOf(false) }
+    var selectedJavaMajorVersion by remember { mutableStateOf(recommendedJavaMajorVersion(minecraftVersion)) }
     var maxPlayers by remember { mutableStateOf("20") }
     var memoryMb by remember { mutableStateOf("2048") }
     var port by remember { mutableStateOf("25565") }
     val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: 20
     val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: 2048
     val resolvedPort = port.toIntOrNull()?.coerceIn(1, 65535) ?: 25565
+    val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
+    LaunchedEffect(minecraftVersion, javaSelectionMode) {
+        if (javaSelectionMode == JavaSelectionMode.Recommended) {
+            selectedJavaMajorVersion = recommendedJava
+        }
+    }
     val canCreate = name.isNotBlank() && minecraftVersion.isNotBlank()
 
     AlertDialog(
@@ -401,6 +423,8 @@ private fun CreatePaperServerDialog(
                             maxPlayers = resolvedMaxPlayers,
                             memoryMb = resolvedMemoryMb,
                             port = resolvedPort,
+                            javaMajorVersion = selectedJavaMajorVersion,
+                            javaSelectionMode = javaSelectionMode,
                         ),
                     )
                     onDismiss()
@@ -457,6 +481,51 @@ private fun CreatePaperServerDialog(
                                 onClick = {
                                     minecraftVersion = version
                                     versionMenuExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+                JavaSelectionModeChipRow(
+                    selectedMode = javaSelectionMode,
+                    onSelectedMode = { javaSelectionMode = it },
+                )
+                ExposedDropdownMenuBox(
+                    expanded = javaVersionMenuExpanded,
+                    onExpandedChange = { if (javaSelectionMode == JavaSelectionMode.Manual) javaVersionMenuExpanded = !javaVersionMenuExpanded },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedTextField(
+                        value = "Java $selectedJavaMajorVersion",
+                        onValueChange = {},
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth(),
+                        readOnly = true,
+                        enabled = javaSelectionMode == JavaSelectionMode.Manual,
+                        label = { Text("运行时 Java") },
+                        supportingText = {
+                            Text(
+                                if (javaSelectionMode == JavaSelectionMode.Recommended) {
+                                    "当前推荐：Java $recommendedJava"
+                                } else {
+                                    "可手动切换；当前 Minecraft 推荐 Java $recommendedJava"
+                                },
+                            )
+                        },
+                        singleLine = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = javaVersionMenuExpanded) },
+                    )
+                    ExposedDropdownMenu(
+                        expanded = javaVersionMenuExpanded,
+                        onDismissRequest = { javaVersionMenuExpanded = false },
+                    ) {
+                        supportedProvisionableJavaVersions.toList().sorted().forEach { javaVersion ->
+                            DropdownMenuItem(
+                                text = { Text("Java $javaVersion") },
+                                onClick = {
+                                    selectedJavaMajorVersion = javaVersion
+                                    javaVersionMenuExpanded = false
                                 },
                             )
                         }
@@ -609,6 +678,36 @@ private fun TunnelStartupChoice(
             selectedLabelColor = MaterialTheme.colorScheme.primary,
         ),
     )
+}
+
+@Composable
+private fun JavaSelectionModeChipRow(
+    selectedMode: JavaSelectionMode,
+    onSelectedMode: (JavaSelectionMode) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(text = "Java 版本策略", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FilterChip(
+                selected = selectedMode == JavaSelectionMode.Recommended,
+                onClick = { onSelectedMode(JavaSelectionMode.Recommended) },
+                label = { Text("跟随推荐") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                    selectedLabelColor = MaterialTheme.colorScheme.primary,
+                ),
+            )
+            FilterChip(
+                selected = selectedMode == JavaSelectionMode.Manual,
+                onClick = { onSelectedMode(JavaSelectionMode.Manual) },
+                label = { Text("手动指定") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                    selectedLabelColor = MaterialTheme.colorScheme.primary,
+                ),
+            )
+        }
+    }
 }
 
 @Composable
