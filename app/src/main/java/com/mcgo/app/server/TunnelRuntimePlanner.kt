@@ -10,6 +10,7 @@ private const val DefaultBundledFrpcAssetArm64 = "frp/android_arm64/frpc"
 
 data class TunnelRuntimePlan(
     val binaryPath: java.nio.file.Path,
+    val extractedBinaryPath: java.nio.file.Path,
     val configPath: java.nio.file.Path,
     val configText: String,
     val displayLabel: String,
@@ -39,7 +40,7 @@ fun buildFrpcConfigForTunnel(server: ServerCardState, tunnel: TunnelProfile): St
     val endpoint = URI("tcp://${tunnel.serverAddress}")
     val host = endpoint.host ?: error("FRP 服务端地址无效")
     val serverPort = endpoint.port.takeIf { it > 0 } ?: error("FRP 服务端端口无效")
-    val remotePort = tunnel.remotePort ?: server.port
+    val remotePort = tunnel.remotePort ?: server.tunnelRemotePort ?: server.port
     val escapedToken = tunnel.credentialValue
         .replace("\\", "\\\\")
         .replace("\n", "")
@@ -77,9 +78,10 @@ fun tunnelRuntimePlanForStart(
     val frpcBinaryName = nativeLibraryExecutableNameForAsset(frpcAssetRelativePath)
     val endpoint = URI("tcp://${tunnel.serverAddress}")
     val host = endpoint.host ?: error("FRP 服务端地址无效")
-    val remotePort = tunnel.remotePort ?: server.port
+    val remotePort = tunnel.remotePort ?: server.tunnelRemotePort ?: server.port
     return TunnelRuntimePlan(
         binaryPath = nativeLibraryDir.resolve(frpcBinaryName),
+        extractedBinaryPath = frpDir.resolve("bin").resolve("frpc"),
         configPath = frpDir.resolve("frpc.toml"),
         configText = buildFrpcConfigForTunnel(server, tunnel),
         displayLabel = "${tunnel.name} · $host:$remotePort",

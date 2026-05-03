@@ -3,6 +3,8 @@ package com.mcgo.app.server
 import com.google.common.truth.Truth.assertThat
 import com.mcgo.app.BuildConfig
 import com.mcgo.app.McGoUserAgent
+import com.mcgo.app.ui.model.PaperDifficulty
+import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.createPaperServer
 import java.nio.file.Files
 import kotlin.test.Test
@@ -42,7 +44,13 @@ class PaperServerRuntimeTest {
     fun preparePaperServerFiles_writesEulaAndServerProperties() {
         val workDir = Files.createTempDirectory("mcgo-paper-runtime")
         val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25566)
-            .copy(worldName = "world_nether")
+            .copy(
+                worldName = "world_nether",
+                onlineMode = false,
+                pvpEnabled = false,
+                gameMode = PaperGameMode.Creative,
+                difficulty = PaperDifficulty.Hard,
+            )
 
         val prepared = preparePaperServerFiles(server, workDir)
 
@@ -51,7 +59,43 @@ class PaperServerRuntimeTest {
         assertThat(properties).contains("server-port=25566")
         assertThat(properties).contains("max-players=20")
         assertThat(properties).contains("level-name=world_nether")
+        assertThat(properties).contains("gamemode=creative")
+        assertThat(properties).contains("difficulty=hard")
+        assertThat(properties).contains("online-mode=false")
+        assertThat(properties).contains("pvp=false")
         assertThat(prepared.jarPath.fileName.toString()).isEqualTo("paper-1.21.4.jar")
+    }
+
+    @Test
+    fun preparePaperServerFiles_prefersExplicitServerPropertiesOverride() {
+        val workDir = Files.createTempDirectory("mcgo-paper-runtime-override")
+        val overrideText = "motd=Custom MOTD\nonline-mode=false\npvp=false\n"
+        val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+            .copy(serverPropertiesOverride = overrideText)
+
+        val prepared = preparePaperServerFiles(server, workDir)
+        val properties = String(Files.readAllBytes(prepared.serverPropertiesPath))
+
+        assertThat(properties).contains("server-port=25565")
+        assertThat(properties).contains("motd=Custom MOTD")
+        assertThat(properties).contains("online-mode=false")
+        assertThat(properties).contains("pvp=false")
+    }
+
+    @Test
+    fun preparePaperServerFiles_mergesOverrideButKeepsManagedServerPort() {
+        val workDir = Files.createTempDirectory("mcgo-paper-runtime-override-merge")
+        val overrideText = "server-port=24444\nmotd=Custom MOTD\nonline-mode=false\n"
+        val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25566)
+            .copy(serverPropertiesOverride = overrideText)
+
+        val prepared = preparePaperServerFiles(server, workDir)
+        val properties = String(Files.readAllBytes(prepared.serverPropertiesPath))
+
+        assertThat(properties).contains("server-port=25566")
+        assertThat(properties).contains("motd=Custom MOTD")
+        assertThat(properties).contains("online-mode=false")
+        assertThat(properties).doesNotContain("server-port=24444")
     }
 
     @Test

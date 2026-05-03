@@ -192,6 +192,12 @@ fun ServerCardState.startPaperServer(
     startupPort: Int?,
 ): ServerCardState {
     val resolvedPort = tunnel?.resolveStartupPort(defaultPort, startupPort) ?: startupPort ?: defaultPort
+    val resolvedRemotePort = tunnel?.let {
+        when (it.source) {
+            TunnelSource.PastedConfig -> it.remotePort
+            else -> tunnelRemotePort ?: it.remotePort
+        }
+    }
     val plan = PaperLaunchPlan(
         serverJarName = "paper-$minecraftVersion.jar",
         javaMajorVersion = javaMajorVersion,
@@ -209,14 +215,22 @@ fun ServerCardState.startPaperServer(
         port = resolvedPort,
         selectedTunnelId = tunnel?.id,
         activeTunnelLabel = null,
-        runtimeAddress = tunnel?.remotePort?.let { "${tunnel.serverAddress.substringBefore(':')}:$it" } ?: "127.0.0.1:$resolvedPort",
+        runtimeAddress = tunnel?.let {
+            if (resolvedRemotePort != null) "${it.serverAddress.substringBefore(':')}:$resolvedRemotePort" else "127.0.0.1:$resolvedPort"
+        } ?: "127.0.0.1:$resolvedPort",
         launchStatus = ServerLaunchStatus.Launching,
         launchPlan = plan,
         launchProgress = 12,
         runtimeLogs = listOf(
             "已生成 Paper 启动计划：${plan.serverJarName}",
             "准备使用 Java ${plan.javaMajorVersion} 与 ${memoryMb}M 内存启动",
-            tunnel?.let { "隧道绑定：${it.name}，端口 $resolvedPort" } ?: "使用本机端口 $resolvedPort",
+            tunnel?.let {
+                if (resolvedRemotePort != null) {
+                    "隧道绑定：${it.name}，本地端口 $resolvedPort，远端端口 $resolvedRemotePort"
+                } else {
+                    "隧道绑定：${it.name}，本地端口 $resolvedPort"
+                }
+            } ?: "使用本机端口 $resolvedPort",
         ),
     )
 }
@@ -249,6 +263,57 @@ fun removeTunnelProfile(
     tunnelId: String,
 ): List<TunnelProfile> = profiles.filterNot { it.id == tunnelId }
 
+fun allocateManualTunnelRemotePort(
+    tunnel: TunnelProfile,
+    servers: List<ServerCardState>,
+    targetServerId: String,
+): Int {
+    val candidates = parsePortRangeCandidates(tunnel.portRange)
+    val occupied = servers
+        .filter { it.id != targetServerId && it.selectedTunnelId == tunnel.id }
+        .mapNotNull { it.tunnelRemotePort }
+        .toSet()
+    return candidates.firstOrNull { it !in occupied }
+        ?: error("${tunnel.name} 已无可分配远端端口")
+}
+
+fun assignTunnelRemotePort(
+    server: ServerCardState,
+    tunnel: TunnelProfile,
+    requestedRemotePort: Int?,
+    servers: List<ServerCardState>,
+): Int {
+    if (tunnel.source == TunnelSource.PastedConfig) {
+        return tunnel.remotePort ?: requestedRemotePort ?: error("${tunnel.name} 缺少固定远端端口")
+    }
+    val candidates = parsePortRangeCandidates(tunnel.portRange)
+    val occupied = servers
+        .filter { it.id != server.id && it.selectedTunnelId == tunnel.id }
+        .mapNotNull { it.tunnelRemotePort }
+        .toSet()
+    val existing = server.tunnelRemotePort
+        ?.takeIf { server.selectedTunnelId == tunnel.id }
+        ?.takeIf { it in candidates && it !in occupied }
+    if (requestedRemotePort != null) {
+        require(requestedRemotePort in candidates) { "远端端口 $requestedRemotePort 不在 ${tunnel.portRange} 范围内" }
+        require(requestedRemotePort !in occupied) { "远端端口 $requestedRemotePort 已被其他服务器占用" }
+        return requestedRemotePort
+    }
+    if (existing != null) return existing
+    return candidates.firstOrNull { it !in occupied }
+        ?: error("${tunnel.name} 已无可分配远端端口")
+}
+
+private fun parsePortRangeCandidates(portRange: String?): List<Int> {
+    val normalized = portRange?.trim().orEmpty()
+    val match = Regex("^(\\d+)\\s*-\\s*(\\d+)$").matchEntire(normalized)
+        ?: error("端口范围格式无效：$normalized")
+    val start = match.groupValues[1].toInt()
+    val end = match.groupValues[2].toInt()
+    require(start in 1..65535 && end in 1..65535 && start <= end) { "端口范围无效：$normalized" }
+    return (start..end).toList()
+}
+
 data class TunnelLatencyResult(
     val tunnelId: String,
     val serverAddress: String,
@@ -277,6 +342,7 @@ fun detachDeletedTunnel(
     if (server.selectedTunnelId == tunnelId) {
         server.copy(
             selectedTunnelId = null,
+            tunnelRemotePort = null,
             activeTunnelLabel = null,
             runtimeAddress = if (server.isRuntimeBusy()) "127.0.0.1:${server.port}" else null,
         )

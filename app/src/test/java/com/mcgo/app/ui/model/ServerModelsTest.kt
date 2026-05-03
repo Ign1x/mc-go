@@ -22,8 +22,13 @@ class ServerModelsTest {
         assertThat(server.edition).isEqualTo("Paper 1.21.4")
         assertThat(server.minecraftVersion).isEqualTo("1.21.4")
         assertThat(server.javaMajorVersion).isEqualTo(21)
+        assertThat(server.gameMode).isEqualTo(PaperGameMode.Survival)
+        assertThat(server.difficulty).isEqualTo(PaperDifficulty.Normal)
+        assertThat(server.onlineMode).isTrue()
+        assertThat(server.pvpEnabled).isTrue()
         assertThat(server.worldName).isEqualTo("world")
         assertThat(server.defaultPort).isEqualTo(25565)
+        assertThat(server.tunnelRemotePort).isNull()
         assertThat(server.maxPlayers).isEqualTo(20)
         assertThat(server.memoryLabel).isEqualTo("2.0 GB RAM")
         assertThat(server.memoryMb).isEqualTo(2048)
@@ -85,6 +90,61 @@ class ServerModelsTest {
         assertThat(recommendedJavaMajorVersion("1.21.4")).isEqualTo(21)
         assertThat(recommendedJavaMajorVersion("1.21.11")).isEqualTo(21)
         assertThat(recommendedJavaMajorVersion("26.1.2")).isEqualTo(25)
+    }
+
+    @Test
+    fun startPaperServer_withTunnelUsesIndependentRemotePortForRuntimeAddress() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.example.com:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38100",
+        )
+        val started = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+        ).copy(tunnelRemotePort = 38009)
+            .startPaperServer(tunnel = tunnel, startupPort = 25577)
+
+        assertThat(started.port).isEqualTo(25577)
+        assertThat(started.runtimeAddress).isEqualTo("frp.example.com:38009")
+        assertThat(started.runtimeLogs.last()).contains("远端端口 38009")
+    }
+
+    @Test
+    fun applyPaperServerEdits_updatesStructuredGameRulesAndJavaSelection() {
+        val edited = applyPaperServerEdits(
+            server = createPaperServer("生存服", "1.21.4", 20, 2048),
+            name = "创造服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 12,
+            memoryMb = 3072,
+            port = 25570,
+            worldName = "creative_world",
+            javaMajorVersion = 17,
+            javaSelectionMode = JavaSelectionMode.Manual,
+            gameMode = PaperGameMode.Creative,
+            difficulty = PaperDifficulty.Peaceful,
+            onlineMode = false,
+            pvpEnabled = false,
+        )
+
+        assertThat(edited.name).isEqualTo("创造服")
+        assertThat(edited.minecraftVersion).isEqualTo("1.21.11")
+        assertThat(edited.maxPlayers).isEqualTo(12)
+        assertThat(edited.memoryMb).isEqualTo(3072)
+        assertThat(edited.defaultPort).isEqualTo(25570)
+        assertThat(edited.worldName).isEqualTo("creative_world")
+        assertThat(edited.javaMajorVersion).isEqualTo(17)
+        assertThat(edited.javaSelectionMode).isEqualTo(JavaSelectionMode.Manual)
+        assertThat(edited.gameMode).isEqualTo(PaperGameMode.Creative)
+        assertThat(edited.difficulty).isEqualTo(PaperDifficulty.Peaceful)
+        assertThat(edited.onlineMode).isFalse()
+        assertThat(edited.pvpEnabled).isFalse()
     }
 
     @Test

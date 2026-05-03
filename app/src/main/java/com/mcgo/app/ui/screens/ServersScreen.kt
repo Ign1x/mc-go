@@ -70,6 +70,8 @@ import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.allocateManualTunnelRemotePort
+import com.mcgo.app.ui.model.assignTunnelRemotePort
 import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.formatPlayerCapacity
@@ -86,7 +88,7 @@ fun ServersScreen(
     showCreateServer: Boolean = false,
     onDismissCreateServer: () -> Unit = {},
     onCreateServer: (ServerCardState) -> Unit = {},
-    onStartServer: (serverId: String, tunnelId: String?, startupPort: Int) -> Unit,
+    onStartServer: (serverId: String, tunnelId: String?, startupPort: Int, remotePort: Int?) -> Unit,
     onStopServer: (serverId: String) -> Unit,
     onDeleteServer: (serverId: String) -> Unit,
     onOpenConsole: (serverId: String) -> Unit,
@@ -107,11 +109,12 @@ fun ServersScreen(
     pendingStartServer?.let { server ->
         StartServerDialog(
             server = server,
+            allServers = servers,
             availableTunnels = availableTunnels,
             frpRuntimeSupported = supportedProvisionableJavaVersions.contains(25),
             onDismiss = { pendingStartServer = null },
-            onConfirm = { tunnelId, startupPort ->
-                onStartServer(server.id, tunnelId, startupPort)
+            onConfirm = { tunnelId, startupPort, remotePort ->
+                onStartServer(server.id, tunnelId, startupPort, remotePort)
                 pendingStartServer = null
             },
         )
@@ -561,29 +564,52 @@ private fun CreatePaperServerDialog(
 @Composable
 private fun StartServerDialog(
     server: ServerCardState,
+    allServers: List<ServerCardState>,
     availableTunnels: List<TunnelProfile>,
     frpRuntimeSupported: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (tunnelId: String?, startupPort: Int) -> Unit,
+    onConfirm: (tunnelId: String?, startupPort: Int, remotePort: Int?) -> Unit,
 ) {
     var selectedTunnelId by remember(server.name) { mutableStateOf(server.selectedTunnelId) }
     val selectedTunnel = remember(selectedTunnelId, availableTunnels) {
         availableTunnels.firstOrNull { it.id == selectedTunnelId }
     }
     var portInput by remember(server.name) { mutableStateOf(server.defaultPort.toString()) }
+    var remotePortInput by remember(server.name) { mutableStateOf(server.tunnelRemotePort?.toString().orEmpty()) }
 
     LaunchedEffect(selectedTunnelId) {
         portInput = (selectedTunnel?.resolveStartupPort(server.defaultPort, server.defaultPort) ?: server.defaultPort).toString()
+        remotePortInput = selectedTunnel?.let { tunnel ->
+            runCatching {
+                assignTunnelRemotePort(
+                    server = if (server.selectedTunnelId == tunnel.id) server else server.copy(tunnelRemotePort = null),
+                    tunnel = tunnel,
+                    requestedRemotePort = null,
+                    servers = allServers,
+                ).toString()
+            }.getOrDefault("")
+        }.orEmpty()
     }
 
     val canEditPort = selectedTunnel?.supportsCustomPortOnStart() == true
     val runtimeTunnelSupported = selectedTunnel == null || (selectedTunnel.kind == com.mcgo.app.ui.model.TunnelKind.Frp && frpRuntimeSupported)
     val resolvedPort = selectedTunnel?.resolveStartupPort(server.defaultPort, portInput.toIntOrNull()) ?: server.defaultPort
+    val resolvedRemotePort = selectedTunnel?.let { tunnel ->
+        remotePortInput.toIntOrNull()
+            ?: runCatching {
+                assignTunnelRemotePort(
+                    server = if (server.selectedTunnelId == tunnel.id) server else server.copy(tunnelRemotePort = null),
+                    tunnel = tunnel,
+                    requestedRemotePort = null,
+                    servers = allServers,
+                )
+            }.getOrNull()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = { onConfirm(selectedTunnelId, resolvedPort) }, enabled = runtimeTunnelSupported) {
+            TextButton(onClick = { onConfirm(selectedTunnelId, resolvedPort, resolvedRemotePort) }, enabled = runtimeTunnelSupported) {
                 Text("启动实例")
             }
         },
@@ -618,9 +644,17 @@ private fun StartServerDialog(
                             selected = selectedTunnelId == tunnel.id,
                             title = tunnel.name,
                             subtitle = if (tunnel.supportsCustomPortOnStart()) {
-                                "${tunnel.kind.label} · 启动时可改端口"
+                                val reserved = runCatching {
+                                    assignTunnelRemotePort(
+                                        server = if (server.selectedTunnelId == tunnel.id) server else server.copy(tunnelRemotePort = null),
+                                        tunnel = tunnel,
+                                        requestedRemotePort = null,
+                                        servers = allServers,
+                                    )
+                                }.getOrNull()
+                                "${tunnel.kind.label} · 远端 ${reserved ?: "自动分配"}"
                             } else {
-                                "${tunnel.kind.label} · 固定 ${tunnel.resolveStartupPort(server.port, null)} 端口"
+                                "${tunnel.kind.label} · 固定远端 ${tunnel.remotePort ?: "未解析"}"
                             },
                             trailing = tunnel.latencyLabel(),
                             onClick = { selectedTunnelId = tunnel.id },
@@ -632,15 +666,28 @@ private fun StartServerDialog(
                     onValueChange = { portInput = it.filter(Char::isDigit) },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = canEditPort,
-                    label = { Text("开服端口") },
+                    label = { Text("本地开服端口") },
                     supportingText = {
                         Text(
-                            if (canEditPort) "当前选中的是服务器参数，开服时可自定义端口"
-                            else "当前模式使用固定端口：$resolvedPort",
+                            if (canEditPort) "本地端口用于 Paper 监听，可与隧道远端端口不同"
+                            else "当前模式使用固定本地端口：$resolvedPort",
                         )
                     },
                     singleLine = true,
                 )
+                if (selectedTunnel != null) {
+                    OutlinedTextField(
+                        value = remotePortInput,
+                        onValueChange = { remotePortInput = it.filter(Char::isDigit) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = selectedTunnel.supportsCustomPortOnStart(),
+                        label = { Text("隧道远端端口") },
+                        supportingText = {
+                            Text("首次默认自动分配未占用端口；之后默认沿用这个端口，也可手动修改")
+                        },
+                        singleLine = true,
+                    )
+                }
                 selectedTunnel?.let { tunnel ->
                     Text(
                         text = tunnel.connectionSummary(),

@@ -11,6 +11,8 @@ import androidx.core.app.NotificationCompat
 import com.mcgo.app.R
 import com.mcgo.app.network.TcpEndpoint
 import com.mcgo.app.network.measureTcpLatency
+import com.mcgo.app.ui.model.PaperDifficulty
+import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.TunnelConfigFormat
@@ -399,11 +401,9 @@ open class PaperServerService : Service() {
 
     private fun startFrpcForPlan(server: ServerCardState, plan: TunnelRuntimePlan) {
         Files.createDirectories(plan.configPath.parent)
-        check(Files.exists(plan.binaryPath)) {
-            "内置 FRP 组件缺失：${plan.binaryPath.fileName}"
-        }
+        val executablePath = resolveExecutableFrpcPath(plan)
         Files.write(plan.configPath, plan.configText.toByteArray())
-        val process = ProcessBuilder(plan.binaryPath.toString(), "-c", plan.configPath.toString())
+        val process = ProcessBuilder(executablePath.toString(), "-c", plan.configPath.toString())
             .directory(plan.configPath.parent.toFile())
             .redirectErrorStream(true)
             .redirectOutput(ProcessBuilder.Redirect.appendTo(managedPaperServerLogFile(filesDir.toPath(), server.id).toFile()))
@@ -440,6 +440,23 @@ open class PaperServerService : Service() {
         frpcProcess = null
     }
 
+    private fun resolveExecutableFrpcPath(plan: TunnelRuntimePlan): Path {
+        if (Files.exists(plan.binaryPath)) {
+            return plan.binaryPath
+        }
+        Files.createDirectories(plan.extractedBinaryPath.parent)
+        java.util.zip.ZipFile(applicationInfo.sourceDir).use { zip ->
+            val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
+            val entry = zip.getEntry("lib/$abi/${plan.binaryPath.fileName}")
+                ?: error("内置 FRP 组件缺失：${plan.binaryPath.fileName}")
+            zip.getInputStream(entry).use { input ->
+                Files.copy(input, plan.extractedBinaryPath, StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+        plan.extractedBinaryPath.toFile().setExecutable(true, false)
+        return plan.extractedBinaryPath
+    }
+
     private fun Throwable.toUserFacingStartError(javaMajorVersion: Int): String = when (this) {
         is JavaRuntimeInstallException -> message ?: "Java $javaMajorVersion 托管运行时不可用"
         else -> message ?: "启动失败；请确认 Java $javaMajorVersion 托管 JRE 已安装"
@@ -463,6 +480,12 @@ open class PaperServerService : Service() {
                 putExtra("port", server.port)
                 putExtra("worldName", server.worldName)
                 putExtra("javaMajorVersion", server.javaMajorVersion)
+                putExtra("tunnelRemotePort", server.tunnelRemotePort ?: -1)
+                putExtra("gameMode", server.gameMode.name)
+                putExtra("difficulty", server.difficulty.name)
+                putExtra("onlineMode", server.onlineMode)
+                putExtra("pvpEnabled", server.pvpEnabled)
+                putExtra("serverPropertiesOverride", server.serverPropertiesOverride)
                 putExtra("runtimeSlot", slot)
                 putExtra("selectedTunnelId", server.selectedTunnelId)
                 putExtra("activeTunnelLabel", server.activeTunnelLabel)
@@ -620,42 +643,90 @@ fun runtimeExitEvent(
     )
 }
 
-private fun Intent.toServerCardState(): ServerCardState = createPaperServer(
-    name = getStringExtra("name").orEmpty(),
-    minecraftVersion = getStringExtra("minecraftVersion") ?: "1.21.4",
-    maxPlayers = getIntExtra("maxPlayers", 20),
-    memoryMb = getIntExtra("memoryMb", 2048),
-    port = getIntExtra("port", 25565),
-    worldName = getStringExtra("worldName") ?: "world",
+internal fun decodeServerCardStateExtrasForTest(extras: Map<String, Any?>): ServerCardState = decodeServerCardStateExtras(extras)
+internal fun decodeTunnelProfileExtrasForTest(extras: Map<String, Any?>): TunnelProfile? = decodeTunnelProfileExtras(extras)
+
+private fun Intent.toServerCardState(): ServerCardState = decodeServerCardStateExtras(
+    mapOf(
+        "id" to getStringExtra("id"),
+        "name" to getStringExtra("name"),
+        "minecraftVersion" to getStringExtra("minecraftVersion"),
+        "maxPlayers" to getIntExtra("maxPlayers", 20),
+        "memoryMb" to getIntExtra("memoryMb", 2048),
+        "port" to getIntExtra("port", 25565),
+        "worldName" to getStringExtra("worldName"),
+        "javaMajorVersion" to getIntExtra("javaMajorVersion", 0),
+        "runtimeSlot" to getIntExtra("runtimeSlot", -1),
+        "selectedTunnelId" to getStringExtra("selectedTunnelId"),
+        "activeTunnelLabel" to getStringExtra("activeTunnelLabel"),
+        "runtimeAddress" to getStringExtra("runtimeAddress"),
+        "tunnelRemotePort" to getIntExtra("tunnelRemotePort", -1),
+        "gameMode" to getStringExtra("gameMode"),
+        "difficulty" to getStringExtra("difficulty"),
+        "onlineMode" to getBooleanExtra("onlineMode", true),
+        "pvpEnabled" to getBooleanExtra("pvpEnabled", true),
+        "serverPropertiesOverride" to getStringExtra("serverPropertiesOverride"),
+    ),
+)
+
+private fun decodeServerCardStateExtras(extras: Map<String, Any?>): ServerCardState = createPaperServer(
+    name = extras["name"] as? String ?: "",
+    minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
+    maxPlayers = extras["maxPlayers"] as? Int ?: 20,
+    memoryMb = extras["memoryMb"] as? Int ?: 2048,
+    port = extras["port"] as? Int ?: 25565,
+    worldName = extras["worldName"] as? String ?: "world",
+    tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
+    gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
+    difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
+    onlineMode = extras["onlineMode"] as? Boolean ?: true,
+    pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
+    serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
 ).let { server ->
     server.copy(
-        id = getStringExtra("id") ?: "paper-server",
-        javaMajorVersion = getIntExtra("javaMajorVersion", server.javaMajorVersion),
-        selectedTunnelId = getStringExtra("selectedTunnelId"),
-        activeTunnelLabel = getStringExtra("activeTunnelLabel"),
-        runtimeAddress = getStringExtra("runtimeAddress"),
-        runtimeSlot = getIntExtra("runtimeSlot", -1).takeIf { it > 0 },
+        id = extras["id"] as? String ?: "paper-server",
+        javaMajorVersion = (extras["javaMajorVersion"] as? Int)?.takeIf { it > 0 } ?: server.javaMajorVersion,
+        selectedTunnelId = extras["selectedTunnelId"] as? String,
+        activeTunnelLabel = extras["activeTunnelLabel"] as? String,
+        runtimeAddress = extras["runtimeAddress"] as? String,
+        runtimeSlot = (extras["runtimeSlot"] as? Int)?.takeIf { it > 0 },
     )
 }
 
-private fun Intent.toTunnelProfile(): TunnelProfile? {
-    val tunnelId = getStringExtra("tunnel.id") ?: return null
-    val kind = getStringExtra("tunnel.kind")?.let(TunnelKind::valueOf) ?: TunnelKind.Frp
-    val source = getStringExtra("tunnel.source")?.let(TunnelSource::valueOf) ?: TunnelSource.ManualServer
-    val format = getStringExtra("tunnel.format")?.let(TunnelConfigFormat::valueOf)
+private fun Intent.toTunnelProfile(): TunnelProfile? = decodeTunnelProfileExtras(
+    mapOf(
+        "tunnel.id" to getStringExtra("tunnel.id"),
+        "tunnel.name" to getStringExtra("tunnel.name"),
+        "tunnel.kind" to getStringExtra("tunnel.kind"),
+        "tunnel.source" to getStringExtra("tunnel.source"),
+        "tunnel.format" to getStringExtra("tunnel.format"),
+        "tunnel.serverAddress" to getStringExtra("tunnel.serverAddress"),
+        "tunnel.remotePort" to getIntExtra("tunnel.remotePort", -1),
+        "tunnel.localPort" to getIntExtra("tunnel.localPort", -1),
+        "tunnel.credentialValue" to getStringExtra("tunnel.credentialValue"),
+        "tunnel.portRange" to getStringExtra("tunnel.portRange"),
+        "tunnel.detail" to getStringExtra("tunnel.detail"),
+    ),
+)
+
+private fun decodeTunnelProfileExtras(extras: Map<String, Any?>): TunnelProfile? {
+    val tunnelId = extras["tunnel.id"] as? String ?: return null
+    val kind = (extras["tunnel.kind"] as? String)?.let(TunnelKind::valueOf) ?: TunnelKind.Frp
+    val source = (extras["tunnel.source"] as? String)?.let(TunnelSource::valueOf) ?: TunnelSource.ManualServer
+    val format = (extras["tunnel.format"] as? String)?.let(TunnelConfigFormat::valueOf)
     return TunnelProfile(
         id = tunnelId,
-        name = getStringExtra("tunnel.name") ?: "FRP",
+        name = extras["tunnel.name"] as? String ?: "FRP",
         kind = kind,
         source = source,
         format = format,
-        serverAddress = getStringExtra("tunnel.serverAddress").orEmpty(),
-        remotePort = getIntExtra("tunnel.remotePort", -1).takeIf { it > 0 },
-        localPort = getIntExtra("tunnel.localPort", -1).takeIf { it > 0 },
-        credentialValue = getStringExtra("tunnel.credentialValue"),
-        portRange = getStringExtra("tunnel.portRange"),
+        serverAddress = extras["tunnel.serverAddress"] as? String ?: "",
+        remotePort = (extras["tunnel.remotePort"] as? Int)?.takeIf { it > 0 },
+        localPort = (extras["tunnel.localPort"] as? Int)?.takeIf { it > 0 },
+        credentialValue = extras["tunnel.credentialValue"] as? String,
+        portRange = extras["tunnel.portRange"] as? String,
         rawConfigPreview = null,
         rawConfigText = null,
-        detail = getStringExtra("tunnel.detail"),
+        detail = extras["tunnel.detail"] as? String,
     )
 }

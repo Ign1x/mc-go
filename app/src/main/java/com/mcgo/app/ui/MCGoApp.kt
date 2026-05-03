@@ -129,6 +129,7 @@ import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.TunnelLatencyResult
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.assignTunnelRemotePort
 import com.mcgo.app.ui.model.applyPaperServerEdits
 import com.mcgo.app.ui.model.applyTunnelLatencyResults
 import com.mcgo.app.ui.model.buildConsoleAnnotatedLog
@@ -178,6 +179,7 @@ private data class PendingStartRequest(
     val serverId: String,
     val tunnelId: String?,
     val startupPort: Int,
+    val remotePort: Int?,
 )
 
 private enum class PendingServerDirectoryAction {
@@ -361,6 +363,19 @@ private fun MCGoAppScaffold(
             return
         }
         val resolvedPort = tunnel?.resolveStartupPort(targetServer.defaultPort, request.startupPort) ?: request.startupPort
+        val reservedTunnelRemotePort = tunnel?.let {
+            runCatching {
+                assignTunnelRemotePort(
+                    server = if (targetServer.selectedTunnelId == it.id) targetServer else targetServer.copy(tunnelRemotePort = null),
+                    tunnel = it,
+                    requestedRemotePort = request.remotePort,
+                    servers = servers,
+                )
+            }.getOrElse { error ->
+                scope.launch { snackbarHostState.showSnackbar(error.message ?: "隧道远端端口分配失败") }
+                return
+            }
+        }
         val runtimeAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
         if (tunnel != null && tunnel.kind != com.mcgo.app.ui.model.TunnelKind.Frp) {
             scope.launch { snackbarHostState.showSnackbar("当前仅支持 FRP 隧道真启动；请先取消该隧道或改用 FRP") }
@@ -413,7 +428,8 @@ private fun MCGoAppScaffold(
             if (server.id != request.serverId) {
                 server
             } else {
-                server.startWithTunnel(tunnel = tunnel, startupPort = request.startupPort)
+                server.copy(tunnelRemotePort = reservedTunnelRemotePort ?: server.tunnelRemotePort)
+                    .startWithTunnel(tunnel = tunnel, startupPort = request.startupPort)
                     .copy(
                         runtimeLogPath = runtimeLogPath,
                         runtimeSlot = allocatedSlot,
@@ -660,11 +676,11 @@ private fun MCGoAppScaffold(
                             showServerComposer = false
                             scope.launch { snackbarHostState.showSnackbar("已创建 ${server.name}") }
                         },
-                        onStartServer = { serverId, tunnelId, startupPort ->
+                        onStartServer = { serverId, tunnelId, startupPort, remotePort ->
                             if (!hasServerDirectoryGrant()) {
                                 requestServerDirectory(PendingServerDirectoryAction.StartServer)
                             } else {
-                                startServerNow(PendingStartRequest(serverId, tunnelId, startupPort))
+                                startServerNow(PendingStartRequest(serverId, tunnelId, startupPort, remotePort))
                             }
                         },
                         onStopServer = { serverId ->
@@ -731,6 +747,16 @@ private fun MCGoAppScaffold(
                             showTunnelComposer = true
                         },
                         onDeleteTunnel = { tunnelId ->
+                            val inUseServers = servers.filter { it.selectedTunnelId == tunnelId && it.isRuntimeBusy() }
+                            if (inUseServers.isNotEmpty()) {
+                                inUseServers.forEach { runningServer ->
+                                    PaperServerService.stop(appContext, runningServer.id, runningServer.runtimeSlot)
+                                }
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("该隧道仍被运行中的服务器使用，已先停止相关实例；待停止完成后再删除")
+                                }
+                                return@TunnelsScreen
+                            }
                             val updatedTunnels = removeTunnelProfile(tunnels, tunnelId)
                             onTunnelsChangeAndPersist(updatedTunnels)
                             val updatedServers = detachDeletedTunnel(servers, tunnelId)

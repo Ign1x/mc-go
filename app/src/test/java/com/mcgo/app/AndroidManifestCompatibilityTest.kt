@@ -19,6 +19,18 @@ class AndroidManifestCompatibilityTest {
     }
 
     @Test
+    fun sourceManifest_forcesNativeLibExtraction_forBundledExecutableFrpc() {
+        val manifest = readTextFromExisting(
+            listOf(
+                Path.of("src/main/AndroidManifest.xml"),
+                Path.of("app/src/main/AndroidManifest.xml"),
+            ),
+        )
+
+        assertThat(manifest).contains("android:extractNativeLibs=\"true\"")
+    }
+
+    @Test
     fun mergedDebugManifest_keepsNativeHeapPointerTaggingDisabled() {
         val manifest = readTextFromExisting(
             listOf(
@@ -30,6 +42,7 @@ class AndroidManifestCompatibilityTest {
         )
 
         assertThat(manifest).contains("android:allowNativeHeapPointerTagging=\"false\"")
+        assertThat(manifest).contains("android:extractNativeLibs=\"true\"")
     }
 
     @Test

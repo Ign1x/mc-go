@@ -11,6 +11,12 @@ import kotlin.test.assertFailsWith
 
 class TunnelRuntimeHelperTest {
     @Test
+    fun nativeLibraryExecutableNameForAsset_mapsBundledFrpcToLibfrpcSo() {
+        assertThat(nativeLibraryExecutableNameForAsset("frp/android_arm64/frpc")).isEqualTo("libfrpc.so")
+        assertThat(nativeLibraryExecutableNameForAsset("libalready.so")).isEqualTo("libalready.so")
+    }
+
+    @Test
     fun tunnelRuntimePlanForStart_buildsRealFrpcPlanForSelectedFrpTunnel() {
         val filesDir = Files.createTempDirectory("mcgo-frpc-plan")
         val server = createPaperServer(
@@ -40,6 +46,7 @@ class TunnelRuntimeHelperTest {
         assertThat(plan).isNotNull()
         assertThat(plan!!.displayLabel).isEqualTo("家庭 FRP · frp.example.com:38001")
         assertThat(plan.binaryPath).isEqualTo(nativeLibraryDir.resolve("libfrpc.so"))
+        assertThat(plan.extractedBinaryPath).isEqualTo(filesDir.resolve("servers/${server.id}/frp/bin/frpc"))
         assertThat(plan.configPath).isEqualTo(filesDir.resolve("servers/${server.id}/frp/frpc.toml"))
         assertThat(plan.configText).contains("remotePort = 38001")
     }

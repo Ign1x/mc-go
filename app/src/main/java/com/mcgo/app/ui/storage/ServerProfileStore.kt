@@ -1,6 +1,8 @@
 package com.mcgo.app.ui.storage
 
 import com.mcgo.app.ui.model.JavaSelectionMode
+import com.mcgo.app.ui.model.PaperDifficulty
+import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
@@ -39,9 +41,15 @@ class ServerProfileStore(
             val isOnline = properties.getProperty(prefix + "isOnline")?.toBooleanStrictOrNull()
                 ?: (launchStatus == ServerLaunchStatus.Running)
             val port = properties.getProperty(prefix + "port")?.toIntOrNull() ?: defaultPort
+            val tunnelRemotePort = properties.getProperty(prefix + "tunnelRemotePort")?.toIntOrNull()
             val selectedTunnelId = properties.getProperty(prefix + "selectedTunnelId")
             val activeTunnelLabel = properties.getProperty(prefix + "activeTunnelLabel")
             val runtimeAddress = properties.getProperty(prefix + "runtimeAddress")
+            val gameMode = enumValueOrNull<PaperGameMode>(properties.getProperty(prefix + "gameMode")) ?: PaperGameMode.Survival
+            val difficulty = enumValueOrNull<PaperDifficulty>(properties.getProperty(prefix + "difficulty")) ?: PaperDifficulty.Normal
+            val onlineMode = properties.getProperty(prefix + "onlineMode")?.toBooleanStrictOrNull() ?: true
+            val pvpEnabled = properties.getProperty(prefix + "pvpEnabled")?.toBooleanStrictOrNull() ?: true
+            val serverPropertiesOverride = properties.getProperty(prefix + "serverPropertiesOverride")
             val launchProgress = properties.getProperty(prefix + "launchProgress")?.toIntOrNull()
                 ?: if (isOnline) 100 else 0
             val runtimeLogPath = properties.getProperty(prefix + "runtimeLogPath")
@@ -51,6 +59,7 @@ class ServerProfileStore(
             val runtimeLogs = (0 until runtimeLogCount).mapNotNull { logIndex ->
                 properties.getProperty(prefix + "runtimeLog.$logIndex")
             }
+
             when (serverType) {
                 MinecraftServerType.Paper -> createPaperServer(
                     name = name,
@@ -59,6 +68,12 @@ class ServerProfileStore(
                     memoryMb = memoryMb,
                     port = defaultPort,
                     worldName = worldName,
+                    tunnelRemotePort = tunnelRemotePort,
+                    gameMode = gameMode,
+                    difficulty = difficulty,
+                    onlineMode = onlineMode,
+                    pvpEnabled = pvpEnabled,
+                    serverPropertiesOverride = serverPropertiesOverride,
                 ).copy(
                     id = id,
                     javaMajorVersion = migrateManagedJavaMajorVersion(
@@ -68,6 +83,7 @@ class ServerProfileStore(
                     ),
                     javaSelectionMode = javaSelectionMode,
                     port = port,
+                    tunnelRemotePort = tunnelRemotePort,
                     isOnline = isOnline,
                     selectedTunnelId = selectedTunnelId,
                     activeTunnelLabel = activeTunnelLabel,
@@ -101,7 +117,13 @@ class ServerProfileStore(
             properties.setProperty(prefix + "memoryMb", server.memoryMb.toString())
             properties.setProperty(prefix + "defaultPort", server.defaultPort.toString())
             properties.setProperty(prefix + "port", server.port.toString())
+            server.tunnelRemotePort?.let { properties.setProperty(prefix + "tunnelRemotePort", it.toString()) }
             properties.setProperty(prefix + "worldName", server.worldName)
+            properties.setProperty(prefix + "gameMode", server.gameMode.name)
+            properties.setProperty(prefix + "difficulty", server.difficulty.name)
+            properties.setProperty(prefix + "onlineMode", server.onlineMode.toString())
+            properties.setProperty(prefix + "pvpEnabled", server.pvpEnabled.toString())
+            server.serverPropertiesOverride?.let { properties.setProperty(prefix + "serverPropertiesOverride", it) }
             properties.setProperty(prefix + "isOnline", server.isOnline.toString())
             properties.setProperty(prefix + "launchStatus", server.launchStatus.name)
             properties.setProperty(prefix + "launchProgress", server.launchProgress.toString())

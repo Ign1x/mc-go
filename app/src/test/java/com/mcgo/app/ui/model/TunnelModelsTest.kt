@@ -57,6 +57,152 @@ class TunnelModelsTest {
     }
 
     @Test
+    fun allocateManualTunnelRemotePort_picksFirstUnusedPortAndSkipsReservedOnes() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38003",
+        ).copy(id = "frp-home")
+        val current = createPaperServer("当前服", "1.21.11", 20, 2048).copy(id = "server-current")
+        val occupied = createPaperServer("已占用", "1.21.11", 20, 2048)
+            .copy(selectedTunnelId = tunnel.id, tunnelRemotePort = 38000)
+
+        val allocated = allocateManualTunnelRemotePort(
+            tunnel = tunnel,
+            servers = listOf(current, occupied),
+            targetServerId = current.id,
+        )
+
+        assertThat(allocated).isEqualTo(38001)
+    }
+
+    @Test
+    fun assignTunnelRemotePort_reusesExistingReservationForSameServer() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38003",
+        ).copy(id = "frp-home")
+        val current = createPaperServer("当前服", "1.21.11", 20, 2048)
+            .copy(id = "server-current", selectedTunnelId = tunnel.id, tunnelRemotePort = 38002)
+
+        val assigned = assignTunnelRemotePort(
+            server = current,
+            tunnel = tunnel,
+            requestedRemotePort = null,
+            servers = listOf(current),
+        )
+
+        assertThat(assigned).isEqualTo(38002)
+    }
+
+    @Test
+    fun assignTunnelRemotePort_rejectsRemotePortAlreadyReservedByAnotherServer() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38003",
+        ).copy(id = "frp-home")
+        val current = createPaperServer("当前服", "1.21.11", 20, 2048).copy(id = "server-current")
+        val occupied = createPaperServer("已占用", "1.21.11", 20, 2048)
+            .copy(selectedTunnelId = tunnel.id, tunnelRemotePort = 38001)
+
+        val error = kotlin.runCatching {
+            assignTunnelRemotePort(
+                server = current,
+                tunnel = tunnel,
+                requestedRemotePort = 38001,
+                servers = listOf(current, occupied),
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).hasMessageThat().contains("38001")
+    }
+
+    @Test
+    fun assignTunnelRemotePort_keepsFixedRemotePortForPastedConfigWithoutPortRange() {
+        val tunnel = TunnelProfile(
+            id = "frp-pasted",
+            name = "单隧道 FRP",
+            kind = TunnelKind.Frp,
+            source = TunnelSource.PastedConfig,
+            format = TunnelConfigFormat.Toml,
+            serverAddress = "frp.example.com:7000",
+            remotePort = 39001,
+            localPort = 25565,
+            credentialValue = "secret-token",
+            portRange = "",
+            detail = "固定映射",
+        )
+        val current = createPaperServer("当前服", "1.21.11", 20, 2048).copy(id = "server-current")
+
+        val assigned = assignTunnelRemotePort(
+            server = current,
+            tunnel = tunnel,
+            requestedRemotePort = null,
+            servers = listOf(current),
+        )
+
+        assertThat(assigned).isEqualTo(39001)
+    }
+
+    @Test
+    fun assignTunnelRemotePort_reallocatesWhenExistingReservationFallsOutsideUpdatedRange() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38002",
+        ).copy(id = "frp-home")
+        val current = createPaperServer("当前服", "1.21.11", 20, 2048)
+            .copy(id = "server-current", selectedTunnelId = tunnel.id, tunnelRemotePort = 39999)
+
+        val assigned = assignTunnelRemotePort(
+            server = current,
+            tunnel = tunnel,
+            requestedRemotePort = null,
+            servers = listOf(current),
+        )
+
+        assertThat(assigned).isEqualTo(38000)
+    }
+
+    @Test
+    fun assignTunnelRemotePort_prefersFixedPastedConfigPortOverStaleServerReservation() {
+        val tunnel = TunnelProfile(
+            id = "frp-pasted",
+            name = "单隧道 FRP",
+            kind = TunnelKind.Frp,
+            source = TunnelSource.PastedConfig,
+            format = TunnelConfigFormat.Toml,
+            serverAddress = "frp.example.com:7000",
+            remotePort = 39001,
+            localPort = 25565,
+            credentialValue = "secret-token",
+            portRange = "",
+            detail = "固定映射",
+        )
+        val current = createPaperServer("当前服", "1.21.11", 20, 2048)
+            .copy(id = "server-current", selectedTunnelId = "old-manual", tunnelRemotePort = 39999)
+
+        val assigned = assignTunnelRemotePort(
+            server = current,
+            tunnel = tunnel,
+            requestedRemotePort = null,
+            servers = listOf(current),
+        )
+
+        assertThat(assigned).isEqualTo(39001)
+    }
+
+    @Test
     fun manualTunnelFieldSpec_requiresEndpointWithPortForDifferentTunnelKinds() {
         val frpSpec = manualTunnelFieldSpec(TunnelKind.Frp)
         val npsSpec = manualTunnelFieldSpec(TunnelKind.Nps)
@@ -180,6 +326,7 @@ class TunnelModelsTest {
         assertThat(upserted.single().credentialValue).isEqualTo("new-token")
         assertThat(remaining).isEmpty()
         assertThat(detachedServers.single().selectedTunnelId).isNull()
+        assertThat(detachedServers.single().tunnelRemotePort).isNull()
         assertThat(detachedServers.single().activeTunnelLabel).isNull()
     }
 

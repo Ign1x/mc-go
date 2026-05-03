@@ -37,6 +37,20 @@ enum class JavaSelectionMode {
     Manual,
 }
 
+enum class PaperGameMode(val propertyValue: String) {
+    Survival("survival"),
+    Creative("creative"),
+    Adventure("adventure"),
+    Spectator("spectator"),
+}
+
+enum class PaperDifficulty(val propertyValue: String) {
+    Peaceful("peaceful"),
+    Easy("easy"),
+    Normal("normal"),
+    Hard("hard"),
+}
+
 data class PaperLaunchPlan(
     val serverJarName: String,
     val javaMajorVersion: Int,
@@ -58,8 +72,14 @@ data class ServerCardState(
     val worldName: String,
     val port: Int,
     val defaultPort: Int = port,
+    val tunnelRemotePort: Int? = null,
     val onlinePlayers: Int,
     val maxPlayers: Int,
+    val gameMode: PaperGameMode = PaperGameMode.Survival,
+    val difficulty: PaperDifficulty = PaperDifficulty.Normal,
+    val onlineMode: Boolean = true,
+    val pvpEnabled: Boolean = true,
+    val serverPropertiesOverride: String? = null,
     val memoryLabel: String,
     val memoryMb: Int = parseMemoryMb(memoryLabel),
     val isOnline: Boolean,
@@ -131,6 +151,12 @@ fun createPaperServer(
     worldName: String = "world",
     javaMajorVersion: Int = recommendedJavaMajorVersion(minecraftVersion),
     javaSelectionMode: JavaSelectionMode = JavaSelectionMode.Recommended,
+    tunnelRemotePort: Int? = null,
+    gameMode: PaperGameMode = PaperGameMode.Survival,
+    difficulty: PaperDifficulty = PaperDifficulty.Normal,
+    onlineMode: Boolean = true,
+    pvpEnabled: Boolean = true,
+    serverPropertiesOverride: String? = null,
 ): ServerCardState = ServerCardState(
     id = createServerId(name.ifBlank { "Paper 服务器" }),
     name = name.ifBlank { "Paper 服务器" },
@@ -138,8 +164,14 @@ fun createPaperServer(
     worldName = worldName.ifBlank { "world" },
     port = port,
     defaultPort = port,
+    tunnelRemotePort = tunnelRemotePort,
     onlinePlayers = 0,
     maxPlayers = maxPlayers,
+    gameMode = gameMode,
+    difficulty = difficulty,
+    onlineMode = onlineMode,
+    pvpEnabled = pvpEnabled,
+    serverPropertiesOverride = serverPropertiesOverride,
     memoryLabel = formatMemoryMb(memoryMb),
     memoryMb = memoryMb,
     isOnline = false,
@@ -195,6 +227,11 @@ fun applyPaperServerEdits(
     worldName: String,
     javaMajorVersion: Int = if (server.javaSelectionMode == JavaSelectionMode.Manual) server.javaMajorVersion else recommendedJavaMajorVersion(minecraftVersion),
     javaSelectionMode: JavaSelectionMode = server.javaSelectionMode,
+    gameMode: PaperGameMode = server.gameMode,
+    difficulty: PaperDifficulty = server.difficulty,
+    onlineMode: Boolean = server.onlineMode,
+    pvpEnabled: Boolean = server.pvpEnabled,
+    serverPropertiesOverride: String? = server.serverPropertiesOverride,
 ): ServerCardState = server.copy(
     name = name.ifBlank { server.name },
     edition = "Paper $minecraftVersion",
@@ -207,6 +244,11 @@ fun applyPaperServerEdits(
     minecraftVersion = minecraftVersion,
     javaMajorVersion = javaMajorVersion,
     javaSelectionMode = javaSelectionMode,
+    gameMode = gameMode,
+    difficulty = difficulty,
+    onlineMode = onlineMode,
+    pvpEnabled = pvpEnabled,
+    serverPropertiesOverride = serverPropertiesOverride,
 )
 
 fun resolveServerConsoleText(server: ServerCardState): String =
