@@ -256,7 +256,7 @@ private fun applyExecutableBit(path: Path, mode: Int) {
     }
 }
 
-private fun ensureAndroidLegacyLibCompat(javaHome: Path) {
+internal fun ensureAndroidLegacyLibCompat(javaHome: Path) {
     val releaseProperties = runCatching { readReleaseProperties(javaHome) }.getOrDefault(emptyMap())
     val javaLibRelative = runCatching { resolveJavaLibRelative(javaHome, releaseProperties["OS_ARCH"]) }.getOrNull() ?: return
     val javaLibDir = javaHome.resolve(javaLibRelative)

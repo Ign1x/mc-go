@@ -43,6 +43,7 @@ fun buildManagedPaperLaunchConfig(
     is64BitProcess: Boolean,
 ): ManagedPaperLaunchConfig {
     val javaHome = requireManagedJavaHome(filesDir, server.javaMajorVersion)
+    ensureAndroidLegacyLibCompat(javaHome)
     val runtimeLayout = resolveManagedJavaRuntimeLayout(
         javaHome = javaHome,
         nativeLibraryDir = nativeLibraryDir,
