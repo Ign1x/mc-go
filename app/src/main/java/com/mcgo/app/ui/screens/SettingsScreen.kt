@@ -63,7 +63,6 @@ import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.AccentPreset
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearanceSettingsState
-import com.mcgo.app.ui.model.FontScalePreference
 import com.mcgo.app.ui.model.JavaManagementState
 import com.mcgo.app.ui.model.JavaRuntimeOption
 import com.mcgo.app.ui.model.RuntimePermissionItem
@@ -107,7 +106,7 @@ fun SettingsScreen(
     onRequestServerDirectory: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.fontScale, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground, javaManagementState.summaryLabel) {
+    val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground, javaManagementState.summaryLabel) {
         McGoSampleRepository.settingsSections().map { section ->
             when (section.icon) {
                 SettingsCategoryIcon.Appearance -> section.copy(highlight = appearancePreferences.summaryLabel())
@@ -318,19 +317,6 @@ private fun AppearanceDetailScreen(
             )
         }
         item {
-            ChoiceChipCard(
-                title = "字体密度",
-                options = appearanceOptions.fontScaleOptions,
-                selectedOption = appearancePreferences.fontScale.label,
-                onOptionSelected = {
-                    onAppearancePreferencesChange(
-                        appearancePreferences.copy(fontScale = FontScalePreference.fromLabel(it)),
-                    )
-                },
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
-        }
-        item {
             AppearanceTogglesCard(
                 transparentCardsEnabled = appearancePreferences.transparentCards,
                 onTransparentCardsChange = {
@@ -526,7 +512,7 @@ private fun AppearancePreviewCard(
                 contentColor = accentColor,
             ) {
                 Text(
-                    text = appearancePreferences.fontScale.label,
+                    text = appearancePreferences.accentPreset.label,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
@@ -561,7 +547,7 @@ private fun AppearancePreviewCard(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "${appearancePreferences.fontScale.label} · ${appearancePreferences.cardTransparencyPercent}%",
+                            text = "${appearancePreferences.accentPreset.label} · ${appearancePreferences.cardTransparencyPercent}%",
                             style = MaterialTheme.typography.labelSmall,
                             color = previewSubtleColor,
                         )

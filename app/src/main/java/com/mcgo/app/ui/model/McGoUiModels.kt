@@ -7,6 +7,8 @@ enum class MetricAccent {
     Green,
     Gold,
     Violet,
+    Coral,
+    Teal,
 }
 
 enum class SettingsCategoryIcon {
@@ -117,8 +119,6 @@ data class AppearanceSettingsState(
     val selectedThemeMode: String,
     val accentOptions: List<String>,
     val selectedAccent: String,
-    val fontScaleOptions: List<String>,
-    val selectedFontScale: String,
     val cardTransparencyPercent: Int,
     val toggles: List<AppearanceToggleState>,
 )
@@ -251,6 +251,104 @@ fun applyPaperServerEdits(
     serverPropertiesOverride = serverPropertiesOverride,
 )
 
+fun buildPaperServerPropertiesEditorText(server: ServerCardState): String {
+    val overrideLines = server.serverPropertiesOverride
+        ?.lineSequence()
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?.toList()
+        .orEmpty()
+    val overrideProperties = overrideLines
+        .mapNotNull(::parseServerPropertyLine)
+        .associate { it }
+    val managedProperties = managedEditorPropertyMap(server)
+    val mergedManagedLines = managedProperties.map { (key, value) -> "$key=${overrideProperties[key] ?: value}" }
+    val extraLines = overrideLines.filter { line ->
+        line.startsWith("#") || parseServerPropertyLine(line)?.first !in managedProperties
+    }
+    return (mergedManagedLines + listOfNotNull(extraLines.takeIf { it.isNotEmpty() }?.joinToString("\n")))
+        .joinToString(separator = "\n\n")
+        .trim()
+}
+
+fun sanitizeAdvancedServerPropertiesOverride(rawOverride: String?): String? {
+    val managedKeys = ManagedEditorPropertyKeys
+    return rawOverride
+        ?.lineSequence()
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?.filter { line ->
+            line.startsWith("#") || parseServerPropertyLine(line)?.first !in managedKeys
+        }
+        ?.joinToString(separator = "\n")
+        ?.trim()
+        ?.ifBlank { null }
+}
+
+fun parsePaperServerPropertiesEditorText(server: ServerCardState, text: String): ServerCardState {
+    var name = server.name
+    var worldName = server.worldName
+    var maxPlayers = server.maxPlayers
+    var port = server.defaultPort
+    var gameMode = server.gameMode
+    var difficulty = server.difficulty
+    var onlineMode = server.onlineMode
+    var pvpEnabled = server.pvpEnabled
+
+    val preservedLines = mutableListOf<String>()
+    text.lineSequence().forEach { rawLine ->
+        val line = rawLine.trim()
+        when {
+            line.isEmpty() -> Unit
+            line.startsWith("#") -> preservedLines += line
+            else -> {
+                val entry = parseServerPropertyLine(line)
+                if (entry == null) {
+                    preservedLines += line
+                    return@forEach
+                }
+                val (key, value) = entry
+                when (key) {
+                    "motd" -> name = value.ifBlank { name }
+                    "level-name" -> worldName = value.ifBlank { worldName }
+                    "max-players" -> maxPlayers = value.toIntOrNull()?.coerceIn(1, 200) ?: maxPlayers
+                    "server-port" -> port = value.toIntOrNull()?.coerceIn(1, 65535) ?: port
+                    "gamemode" -> gameMode = parsePaperGameMode(value, gameMode)
+                    "difficulty" -> difficulty = parsePaperDifficulty(value, difficulty)
+                    "online-mode" -> onlineMode = parseBooleanServerProperty(value, onlineMode)
+                    "pvp" -> pvpEnabled = parseBooleanServerProperty(value, pvpEnabled)
+                    else -> preservedLines += "$key=$value"
+                }
+            }
+        }
+    }
+
+    val editedServer = applyPaperServerEdits(
+        server = server,
+        name = name,
+        minecraftVersion = server.minecraftVersion,
+        maxPlayers = maxPlayers,
+        memoryMb = server.memoryMb,
+        port = port,
+        worldName = worldName,
+        javaMajorVersion = server.javaMajorVersion,
+        javaSelectionMode = server.javaSelectionMode,
+        gameMode = gameMode,
+        difficulty = difficulty,
+        onlineMode = onlineMode,
+        pvpEnabled = pvpEnabled,
+    )
+    val managedProperties = managedEditorPropertyMap(editedServer)
+    val overrideText = preservedLines
+        .filterNot { line ->
+            parseServerPropertyLine(line)?.let { (key, value) -> managedProperties[key] == value } == true
+        }
+        .joinToString(separator = "\n")
+        .trim()
+        .ifBlank { null }
+    return editedServer.copy(serverPropertiesOverride = overrideText)
+}
+
 fun resolveServerConsoleText(server: ServerCardState): String =
     server.runtimeLogPath
         ?.let(::File)
@@ -304,4 +402,47 @@ private fun createServerId(name: String): String {
         .trim('-')
         .ifBlank { "paper-server" }
     return "server-$slug-${System.currentTimeMillis()}"
+}
+
+private fun managedEditorPropertyMap(server: ServerCardState): LinkedHashMap<String, String> = linkedMapOf(
+    "motd" to server.name,
+    "level-name" to server.worldName,
+    "max-players" to server.maxPlayers.toString(),
+    "server-port" to server.defaultPort.toString(),
+    "gamemode" to server.gameMode.propertyValue,
+    "difficulty" to server.difficulty.propertyValue,
+    "online-mode" to server.onlineMode.toString(),
+    "pvp" to server.pvpEnabled.toString(),
+)
+
+private val ManagedEditorPropertyKeys = setOf(
+    "motd",
+    "level-name",
+    "max-players",
+    "server-port",
+    "gamemode",
+    "difficulty",
+    "online-mode",
+    "pvp",
+)
+
+private fun parseServerPropertyLine(line: String): Pair<String, String>? {
+    val separatorIndex = line.indexOf('=')
+    if (separatorIndex <= 0) return null
+    val key = line.substring(0, separatorIndex).trim()
+    val value = line.substring(separatorIndex + 1).trim()
+    if (key.isEmpty()) return null
+    return key to value
+}
+
+private fun parsePaperGameMode(value: String, fallback: PaperGameMode): PaperGameMode =
+    PaperGameMode.entries.firstOrNull { it.propertyValue.equals(value.trim(), ignoreCase = true) } ?: fallback
+
+private fun parsePaperDifficulty(value: String, fallback: PaperDifficulty): PaperDifficulty =
+    PaperDifficulty.entries.firstOrNull { it.propertyValue.equals(value.trim(), ignoreCase = true) } ?: fallback
+
+private fun parseBooleanServerProperty(value: String, fallback: Boolean): Boolean = when (value.trim().lowercase()) {
+    "true", "1", "yes", "on" -> true
+    "false", "0", "no", "off" -> false
+    else -> fallback
 }

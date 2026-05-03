@@ -6,9 +6,11 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.TrafficStats
 import android.os.BatteryManager
+import android.os.HardwarePropertiesManager
 import android.os.SystemClock
 import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.MetricAccent
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import java.io.File
 
@@ -51,6 +53,7 @@ private data class RamStats(
 private data class BatteryStats(
     val currentMilliAmps: Int?,
     val batteryPercent: Int?,
+    val batteryTemperatureCelsius: Float?,
     val isCharging: Boolean,
 )
 
@@ -58,16 +61,19 @@ class DevicePerformanceMonitor(private val context: Context) {
 
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+    private val hardwarePropertiesManager = context.getSystemService(Context.HARDWARE_PROPERTIES_SERVICE) as? HardwarePropertiesManager
     private val historyLength = 8
 
     private var previousCpuSnapshot: CpuStatSnapshot? = readCpuSnapshot()
     private var previousCpuTimestampMillis: Long = SystemClock.elapsedRealtime()
     private var previousNetworkSnapshot: NetworkSnapshot = readNetworkSnapshot()
 
-    private var cpuHistory: List<Float> = emptyList()
     private var ramHistory: List<Float> = emptyList()
     private var networkHistory: List<Float> = emptyList()
-    private var batteryHistory: List<Float> = emptyList()
+    private var cpuTemperatureHistory: List<Float> = emptyList()
+    private var gpuTemperatureHistory: List<Float> = emptyList()
+    private var batteryTemperatureHistory: List<Float> = emptyList()
+    private var batteryCurrentHistory: List<Float> = emptyList()
 
     fun resetSamplingBaselines() {
         previousCpuSnapshot = readCpuSnapshot()
@@ -80,45 +86,104 @@ class DevicePerformanceMonitor(private val context: Context) {
         val ramStats = readRamStats()
         val networkReading = readNetworkReading()
         val batteryStats = readBatteryStats()
+        val cpuTemperature = readHardwareTemperature(ThermalSensorKind.Cpu)
+        val gpuTemperature = readHardwareTemperature(ThermalSensorKind.Gpu)
 
-        cpuReading.usagePercent?.let { cpuHistory = appendHistorySample(cpuHistory, it, historyLength) }
         ramHistory = appendHistorySample(ramHistory, ramStats.usedBytes / GIGABYTE_BYTES.toFloat(), historyLength)
         networkReading.stats?.let {
             val combinedMbps = (it.uploadBytesPerSecond + it.downloadBytesPerSecond) / 125_000f
             networkHistory = appendHistorySample(networkHistory, combinedMbps, historyLength)
         }
+        cpuTemperature?.let { cpuTemperatureHistory = appendHistorySample(cpuTemperatureHistory, it, historyLength) }
+        gpuTemperature?.let { gpuTemperatureHistory = appendHistorySample(gpuTemperatureHistory, it, historyLength) }
+        batteryStats.batteryTemperatureCelsius?.let {
+            batteryTemperatureHistory = appendHistorySample(batteryTemperatureHistory, it, historyLength)
+        }
         batteryStats.currentMilliAmps?.let {
-            val normalizedCurrent = if (batteryStats.isCharging) kotlin.math.abs(it) else -kotlin.math.abs(it)
-            batteryHistory = appendHistorySample(batteryHistory, normalizedCurrent.toFloat() / 1000f, historyLength)
+            val normalizedCurrent = if (batteryStats.isCharging) abs(it) else -abs(it)
+            batteryCurrentHistory = appendHistorySample(batteryCurrentHistory, normalizedCurrent.toFloat() / 1000f, historyLength)
         }
 
-        val cpuMetric = buildCpuMetric(cpuReading)
         val ramMetric = buildRamMetric(ramStats)
         val networkMetric = buildNetworkMetric(networkReading)
-        val batteryMetric = buildBatteryMetric(batteryStats)
+        val cpuTemperatureMetric = buildCpuTemperatureMetric(cpuTemperature, cpuReading)
+        val gpuTemperatureMetric = buildGpuTemperatureMetric(gpuTemperature)
+        val batteryTemperatureMetric = buildBatteryTemperatureMetric(batteryStats)
+        val batteryCurrentMetric = buildBatteryCurrentMetric(batteryStats)
 
         return StatusDashboardState(
-            metrics = listOf(cpuMetric, ramMetric, networkMetric, batteryMetric),
+            metrics = listOf(
+                ramMetric,
+                networkMetric,
+                cpuTemperatureMetric,
+                gpuTemperatureMetric,
+                batteryTemperatureMetric,
+                batteryCurrentMetric,
+            ),
         )
     }
 
-    private fun buildCpuMetric(cpuReading: CpuReading): DashboardMetric {
-        val latestPercent = cpuReading.usagePercent ?: cpuHistory.lastOrNull()
-        val detailLabel = when (cpuReading.state) {
-            SampleState.Ready -> "${Runtime.getRuntime().availableProcessors()} 核设备 · 最近 2 秒"
-            SampleState.WarmingUp -> "${Runtime.getRuntime().availableProcessors()} 核设备 · 等待下一次采样"
-            SampleState.Unavailable -> "当前设备无法读取 CPU 统计"
-        }
-        return DashboardMetric(
-            title = "CPU",
-            valueLabel = when (cpuReading.state) {
-                SampleState.Ready -> "${cpuReading.usagePercent?.roundToInt() ?: 0}%"
-                SampleState.WarmingUp -> latestPercent?.let { "${it.roundToInt()}%" } ?: "采集中"
-                SampleState.Unavailable -> "不可用"
+    private fun buildCpuTemperatureMetric(cpuTemperature: Float?, cpuReading: CpuReading): DashboardMetric {
+        val formatted = formatTemperatureMetric(
+            temperatureCelsius = cpuTemperature,
+            detailLabel = when (cpuReading.state) {
+                SampleState.Ready -> "CPU 负载 ${cpuReading.usagePercent?.roundToInt() ?: 0}% · 最近 2 秒"
+                SampleState.WarmingUp -> "CPU 负载采集中 · 等待下一次采样"
+                SampleState.Unavailable -> "仅显示热区温度，CPU 占用暂不可用"
             },
-            detailLabel = detailLabel,
-            trendValues = cpuHistory,
-            accent = MetricAccent.Blue,
+            unavailableDetailLabel = "当前设备未公开 CPU 温度传感器",
+        )
+        return DashboardMetric(
+            title = "CPU 温度",
+            valueLabel = formatted.valueLabel,
+            detailLabel = formatted.detailLabel,
+            trendValues = cpuTemperatureHistory,
+            accent = MetricAccent.Coral,
+        )
+    }
+
+    private fun buildGpuTemperatureMetric(gpuTemperature: Float?): DashboardMetric {
+        val formatted = formatTemperatureMetric(
+            temperatureCelsius = gpuTemperature,
+            detailLabel = "图形核心热区",
+            unavailableDetailLabel = "当前设备未公开 GPU 温度传感器",
+        )
+        return DashboardMetric(
+            title = "GPU 温度",
+            valueLabel = formatted.valueLabel,
+            detailLabel = formatted.detailLabel,
+            trendValues = gpuTemperatureHistory,
+            accent = MetricAccent.Violet,
+        )
+    }
+
+    private fun buildBatteryTemperatureMetric(batteryStats: BatteryStats): DashboardMetric {
+        val formatted = formatTemperatureMetric(
+            temperatureCelsius = batteryStats.batteryTemperatureCelsius,
+            detailLabel = batteryStats.batteryPercent?.let { "当前电量 $it%" } ?: "当前电量未知",
+            unavailableDetailLabel = "当前设备未返回电池温度",
+        )
+        return DashboardMetric(
+            title = "电池温度",
+            valueLabel = formatted.valueLabel,
+            detailLabel = formatted.detailLabel,
+            trendValues = batteryTemperatureHistory,
+            accent = MetricAccent.Gold,
+        )
+    }
+
+    private fun buildBatteryCurrentMetric(batteryStats: BatteryStats): DashboardMetric {
+        val formatted = formatBatteryMetric(
+            currentMilliAmps = batteryStats.currentMilliAmps,
+            batteryPercent = batteryStats.batteryPercent,
+            isCharging = batteryStats.isCharging,
+        )
+        return DashboardMetric(
+            title = "电池电流",
+            valueLabel = formatted.valueLabel,
+            detailLabel = formatted.detailLabel,
+            trendValues = batteryCurrentHistory,
+            accent = MetricAccent.Teal,
         )
     }
 
@@ -151,22 +216,7 @@ class DevicePerformanceMonitor(private val context: Context) {
             },
             detailLabel = detailLabel,
             trendValues = networkHistory,
-            accent = MetricAccent.Violet,
-        )
-    }
-
-    private fun buildBatteryMetric(batteryStats: BatteryStats): DashboardMetric {
-        val formatted = formatBatteryMetric(
-            currentMilliAmps = batteryStats.currentMilliAmps,
-            batteryPercent = batteryStats.batteryPercent,
-            isCharging = batteryStats.isCharging,
-        )
-        return DashboardMetric(
-            title = "Battery Current",
-            valueLabel = formatted.valueLabel,
-            detailLabel = formatted.detailLabel,
-            trendValues = batteryHistory,
-            accent = MetricAccent.Gold,
+            accent = MetricAccent.Blue,
         )
     }
 
@@ -247,10 +297,43 @@ class DevicePerformanceMonitor(private val context: Context) {
         val batteryPercent = calculateBatteryPercent(level = level, scale = scale)
         val chargingStatus = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
         val isCharging = chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargingStatus == BatteryManager.BATTERY_STATUS_FULL
+        val batteryTemperatureRaw = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
+        val batteryTemperatureCelsius = batteryTemperatureRaw.takeUnless { it == Int.MIN_VALUE }
+            ?.let(::normalizeThermalCelsius)
         return BatteryStats(
             currentMilliAmps = currentMilliAmps,
             batteryPercent = batteryPercent,
+            batteryTemperatureCelsius = batteryTemperatureCelsius,
             isCharging = isCharging,
         )
+    }
+
+    private fun readHardwareTemperature(kind: ThermalSensorKind): Float? {
+        val frameworkValue = readFrameworkHardwareTemperature(kind)
+        return frameworkValue ?: readSysfsHardwareTemperature(kind)
+    }
+
+    private fun readFrameworkHardwareTemperature(kind: ThermalSensorKind): Float? {
+        val manager = hardwarePropertiesManager ?: return null
+        val type = when (kind) {
+            ThermalSensorKind.Cpu -> HardwarePropertiesManager.DEVICE_TEMPERATURE_CPU
+            ThermalSensorKind.Gpu -> HardwarePropertiesManager.DEVICE_TEMPERATURE_GPU
+        }
+        return runCatching {
+            manager.getDeviceTemperatures(type, HardwarePropertiesManager.TEMPERATURE_CURRENT)
+                .filter { it != HardwarePropertiesManager.UNDEFINED_TEMPERATURE }
+                .maxOrNull()
+        }.getOrNull()
+    }
+
+    private fun readSysfsHardwareTemperature(kind: ThermalSensorKind): Float? {
+        val thermalRoot = File("/sys/class/thermal")
+        val zones = thermalRoot.listFiles()?.filter { it.isDirectory && it.name.startsWith("thermal_zone") }.orEmpty()
+        val readings = zones.mapNotNull { zone ->
+            val type = runCatching { zone.resolve("type").readText().trim() }.getOrNull() ?: return@mapNotNull null
+            val rawValue = runCatching { zone.resolve("temp").readText().trim().toInt() }.getOrNull() ?: return@mapNotNull null
+            ThermalSensorReading(type = type, celsius = normalizeThermalCelsius(rawValue))
+        }
+        return selectThermalCelsius(readings, kind)
     }
 }

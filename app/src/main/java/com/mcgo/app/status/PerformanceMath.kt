@@ -7,6 +7,16 @@ import kotlin.math.max
 const val GIGABYTE_BYTES: Long = 1024L * 1024L * 1024L
 private const val BYTES_PER_MEGABIT = 125_000f
 
+enum class ThermalSensorKind {
+    Cpu,
+    Gpu,
+}
+
+data class ThermalSensorReading(
+    val type: String,
+    val celsius: Float,
+)
+
 data class CpuStatSnapshot(
     val totalJiffies: Long,
     val idleJiffies: Long,
@@ -49,6 +59,22 @@ fun formatNetworkMetric(uploadBytesPerSecond: Long, downloadBytesPerSecond: Long
     )
 }
 
+fun formatTemperatureMetric(
+    temperatureCelsius: Float?,
+    detailLabel: String,
+    unavailableDetailLabel: String = detailLabel,
+): FormattedMetric = if (temperatureCelsius == null) {
+    FormattedMetric(
+        valueLabel = "不可用",
+        detailLabel = unavailableDetailLabel,
+    )
+} else {
+    FormattedMetric(
+        valueLabel = "${formatOneDecimal(temperatureCelsius)}°C",
+        detailLabel = detailLabel,
+    )
+}
+
 fun formatBatteryMetric(currentMilliAmps: Int?, batteryPercent: Int?, isCharging: Boolean): FormattedMetric {
     val normalizedCurrent = currentMilliAmps?.let { current ->
         if (isCharging) kotlin.math.abs(current) else -kotlin.math.abs(current)
@@ -67,6 +93,51 @@ fun calculateBatteryPercent(level: Int, scale: Int): Int? {
     return ((level * 100f) / scale).toInt().coerceIn(0, 100)
 }
 
+fun normalizeThermalCelsius(rawValue: Int): Float = when {
+    rawValue >= 1_000 -> rawValue / 1_000f
+    rawValue >= 150 -> rawValue / 10f
+    else -> rawValue.toFloat()
+}
+
+fun selectThermalReading(
+    readings: List<ThermalSensorReading>,
+    kind: ThermalSensorKind,
+): ThermalSensorReading? = readings
+    .filter { matchesThermalKind(it.type, kind) }
+    .maxByOrNull { it.celsius }
+
+fun selectThermalCelsius(
+    readings: List<ThermalSensorReading>,
+    kind: ThermalSensorKind,
+): Float? = selectThermalReading(readings, kind)?.celsius
+
+private fun matchesThermalKind(type: String, kind: ThermalSensorKind): Boolean {
+    val normalized = type.lowercase()
+    return when (kind) {
+        ThermalSensorKind.Cpu -> CpuThermalAliases.any { normalized.contains(it) }
+        ThermalSensorKind.Gpu -> GpuThermalAliases.any { normalized.contains(it) }
+    }
+}
+
 private fun toGigabytesLabel(bytes: Long): String = formatOneDecimal(bytes / GIGABYTE_BYTES.toFloat())
 
 private fun formatOneDecimal(value: Float): String = "%.1f".format(value)
+
+private val CpuThermalAliases = listOf(
+    "cpu",
+    "soc",
+    "ap",
+    "cluster",
+    "big",
+    "little",
+    "gold",
+    "silver",
+    "tsens",
+)
+
+private val GpuThermalAliases = listOf(
+    "gpu",
+    "adreno",
+    "kgsl",
+    "gpuss",
+)

@@ -1,6 +1,7 @@
 package com.mcgo.app.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
@@ -93,15 +95,17 @@ private fun MetricGrid(metrics: List<DashboardMetric>, modifier: Modifier = Modi
     }
 }
 
-private val MetricCardHeight = 214.dp
+private val MetricCardMinHeight = 176.dp
 
 @Composable
 private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
     val accent = metricAccentColor(metric.accent)
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
     GlassCard(
-        modifier = modifier.height(MetricCardHeight),
-        contentModifier = Modifier.fillMaxHeight(),
+        modifier = modifier.aspectRatio(1f),
+        contentModifier = Modifier
+            .fillMaxHeight()
+            .heightIn(min = MetricCardMinHeight),
     ) {
         Text(
             text = metric.title,
@@ -194,4 +198,6 @@ private fun metricAccentColor(accent: MetricAccent): Color = when (accent) {
     MetricAccent.Green -> MaterialTheme.colorScheme.secondary
     MetricAccent.Gold -> MaterialTheme.colorScheme.tertiary
     MetricAccent.Violet -> MaterialTheme.colorScheme.error
+    MetricAccent.Coral -> Color(0xFFE76F51)
+    MetricAccent.Teal -> Color(0xFF2A9D8F)
 }

@@ -11,10 +11,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,21 +27,31 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Brightness4
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -60,6 +72,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -79,7 +92,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.R
 import com.mcgo.app.network.measureTcpLatency
@@ -124,6 +141,8 @@ import com.mcgo.app.ui.model.ConsoleWarnColor
 import com.mcgo.app.ui.model.JavaSelectionMode
 import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
+import com.mcgo.app.ui.model.PaperDifficulty
+import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.ThemeModePreference
@@ -133,6 +152,7 @@ import com.mcgo.app.ui.model.assignTunnelRemotePort
 import com.mcgo.app.ui.model.applyPaperServerEdits
 import com.mcgo.app.ui.model.applyTunnelLatencyResults
 import com.mcgo.app.ui.model.buildConsoleAnnotatedLog
+import com.mcgo.app.ui.model.buildPaperServerPropertiesEditorText
 import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.detachDeletedTunnel
@@ -142,6 +162,8 @@ import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markUnsupportedManagedRuntime
 import com.mcgo.app.ui.model.normalizeConsoleCommand
+import com.mcgo.app.ui.model.parsePaperServerPropertiesEditorText
+import com.mcgo.app.ui.model.sanitizeAdvancedServerPropertiesOverride
 import com.mcgo.app.ui.model.removeTunnelProfile
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import com.mcgo.app.ui.model.requestServerDeletion
@@ -1193,7 +1215,6 @@ private fun ServerConsoleDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditPaperServerDialog(
     server: ServerCardState,
@@ -1202,184 +1223,624 @@ private fun EditPaperServerDialog(
     onDismiss: () -> Unit,
     onSave: (ServerCardState) -> Unit,
 ) {
-    val versionOptions = remember(paperVersions) { com.mcgo.app.server.resolveProvisionablePaperVersionOptions(paperVersions) }
+    val baseVersionOptions = remember(paperVersions, supportedProvisionableJavaVersions) {
+        com.mcgo.app.server.resolveProvisionablePaperVersionOptions(
+            versions = paperVersions,
+            supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
+        )
+    }
+    val versionOptions = remember(baseVersionOptions, server.minecraftVersion) {
+        if (server.minecraftVersion in baseVersionOptions) baseVersionOptions else baseVersionOptions + server.minecraftVersion
+    }
     var name by remember(server.id) { mutableStateOf(server.name) }
     var minecraftVersion by remember(server.id) { mutableStateOf(server.minecraftVersion) }
-    var versionMenuExpanded by remember(server.id) { mutableStateOf(false) }
     var javaSelectionMode by remember(server.id) { mutableStateOf(server.javaSelectionMode) }
-    var selectedJavaMajorVersion by remember(server.id) { mutableStateOf(server.javaMajorVersion) }
+    var manualJavaMajorVersion by remember(server.id) { mutableStateOf(server.javaMajorVersion) }
     var maxPlayers by remember(server.id) { mutableStateOf(server.maxPlayers.toString()) }
     var memoryMb by remember(server.id) { mutableStateOf(server.memoryMb.toString()) }
     var port by remember(server.id) { mutableStateOf(server.defaultPort.toString()) }
     var worldName by remember(server.id) { mutableStateOf(server.worldName) }
-    val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: server.maxPlayers
-    val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: server.memoryMb
-    val resolvedPort = port.toIntOrNull()?.coerceIn(1, 65535) ?: server.defaultPort
+    var gameMode by remember(server.id) { mutableStateOf(server.gameMode) }
+    var difficulty by remember(server.id) { mutableStateOf(server.difficulty) }
+    var onlineMode by remember(server.id) { mutableStateOf(server.onlineMode) }
+    var pvpEnabled by remember(server.id) { mutableStateOf(server.pvpEnabled) }
+    var serverPropertiesOverride by remember(server.id) { mutableStateOf(server.serverPropertiesOverride) }
+    var showPropertiesEditor by remember(server.id) { mutableStateOf(false) }
+
     val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
     LaunchedEffect(minecraftVersion, javaSelectionMode) {
         if (javaSelectionMode == JavaSelectionMode.Recommended) {
-            selectedJavaMajorVersion = recommendedJava
+            manualJavaMajorVersion = recommendedJava
         }
     }
+
+    val javaVersionOptions = remember(
+        supportedProvisionableJavaVersions,
+        server.javaMajorVersion,
+        manualJavaMajorVersion,
+        recommendedJava,
+    ) {
+        buildList {
+            add(recommendedJava)
+            add(server.javaMajorVersion)
+            add(manualJavaMajorVersion)
+            addAll(supportedProvisionableJavaVersions)
+        }.distinct().sorted()
+    }
+    val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: server.maxPlayers
+    val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: server.memoryMb
+    val resolvedPort = port.toIntOrNull()?.coerceIn(1, 65535) ?: server.defaultPort
+    val resolvedJavaMajorVersion = if (javaSelectionMode == JavaSelectionMode.Recommended) recommendedJava else manualJavaMajorVersion
     val canSave = name.isNotBlank() && minecraftVersion.isNotBlank()
 
-    AlertDialog(
+    fun buildDraftServer(): ServerCardState = applyPaperServerEdits(
+        server = server,
+        name = name,
+        minecraftVersion = minecraftVersion,
+        maxPlayers = resolvedMaxPlayers,
+        memoryMb = resolvedMemoryMb,
+        port = resolvedPort,
+        worldName = worldName,
+        javaMajorVersion = resolvedJavaMajorVersion,
+        javaSelectionMode = javaSelectionMode,
+        gameMode = gameMode,
+        difficulty = difficulty,
+        onlineMode = onlineMode,
+        pvpEnabled = pvpEnabled,
+        serverPropertiesOverride = sanitizeAdvancedServerPropertiesOverride(serverPropertiesOverride),
+    )
+
+    fun applyDraftToForm(editedServer: ServerCardState) {
+        name = editedServer.name
+        minecraftVersion = editedServer.minecraftVersion
+        javaSelectionMode = editedServer.javaSelectionMode
+        manualJavaMajorVersion = editedServer.javaMajorVersion
+        maxPlayers = editedServer.maxPlayers.toString()
+        memoryMb = editedServer.memoryMb.toString()
+        port = editedServer.defaultPort.toString()
+        worldName = editedServer.worldName
+        gameMode = editedServer.gameMode
+        difficulty = editedServer.difficulty
+        onlineMode = editedServer.onlineMode
+        pvpEnabled = editedServer.pvpEnabled
+        serverPropertiesOverride = editedServer.serverPropertiesOverride
+    }
+
+    if (showPropertiesEditor) {
+        val draftServer = buildDraftServer()
+        PaperServerPropertiesEditorDialog(
+            server = draftServer,
+            initialText = buildPaperServerPropertiesEditorText(draftServer),
+            onDismiss = { showPropertiesEditor = false },
+            onApply = { editedText ->
+                applyDraftToForm(parsePaperServerPropertiesEditorText(draftServer, editedText))
+                showPropertiesEditor = false
+            },
+        )
+    }
+
+    Dialog(
         onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                enabled = canSave,
-                onClick = {
-                    onSave(
-                        applyPaperServerEdits(
-                            server = server,
-                            name = name,
-                            minecraftVersion = minecraftVersion,
-                            maxPlayers = resolvedMaxPlayers,
-                            memoryMb = resolvedMemoryMb,
-                            port = resolvedPort,
-                            worldName = worldName,
-                            javaMajorVersion = selectedJavaMajorVersion,
-                            javaSelectionMode = javaSelectionMode,
-                        ),
-                    )
-                },
-            ) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        },
-        title = { Text("编辑 ${server.name}") },
-        text = {
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xFFF5F5F7),
+        ) {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("服务器名称") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = minecraftVersion,
-                    onValueChange = { minecraftVersion = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Minecraft 版本") },
-                    supportingText = { Text("可直接填写，也可参考官方版本列表") },
-                    singleLine = true,
-                )
-                Text(
-                    text = "可选版本：${versionOptions.takeLast(8).joinToString(" / ")}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                JavaSelectionChipRow(
-                    title = "Java 版本策略",
-                    options = listOf("跟随推荐", "手动指定"),
-                    selectedOption = if (javaSelectionMode == JavaSelectionMode.Recommended) "跟随推荐" else "手动指定",
-                    onSelected = { selected ->
-                        javaSelectionMode = if (selected == "跟随推荐") JavaSelectionMode.Recommended else JavaSelectionMode.Manual
-                    },
-                )
-                if (javaSelectionMode == JavaSelectionMode.Manual) {
-                    JavaVersionChipRow(
-                        options = supportedProvisionableJavaVersions.toList().sorted(),
-                        selectedJavaMajorVersion = selectedJavaMajorVersion,
-                        onSelected = { selectedJavaMajorVersion = it },
-                    )
-                }
-                Text(
-                    text = if (javaSelectionMode == JavaSelectionMode.Recommended) {
-                        "当前推荐：Java $recommendedJava"
-                    } else {
-                        "当前手动指定：Java $selectedJavaMajorVersion；Minecraft 推荐 Java $recommendedJava"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = worldName,
-                    onValueChange = { worldName = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("世界名称") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = maxPlayers,
-                    onValueChange = { maxPlayers = it.filter(Char::isDigit) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("最大玩家数") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = memoryMb,
-                    onValueChange = { memoryMb = it.filter(Char::isDigit) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("内存 MB") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = port,
-                    onValueChange = { port = it.filter(Char::isDigit) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("默认端口") },
-                    singleLine = true,
-                )
-                if (server.isRuntimeBusy()) {
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(modifier = Modifier.size(48.dp))
                     Text(
-                        text = "服务器当前正在启动/运行；本次仅更新配置资料，不会强制改动当前运行中的端口与日志状态。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "编辑 ${server.name}",
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleLarge,
                     )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭")
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    if (server.isRuntimeBusy()) {
+                        Surface(
+                            color = Color.White,
+                            shape = RoundedCornerShape(22.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                EditSettingsLeadingIcon(icon = Icons.Outlined.Tune)
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "当前运行中，只更新配置资料",
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        text = "服务器当前正在启动或运行；本次保存仅更新配置资料，不会强制改动当前运行中的端口与日志状态。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    EditSettingsSectionCard(title = "基础设置") {
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.Edit,
+                            label = "服务器名称",
+                            value = name,
+                            placeholder = "请输入名称",
+                            onValueChange = { name = it },
+                        )
+                        EditSettingsDivider()
+                        EditMenuSettingRow(
+                            icon = Icons.Outlined.Dns,
+                            label = "Minecraft 版本",
+                            valueLabel = minecraftVersion,
+                            options = versionOptions.asReversed(),
+                            optionLabel = { it },
+                            onSelect = { minecraftVersion = it },
+                        )
+                    }
+
+                    EditSettingsSectionCard(title = "核心与性能") {
+                        EditMenuSettingRow(
+                            icon = Icons.Outlined.Settings,
+                            label = "Java",
+                            valueLabel = if (javaSelectionMode == JavaSelectionMode.Recommended) {
+                                "自动（推荐 Java $recommendedJava）"
+                            } else {
+                                "Java $manualJavaMajorVersion"
+                            },
+                            options = listOf<String>("自动") + javaVersionOptions.map { "Java $it" },
+                            optionLabel = { it },
+                            onSelect = { selected ->
+                                if (selected == "自动") {
+                                    javaSelectionMode = JavaSelectionMode.Recommended
+                                    manualJavaMajorVersion = recommendedJava
+                                } else {
+                                    javaSelectionMode = JavaSelectionMode.Manual
+                                    manualJavaMajorVersion = selected.removePrefix("Java ").toIntOrNull() ?: manualJavaMajorVersion
+                                }
+                            },
+                        )
+                        EditSettingsDivider()
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.Speed,
+                            label = "分配内存 MB",
+                            value = memoryMb,
+                            placeholder = server.memoryMb.toString(),
+                            keyboardType = KeyboardType.Number,
+                            onValueChange = { memoryMb = it.filter(Char::isDigit) },
+                        )
+                    }
+
+                    EditSettingsSectionCard(title = "常用游戏规则") {
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.Public,
+                            label = "世界名称",
+                            value = worldName,
+                            placeholder = "world",
+                            onValueChange = { worldName = it },
+                        )
+                        EditSettingsDivider()
+                        EditMenuSettingRow(
+                            icon = Icons.Outlined.Tune,
+                            label = "游戏模式",
+                            valueLabel = gameMode.displayLabel(),
+                            options = PaperGameMode.entries,
+                            optionLabel = { it.displayLabel() },
+                            onSelect = { gameMode = it },
+                        )
+                        EditSettingsDivider()
+                        EditMenuSettingRow(
+                            icon = Icons.Outlined.Tune,
+                            label = "难度",
+                            valueLabel = difficulty.displayLabel(),
+                            options = PaperDifficulty.entries,
+                            optionLabel = { it.displayLabel() },
+                            onSelect = { difficulty = it },
+                        )
+                        EditSettingsDivider()
+                        EditSwitchSettingRow(
+                            icon = Icons.Outlined.Public,
+                            label = "正版验证",
+                            supportingText = "关闭后可允许离线/外网玩家，安全风险更高，请谨慎使用",
+                            supportingTextColor = MaterialTheme.colorScheme.error,
+                            checked = onlineMode,
+                            onCheckedChange = { onlineMode = it },
+                        )
+                        EditSettingsDivider()
+                        EditSwitchSettingRow(
+                            icon = Icons.Outlined.Tune,
+                            label = "PvP",
+                            checked = pvpEnabled,
+                            onCheckedChange = { pvpEnabled = it },
+                        )
+                    }
+
+                    EditSettingsSectionCard(title = "网络与高级") {
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.Dns,
+                            label = "最大玩家数",
+                            value = maxPlayers,
+                            placeholder = server.maxPlayers.toString(),
+                            keyboardType = KeyboardType.Number,
+                            onValueChange = { maxPlayers = it.filter(Char::isDigit) },
+                        )
+                        EditSettingsDivider()
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.SwapHoriz,
+                            label = "默认端口",
+                            value = port,
+                            placeholder = server.defaultPort.toString(),
+                            keyboardType = KeyboardType.Number,
+                            onValueChange = { port = it.filter(Char::isDigit) },
+                        )
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = { showPropertiesEditor = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("进阶：直接编辑 server.properties")
+                    }
+                    Button(
+                        onClick = { onSave(buildDraftServer()) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = canSave,
+                    ) {
+                        Text("保存配置")
+                    }
                 }
             }
-        },
+        }
+    }
+}
+
+@Composable
+private fun PaperServerPropertiesEditorDialog(
+    server: ServerCardState,
+    initialText: String,
+    onDismiss: () -> Unit,
+    onApply: (String) -> Unit,
+) {
+    var editorText by remember(server.id, initialText) { mutableStateOf(initialText) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xFFF5F5F7),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(modifier = Modifier.size(48.dp))
+                    Text(
+                        text = "编辑 server.properties",
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭")
+                    }
+                }
+
+                Text(
+                    text = "受管理字段会同步回表单：motd、level-name、max-players、server-port、gamemode、difficulty、online-mode、pvp；其他未知项会保留为 override。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    color = Color.White,
+                    shape = RoundedCornerShape(24.dp),
+                ) {
+                    BasicTextField(
+                        value = editorText,
+                        onValueChange = { editorText = it },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(18.dp)
+                            .verticalScroll(rememberScrollState()),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                if (editorText.isBlank()) {
+                                    Text(
+                                        text = "# 在这里直接编辑 server.properties",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("取消")
+                    }
+                    Button(
+                        onClick = { onApply(editorText) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("应用并返回")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditSettingsSectionCard(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            color = Color.White,
+            shape = RoundedCornerShape(24.dp),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditSettingsLeadingIcon(icon: ImageVector) {
+    Surface(
+        color = Color(0xFFF2F2F6),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.padding(10.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun EditSettingRowShell(
+    icon: ImageVector,
+    label: String,
+    onClick: (() -> Unit)? = null,
+    trailingContent: @Composable () -> Unit,
+) {
+    val clickableModifier = if (onClick != null) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(clickableModifier)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        EditSettingsLeadingIcon(icon = icon)
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            trailingContent()
+        }
+    }
+}
+
+@Composable
+private fun EditTextSettingRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    placeholder: String,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    onValueChange: (String) -> Unit,
+) {
+    EditSettingRowShell(icon = icon, label = label) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.End,
+            ),
+            decorationBox = { innerTextField ->
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    if (value.isBlank()) {
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.End,
+                        )
+                    }
+                    innerTextField()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun <T> EditMenuSettingRow(
+    icon: ImageVector,
+    label: String,
+    valueLabel: String,
+    options: List<T>,
+    optionLabel: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    var expanded by remember(label, valueLabel, options) { mutableStateOf(false) }
+
+    Box {
+        EditSettingRowShell(
+            icon = icon,
+            label = label,
+            onClick = { expanded = true },
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = valueLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End,
+                )
+                Icon(
+                    imageVector = Icons.Outlined.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel(option)) },
+                    onClick = {
+                        onSelect(option)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditSwitchSettingRow(
+    icon: ImageVector,
+    label: String,
+    supportingText: String? = null,
+    supportingTextColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    EditSettingRowShell(
+        icon = icon,
+        label = label,
+        onClick = { onCheckedChange(!checked) },
+    ) {
+        Column(horizontalAlignment = Alignment.End) {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+            )
+            supportingText?.let {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = supportingTextColor,
+                    textAlign = TextAlign.End,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditSettingsDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .height(1.dp)
+            .background(Color(0xFFE9E9EE)),
     )
 }
 
-@Composable
-private fun JavaSelectionChipRow(
-    title: String,
-    options: List<String>,
-    selectedOption: String,
-    onSelected: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            options.forEach { option ->
-                FilterChip(
-                    selected = option == selectedOption,
-                    onClick = { onSelected(option) },
-                    label = { Text(option) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        selectedLabelColor = MaterialTheme.colorScheme.primary,
-                    ),
-                )
-            }
-        }
-    }
+private fun PaperGameMode.displayLabel(): String = when (this) {
+    PaperGameMode.Survival -> "生存"
+    PaperGameMode.Creative -> "创造"
+    PaperGameMode.Adventure -> "冒险"
+    PaperGameMode.Spectator -> "旁观"
 }
 
-@Composable
-private fun JavaVersionChipRow(
-    options: List<Int>,
-    selectedJavaMajorVersion: Int,
-    onSelected: (Int) -> Unit,
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        options.forEach { option ->
-            FilterChip(
-                selected = option == selectedJavaMajorVersion,
-                onClick = { onSelected(option) },
-                label = { Text("Java $option") },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                    selectedLabelColor = MaterialTheme.colorScheme.primary,
-                ),
-            )
-        }
-    }
+private fun PaperDifficulty.displayLabel(): String = when (this) {
+    PaperDifficulty.Peaceful -> "和平"
+    PaperDifficulty.Easy -> "简单"
+    PaperDifficulty.Normal -> "普通"
+    PaperDifficulty.Hard -> "困难"
 }

@@ -86,7 +86,7 @@ data class AppearancePreferences(
     val transparentCards: Boolean = true,
     val dynamicBackground: Boolean = true,
 ) {
-    fun effectiveTypographyScale(): Float = fontScale.multiplier
+    fun effectiveTypographyScale(): Float = FontScalePreference.Compact.multiplier
 
     fun cardContainerAlpha(): Float = if (transparentCards) {
         cardTransparencyPercent.coerceIn(0, 100) / 100f

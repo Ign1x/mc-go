@@ -35,7 +35,7 @@ class AppearancePreferencesTest {
     }
 
     @Test
-    fun appearancePreferences_computeActualVisualEffects() {
+    fun appearancePreferences_computeActualVisualEffectsAndKeepCompactTypography() {
         val preferences = AppearancePreferences(
             themeMode = ThemeModePreference.Dark,
             accentPreset = AccentPreset.Sunset,
@@ -45,7 +45,7 @@ class AppearancePreferencesTest {
             dynamicBackground = false,
         )
 
-        assertThat(preferences.effectiveTypographyScale()).isEqualTo(FontScalePreference.Wide.multiplier)
+        assertThat(preferences.effectiveTypographyScale()).isEqualTo(FontScalePreference.Compact.multiplier)
         assertThat(preferences.cardContainerAlpha()).isEqualTo(0.64f)
         assertThat(preferences.backgroundAuraAlpha()).isEqualTo(0f)
         assertThat(preferences.backgroundMotionScale()).isEqualTo(1f)

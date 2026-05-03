@@ -6,10 +6,17 @@ import kotlin.test.Test
 class McGoSampleRepositoryTest {
 
     @Test
-    fun dashboardMetrics_providesFourPhoneServerSignals() {
+    fun dashboardMetrics_providesSixPhoneServerSignalsInThermalFriendlyOrder() {
         val titles = McGoSampleRepository.dashboardMetrics().map { it.title }
 
-        assertThat(titles).containsExactly("CPU", "RAM", "Network I/O", "Battery Current").inOrder()
+        assertThat(titles).containsExactly(
+            "RAM",
+            "Network I/O",
+            "CPU 温度",
+            "GPU 温度",
+            "电池温度",
+            "电池电流",
+        ).inOrder()
     }
 
     @Test
@@ -42,8 +49,6 @@ class McGoSampleRepositoryTest {
         assertThat(appearance.selectedThemeMode).isEqualTo("跟随系统")
         assertThat(appearance.accentOptions).containsExactly("科技蓝", "森林绿", "紫晶", "暖阳橙", "系统颜色").inOrder()
         assertThat(appearance.selectedAccent).isEqualTo("森林绿")
-        assertThat(appearance.fontScaleOptions).containsExactly("紧凑", "标准", "宽松").inOrder()
-        assertThat(appearance.selectedFontScale).isEqualTo("紧凑")
         assertThat(appearance.cardTransparencyPercent).isEqualTo(82)
         assertThat(appearance.toggles.map { it.title }).containsExactly(
             "透明卡片",

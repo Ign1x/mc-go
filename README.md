@@ -1,4 +1,4 @@
-# Server-go
+# mc-go
 
 > **MC-GO**：安卓端 Minecraft Java 版手机开服工具
 

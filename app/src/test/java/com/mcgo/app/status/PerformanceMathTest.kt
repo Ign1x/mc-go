@@ -59,4 +59,32 @@ class PerformanceMathTest {
     fun calculateBatteryPercent_scalesLevelAgainstBatteryScale() {
         assertThat(calculateBatteryPercent(level = 37, scale = 50)).isEqualTo(74)
     }
+
+    @Test
+    fun normalizeThermalCelsius_supportsMilliDeciAndDirectCelsiusValues() {
+        assertThat(normalizeThermalCelsius(42_500)).isWithin(0.001f).of(42.5f)
+        assertThat(normalizeThermalCelsius(435)).isWithin(0.001f).of(43.5f)
+        assertThat(normalizeThermalCelsius(44)).isWithin(0.001f).of(44f)
+    }
+
+    @Test
+    fun selectThermalCelsius_prefersMatchingSensorFamilyAndReturnsHottestReading() {
+        val readings = listOf(
+            ThermalSensorReading(type = "cpu-0-0", celsius = 41.2f),
+            ThermalSensorReading(type = "soc", celsius = 44.8f),
+            ThermalSensorReading(type = "gpu", celsius = 39.6f),
+            ThermalSensorReading(type = "gpuss-1", celsius = 42.3f),
+        )
+
+        assertThat(selectThermalCelsius(readings, ThermalSensorKind.Cpu)).isWithin(0.001f).of(44.8f)
+        assertThat(selectThermalCelsius(readings, ThermalSensorKind.Gpu)).isWithin(0.001f).of(42.3f)
+    }
+
+    @Test
+    fun formatTemperatureMetric_usesReadableDegreeLabelAndContextDetail() {
+        val formatted = formatTemperatureMetric(temperatureCelsius = 41.75f, detailLabel = "SoC 热区")
+
+        assertThat(formatted.valueLabel).isEqualTo("41.8°C")
+        assertThat(formatted.detailLabel).isEqualTo("SoC 热区")
+    }
 }

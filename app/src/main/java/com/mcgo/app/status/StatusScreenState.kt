@@ -52,10 +52,12 @@ fun rememberStatusDashboardState(): StatusDashboardState {
 
 private fun placeholderDashboardState() = StatusDashboardState(
     metrics = listOf(
-        placeholderMetric(title = "CPU", accent = MetricAccent.Blue),
         placeholderMetric(title = "RAM", accent = MetricAccent.Green),
-        placeholderMetric(title = "Network I/O", accent = MetricAccent.Violet),
-        placeholderMetric(title = "Battery Current", accent = MetricAccent.Gold),
+        placeholderMetric(title = "Network I/O", accent = MetricAccent.Blue),
+        placeholderMetric(title = "CPU 温度", accent = MetricAccent.Coral),
+        placeholderMetric(title = "GPU 温度", accent = MetricAccent.Violet),
+        placeholderMetric(title = "电池温度", accent = MetricAccent.Gold),
+        placeholderMetric(title = "电池电流", accent = MetricAccent.Teal),
     ),
 )
 

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Server-go"
+rootProject.name = "mc-go"
 include(":app")

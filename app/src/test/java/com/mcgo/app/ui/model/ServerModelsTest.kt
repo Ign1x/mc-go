@@ -148,6 +148,39 @@ class ServerModelsTest {
     }
 
     @Test
+    fun parsePaperServerPropertiesEditorText_extractsManagedFieldsAndKeepsOnlyAdvancedOverrides() {
+        val server = createPaperServer("默认服", "1.21.11", 20, 2048)
+        val parsed = parsePaperServerPropertiesEditorText(
+            server = server,
+            text = """
+                # 自定义 Paper 属性
+                motd=极限生存服
+                level-name=world_nether
+                max-players=12
+                server-port=25570
+                gamemode=creative
+                difficulty=hard
+                online-mode=false
+                pvp=false
+                view-distance=10
+                allow-nether=false
+            """.trimIndent(),
+        )
+
+        assertThat(parsed.name).isEqualTo("极限生存服")
+        assertThat(parsed.worldName).isEqualTo("world_nether")
+        assertThat(parsed.maxPlayers).isEqualTo(12)
+        assertThat(parsed.port).isEqualTo(25570)
+        assertThat(parsed.gameMode).isEqualTo(PaperGameMode.Creative)
+        assertThat(parsed.difficulty).isEqualTo(PaperDifficulty.Hard)
+        assertThat(parsed.onlineMode).isFalse()
+        assertThat(parsed.pvpEnabled).isFalse()
+        assertThat(parsed.serverPropertiesOverride).isEqualTo(
+            "# 自定义 Paper 属性\nview-distance=10\nallow-nether=false",
+        )
+    }
+
+    @Test
     fun reducePaperRuntimeEvent_failedClearsTransientPortAndTunnelState() {
         val tunnel = TunnelProfile.manualServer(
             name = "家庭 FRP",
