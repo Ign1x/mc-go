@@ -41,6 +41,7 @@ class ServerProfileStore(
             val port = properties.getProperty(prefix + "port")?.toIntOrNull() ?: defaultPort
             val selectedTunnelId = properties.getProperty(prefix + "selectedTunnelId")
             val activeTunnelLabel = properties.getProperty(prefix + "activeTunnelLabel")
+            val runtimeAddress = properties.getProperty(prefix + "runtimeAddress")
             val launchProgress = properties.getProperty(prefix + "launchProgress")?.toIntOrNull()
                 ?: if (isOnline) 100 else 0
             val runtimeLogPath = properties.getProperty(prefix + "runtimeLogPath")
@@ -70,6 +71,7 @@ class ServerProfileStore(
                     isOnline = isOnline,
                     selectedTunnelId = selectedTunnelId,
                     activeTunnelLabel = activeTunnelLabel,
+                    runtimeAddress = runtimeAddress,
                     launchStatus = launchStatus,
                     launchPlan = null,
                     launchProgress = launchProgress,
@@ -106,6 +108,7 @@ class ServerProfileStore(
             properties.setProperty(prefix + "runtimeLogCount", server.runtimeLogs.size.toString())
             server.selectedTunnelId?.let { properties.setProperty(prefix + "selectedTunnelId", it) }
             server.activeTunnelLabel?.let { properties.setProperty(prefix + "activeTunnelLabel", it) }
+            server.runtimeAddress?.let { properties.setProperty(prefix + "runtimeAddress", it) }
             server.runtimeLogPath?.let { properties.setProperty(prefix + "runtimeLogPath", it) }
             server.runtimeSlot?.let { properties.setProperty(prefix + "runtimeSlot", it.toString()) }
             properties.setProperty(prefix + "pendingDeletion", server.pendingDeletion.toString())

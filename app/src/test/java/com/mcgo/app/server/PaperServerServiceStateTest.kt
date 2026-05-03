@@ -10,7 +10,7 @@ class PaperServerServiceStateTest {
     fun startConflictMessage_rejectsDuplicateOrConcurrentServerStarts() {
         assertThat(startConflictMessage(currentServerId = null, requestedServerId = "alpha")).isNull()
         assertThat(startConflictMessage(currentServerId = "alpha", requestedServerId = "alpha")).contains("已在启动或运行中")
-        assertThat(startConflictMessage(currentServerId = "beta", requestedServerId = "alpha")).contains("单服运行")
+        assertThat(startConflictMessage(currentServerId = "beta", requestedServerId = "alpha")).contains("运行时槽位")
     }
 
     @Test

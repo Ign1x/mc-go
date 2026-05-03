@@ -9,6 +9,8 @@ private const val ExtraServerId = "serverId"
 private const val ExtraStatus = "status"
 private const val ExtraProgress = "progress"
 private const val ExtraMessage = "message"
+private const val ExtraActiveTunnelLabel = "activeTunnelLabel"
+private const val ExtraRuntimeAddress = "runtimeAddress"
 
 fun Context.sendPaperRuntimeEvent(event: PaperServerEvent) {
     sendBroadcast(
@@ -18,6 +20,8 @@ fun Context.sendPaperRuntimeEvent(event: PaperServerEvent) {
             putExtra(ExtraStatus, event.status?.name)
             putExtra(ExtraProgress, event.progress)
             putExtra(ExtraMessage, event.message)
+            putExtra(ExtraActiveTunnelLabel, event.activeTunnelLabel)
+            putExtra(ExtraRuntimeAddress, event.runtimeAddress)
         },
     )
 }
@@ -30,6 +34,8 @@ class PaperRuntimeEventReceiver : BroadcastReceiver() {
             status = intent.getStringExtra(ExtraStatus)?.let(PaperServerEventStatus::valueOf),
             progress = intent.getIntExtra(ExtraProgress, -1).takeIf { it >= 0 },
             message = intent.getStringExtra(ExtraMessage).orEmpty(),
+            activeTunnelLabel = intent.getStringExtra(ExtraActiveTunnelLabel),
+            runtimeAddress = intent.getStringExtra(ExtraRuntimeAddress),
         )
         syncPaperRuntimeEvent(context.filesDir.toPath(), event)
         PaperServerEvents.publish(event)

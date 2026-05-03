@@ -13,9 +13,14 @@ import com.mcgo.app.network.TcpEndpoint
 import com.mcgo.app.network.measureTcpLatency
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
+import com.mcgo.app.ui.model.TunnelConfigFormat
+import com.mcgo.app.ui.model.TunnelKind
+import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.TunnelSource
 import com.mcgo.app.ui.model.createPaperServer
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-class PaperServerService : Service() {
+open class PaperServerService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile
     private var currentServerId: String? = null
@@ -44,6 +49,12 @@ class PaperServerService : Service() {
     private var stopSignalRetryJob: Job? = null
     private var logTailJob: Job? = null
     private var portMonitorJob: Job? = null
+    private var frpcProcess: Process? = null
+    private var frpcWatchJob: Job? = null
+    @Volatile
+    private var currentActiveTunnelLabel: String? = null
+    @Volatile
+    private var currentRuntimeAddress: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -66,12 +77,15 @@ class PaperServerService : Service() {
         stopSignalRetryJob?.cancel()
         logTailJob?.cancel()
         portMonitorJob?.cancel()
+        frpcWatchJob?.cancel()
+        stopFrpcProcess()
         serviceScope.cancel()
         super.onDestroy()
     }
 
     private fun startPaperServer(intent: Intent) {
         val server = intent.toServerCardState()
+        val tunnel = intent.toTunnelProfile()
         if (currentServerId == server.id) {
             publish(
                 server.id,
@@ -97,12 +111,14 @@ class PaperServerService : Service() {
             return
         }
         currentServerId = server.id
+        currentActiveTunnelLabel = server.activeTunnelLabel
+        currentRuntimeAddress = server.runtimeAddress
         runtimeRunning = false
         stopRequested = false
         runtimeLaunchSubmitted = false
         stopSignalDelivered = false
         PaperJvmLauncher.clearPendingStopRequest()
-        startForeground(NotificationId, notification("正在启动 ${server.name}"))
+        startForeground(notificationId(), notification("正在启动 ${server.name}"))
         publish(server.id, PaperServerEventStatus.Launching, 8, "正在准备内置 Java ${server.javaMajorVersion} 运行时")
         launchJob = serviceScope.launch {
             fun ensureLaunchNotCancelled() {
@@ -137,6 +153,32 @@ class PaperServerService : Service() {
                 } else {
                     publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 Paper 包：${config.jarPath.fileName}")
                 }
+                ensureLaunchNotCancelled()
+                val tunnelPlan = tunnelRuntimePlanForStart(
+                    filesDir = filesDir.toPath(),
+                    server = server,
+                    tunnel = tunnel,
+                    supportedAbi = android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+                )
+                tunnelPlan?.let { plan ->
+                    publish(
+                        server.id,
+                        PaperServerEventStatus.Launching,
+                        68,
+                        "正在启动 ${tunnel?.name ?: "FRP"} 隧道",
+                    )
+                    startFrpcForPlan(server, plan)
+                    publishEvent(
+                        PaperServerEvent(
+                            serverId = server.id,
+                            status = PaperServerEventStatus.Launching,
+                            progress = 72,
+                            message = "FRP 隧道已启动，等待 Paper 绑定端口",
+                            activeTunnelLabel = plan.displayLabel,
+                            runtimeAddress = plan.runtimeAddress,
+                        ),
+                    )
+                }
                 runtimeLaunchSubmitted = true
                 if (stopRequested) {
                     PaperJvmLauncher.queueStopRequest()
@@ -148,6 +190,7 @@ class PaperServerService : Service() {
                 publishEvent(runtimeExitEvent(server.id, exitCode, stopRequested && stopSignalDelivered, config.logFile))
             }
             stopRuntimeMonitors()
+            stopFrpcProcess()
             result.exceptionOrNull()?.let { error ->
                 when {
                     error is CancellationException && stopRequested -> publishEvent(launchCancelledEvent(server.id))
@@ -163,6 +206,8 @@ class PaperServerService : Service() {
             stopRequested = false
             runtimeLaunchSubmitted = false
             stopSignalDelivered = false
+            currentActiveTunnelLabel = null
+            currentRuntimeAddress = null
             PaperJvmLauncher.clearPendingStopRequest()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -281,18 +326,22 @@ class PaperServerService : Service() {
             while (isActive) {
                 if (measureTcpLatency(endpoint, timeoutMillis = 400) != null) {
                     runtimeRunning = true
-                    publish(
-                        server.id,
-                        runtimeMonitorEventStatus(runtimeRunning = true, stopRequested = stopRequested),
-                        if (stopRequested) null else 100,
-                        if (stopRequested) {
-                            "Paper 正在安全停止；日志路径：$logFile"
-                        } else {
-                            "Paper 已监听 127.0.0.1:${server.port}；日志路径：$logFile"
-                        },
+                    publishEvent(
+                        PaperServerEvent(
+                            serverId = server.id,
+                            status = runtimeMonitorEventStatus(runtimeRunning = true, stopRequested = stopRequested),
+                            progress = if (stopRequested) null else 100,
+                            message = if (stopRequested) {
+                                "Paper 正在安全停止；日志路径：$logFile"
+                            } else {
+                                "Paper 已监听 127.0.0.1:${server.port}；日志路径：$logFile"
+                            },
+                            activeTunnelLabel = currentActiveTunnelLabel,
+                            runtimeAddress = currentRuntimeAddress,
+                        ),
                     )
                     val notificationManager = getSystemService(NotificationManager::class.java)
-                    notificationManager.notify(NotificationId, notification(if (stopRequested) "${server.name} 停止中" else "${server.name} 运行中"))
+                    notificationManager.notify(notificationId(), notification(if (stopRequested) "${server.name} 停止中" else "${server.name} 运行中"))
                     if (!stopRequested) {
                         return@launch
                     }
@@ -338,6 +387,59 @@ class PaperServerService : Service() {
         .setOngoing(true)
         .build()
 
+    private fun notificationId(): Int = paperRuntimeNotificationId(serviceRuntimeSlot())
+
+    private fun serviceRuntimeSlot(): Int = when (this) {
+        is PaperServerServiceSlot2 -> 2
+        is PaperServerServiceSlot3 -> 3
+        is PaperServerServiceSlot4 -> 4
+        else -> 1
+    }
+
+    private fun startFrpcForPlan(server: ServerCardState, plan: TunnelRuntimePlan) {
+        Files.createDirectories(plan.binaryPath.parent)
+        assets.open(defaultBundledFrpcAssetRelativePath(android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty())).use { input ->
+            Files.copy(input, plan.binaryPath, StandardCopyOption.REPLACE_EXISTING)
+        }
+        plan.binaryPath.toFile().setExecutable(true, false)
+        Files.write(plan.configPath, plan.configText.toByteArray())
+        val process = ProcessBuilder(plan.binaryPath.toString(), "-c", plan.configPath.toString())
+            .directory(plan.binaryPath.parent.toFile())
+            .redirectErrorStream(true)
+            .redirectOutput(ProcessBuilder.Redirect.appendTo(managedPaperServerLogFile(filesDir.toPath(), server.id).toFile()))
+            .start()
+        currentActiveTunnelLabel = plan.displayLabel
+        currentRuntimeAddress = plan.runtimeAddress
+        frpcProcess = process
+        frpcWatchJob?.cancel()
+        frpcWatchJob = serviceScope.launch {
+            val exitCode = process.waitFor()
+            if (!stopRequested) {
+                currentActiveTunnelLabel = null
+                currentRuntimeAddress = "127.0.0.1:${server.port}"
+                publishEvent(
+                    PaperServerEvent(
+                        serverId = server.id,
+                        message = "FRP 退出码 $exitCode；公网入口已断开",
+                        activeTunnelLabel = null,
+                        runtimeAddress = currentRuntimeAddress,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun stopFrpcProcess() {
+        frpcWatchJob?.cancel()
+        frpcWatchJob = null
+        frpcProcess?.destroy()
+        frpcProcess?.waitFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (frpcProcess?.isAlive == true) {
+            frpcProcess?.destroyForcibly()
+        }
+        frpcProcess = null
+    }
+
     private fun Throwable.toUserFacingStartError(javaMajorVersion: Int): String = when (this) {
         is JavaRuntimeInstallException -> message ?: "Java $javaMajorVersion 托管运行时不可用"
         else -> message ?: "启动失败；请确认 Java $javaMajorVersion 托管 JRE 已安装"
@@ -345,13 +447,13 @@ class PaperServerService : Service() {
 
     companion object {
         private const val ChannelId = "mcgo_paper_server"
-        private const val NotificationId = 2001
         private const val ActionStart = "com.mcgo.app.server.START_PAPER"
         private const val ActionStop = "com.mcgo.app.server.STOP_PAPER"
         private const val ActionCommand = "com.mcgo.app.server.COMMAND_PAPER"
 
-        fun start(context: Context, server: ServerCardState) {
-            val intent = Intent(context, PaperServerService::class.java).apply {
+        fun start(context: Context, server: ServerCardState, tunnel: TunnelProfile? = null) {
+            val slot = server.runtimeSlot ?: 1
+            val intent = Intent(context, paperRuntimeServiceClass(slot)).apply {
                 action = ActionStart
                 putExtra("id", server.id)
                 putExtra("name", server.name)
@@ -361,6 +463,23 @@ class PaperServerService : Service() {
                 putExtra("port", server.port)
                 putExtra("worldName", server.worldName)
                 putExtra("javaMajorVersion", server.javaMajorVersion)
+                putExtra("runtimeSlot", slot)
+                putExtra("selectedTunnelId", server.selectedTunnelId)
+                putExtra("activeTunnelLabel", server.activeTunnelLabel)
+                putExtra("runtimeAddress", server.runtimeAddress)
+                tunnel?.let {
+                    putExtra("tunnel.id", it.id)
+                    putExtra("tunnel.name", it.name)
+                    putExtra("tunnel.kind", it.kind.name)
+                    putExtra("tunnel.source", it.source.name)
+                    putExtra("tunnel.format", it.format?.name)
+                    putExtra("tunnel.serverAddress", it.serverAddress)
+                    putExtra("tunnel.remotePort", it.remotePort ?: -1)
+                    putExtra("tunnel.localPort", it.localPort ?: -1)
+                    putExtra("tunnel.credentialValue", it.credentialValue)
+                    putExtra("tunnel.portRange", it.portRange)
+                    putExtra("tunnel.detail", it.detail)
+                }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -369,21 +488,25 @@ class PaperServerService : Service() {
             }
         }
 
-        fun stop(context: Context, serverId: String) {
+        fun stop(context: Context, serverId: String, runtimeSlot: Int? = null) {
+            val slot = runtimeSlot ?: 1
             context.startService(
-                Intent(context, PaperServerService::class.java).apply {
+                Intent(context, paperRuntimeServiceClass(slot)).apply {
                     action = ActionStop
                     putExtra("id", serverId)
+                    putExtra("runtimeSlot", slot)
                 },
             )
         }
 
-        fun sendCommand(context: Context, serverId: String, command: String) {
+        fun sendCommand(context: Context, serverId: String, command: String, runtimeSlot: Int? = null) {
+            val slot = runtimeSlot ?: 1
             context.startService(
-                Intent(context, PaperServerService::class.java).apply {
+                Intent(context, paperRuntimeServiceClass(slot)).apply {
                     action = ActionCommand
                     putExtra("id", serverId)
                     putExtra("command", command)
+                    putExtra("runtimeSlot", slot)
                 },
             )
         }
@@ -405,7 +528,7 @@ enum class CommandTargetAction {
 fun startConflictMessage(currentServerId: String?, requestedServerId: String): String? = when {
     currentServerId == null -> null
     currentServerId == requestedServerId -> "该服务器已在启动或运行中，请稍候"
-    else -> "当前版本先支持单服运行，请先停止其他服务器"
+    else -> "当前运行时槽位正忙，请稍后再试"
 }
 
 fun resolveStopTargetAction(currentServerId: String?, requestedServerId: String?): StopTargetAction = when {
@@ -508,5 +631,31 @@ private fun Intent.toServerCardState(): ServerCardState = createPaperServer(
     server.copy(
         id = getStringExtra("id") ?: "paper-server",
         javaMajorVersion = getIntExtra("javaMajorVersion", server.javaMajorVersion),
+        selectedTunnelId = getStringExtra("selectedTunnelId"),
+        activeTunnelLabel = getStringExtra("activeTunnelLabel"),
+        runtimeAddress = getStringExtra("runtimeAddress"),
+        runtimeSlot = getIntExtra("runtimeSlot", -1).takeIf { it > 0 },
+    )
+}
+
+private fun Intent.toTunnelProfile(): TunnelProfile? {
+    val tunnelId = getStringExtra("tunnel.id") ?: return null
+    val kind = getStringExtra("tunnel.kind")?.let(TunnelKind::valueOf) ?: TunnelKind.Frp
+    val source = getStringExtra("tunnel.source")?.let(TunnelSource::valueOf) ?: TunnelSource.ManualServer
+    val format = getStringExtra("tunnel.format")?.let(TunnelConfigFormat::valueOf)
+    return TunnelProfile(
+        id = tunnelId,
+        name = getStringExtra("tunnel.name") ?: "FRP",
+        kind = kind,
+        source = source,
+        format = format,
+        serverAddress = getStringExtra("tunnel.serverAddress").orEmpty(),
+        remotePort = getIntExtra("tunnel.remotePort", -1).takeIf { it > 0 },
+        localPort = getIntExtra("tunnel.localPort", -1).takeIf { it > 0 },
+        credentialValue = getStringExtra("tunnel.credentialValue"),
+        portRange = getStringExtra("tunnel.portRange"),
+        rawConfigPreview = null,
+        rawConfigText = null,
+        detail = getStringExtra("tunnel.detail"),
     )
 }

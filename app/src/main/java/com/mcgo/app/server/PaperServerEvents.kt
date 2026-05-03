@@ -16,6 +16,8 @@ data class PaperServerEvent(
     val status: PaperServerEventStatus? = null,
     val progress: Int? = null,
     val message: String,
+    val activeTunnelLabel: String? = null,
+    val runtimeAddress: String? = null,
 )
 
 object PaperServerEvents {

@@ -32,6 +32,21 @@ class AndroidManifestCompatibilityTest {
         assertThat(manifest).contains("android:allowNativeHeapPointerTagging=\"false\"")
     }
 
+    @Test
+    fun sourceManifest_registersMultiplePaperRuntimeProcessesForConcurrentServers() {
+        val manifest = readTextFromExisting(
+            listOf(
+                Path.of("src/main/AndroidManifest.xml"),
+                Path.of("app/src/main/AndroidManifest.xml"),
+            ),
+        )
+
+        assertThat(manifest).contains("android:process=\":paper_runtime\"")
+        assertThat(manifest).contains("android:process=\":paper_runtime_2\"")
+        assertThat(manifest).contains("android:process=\":paper_runtime_3\"")
+        assertThat(manifest).contains("android:process=\":paper_runtime_4\"")
+    }
+
     private fun readTextFromExisting(candidates: List<Path>): String {
         val path = candidates.firstOrNull { Files.exists(it) } ?: error(
             "Expected one of these manifest paths to exist: ${candidates.joinToString()}"

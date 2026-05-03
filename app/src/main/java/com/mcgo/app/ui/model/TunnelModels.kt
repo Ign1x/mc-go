@@ -208,7 +208,8 @@ fun ServerCardState.startPaperServer(
         isOnline = false,
         port = resolvedPort,
         selectedTunnelId = tunnel?.id,
-        activeTunnelLabel = tunnel?.let { "${it.name} · ${it.latencyLabel()}" },
+        activeTunnelLabel = null,
+        runtimeAddress = tunnel?.remotePort?.let { "${tunnel.serverAddress.substringBefore(':')}:$it" } ?: "127.0.0.1:$resolvedPort",
         launchStatus = ServerLaunchStatus.Launching,
         launchPlan = plan,
         launchProgress = 12,
@@ -224,6 +225,7 @@ fun ServerCardState.stopServer(): ServerCardState = copy(
     isOnline = false,
     port = defaultPort,
     activeTunnelLabel = null,
+    runtimeAddress = null,
     launchStatus = ServerLaunchStatus.Stopped,
     launchProgress = 0,
     runtimeLogs = (runtimeLogs + "服务器已停止").takeLast(12),
@@ -276,6 +278,7 @@ fun detachDeletedTunnel(
         server.copy(
             selectedTunnelId = null,
             activeTunnelLabel = null,
+            runtimeAddress = if (server.isRuntimeBusy()) "127.0.0.1:${server.port}" else null,
         )
     } else {
         server

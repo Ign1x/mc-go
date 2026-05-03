@@ -126,6 +126,7 @@ fun installRuntimeWithStaging(
             throw JavaRuntimeInstallException("JRE $majorVersion 缺少 bin/java")
         }
         javaBinary.toFile().setExecutable(true, false)
+        ensureAndroidLegacyLibCompat(tempDir)
         deleteRecursively(javaHome)
         moveInstalledRuntimeIntoPlace(tempDir, javaHome)
         return javaHome
@@ -252,6 +253,38 @@ private fun applyExecutableBit(path: Path, mode: Int) {
         if (mode and 0b000_001_000 != 0) permissions += PosixFilePermission.GROUP_EXECUTE
         if (mode and 0b000_000_001 != 0) permissions += PosixFilePermission.OTHERS_EXECUTE
         Files.setPosixFilePermissions(path, permissions)
+    }
+}
+
+private fun ensureAndroidLegacyLibCompat(javaHome: Path) {
+    val releaseProperties = runCatching { readReleaseProperties(javaHome) }.getOrDefault(emptyMap())
+    val javaLibRelative = runCatching { resolveJavaLibRelative(javaHome, releaseProperties["OS_ARCH"]) }.getOrNull() ?: return
+    val javaLibDir = javaHome.resolve(javaLibRelative)
+    val legacyLibDir = javaHome.resolve("lib")
+    if (javaLibDir == legacyLibDir) return
+
+    val compatLinks = listOf(
+        "server/libjvm.so" to javaLibDir.resolve("server/libjvm.so"),
+        "jli/libjli.so" to javaLibDir.resolve("jli/libjli.so"),
+        "libjli.so" to javaLibDir.resolve("libjli.so"),
+        "libjava.so" to javaLibDir.resolve("libjava.so"),
+        "libverify.so" to javaLibDir.resolve("libverify.so"),
+        "libnet.so" to javaLibDir.resolve("libnet.so"),
+        "libnio.so" to javaLibDir.resolve("libnio.so"),
+    )
+    compatLinks.forEach { (relativePath, source) ->
+        if (!Files.exists(source)) return@forEach
+        val target = legacyLibDir.resolve(relativePath)
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) return@forEach
+        Files.createDirectories(target.parent)
+        runCatching {
+            Files.createSymbolicLink(target, target.parent.relativize(source))
+        }.getOrElse {
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING)
+            if (Files.isExecutable(source)) {
+                target.toFile().setExecutable(true, false)
+            }
+        }
     }
 }
 

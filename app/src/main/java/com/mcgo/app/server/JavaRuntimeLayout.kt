@@ -92,15 +92,19 @@ fun resolveManagedJavaRuntimeLayout(
     val releaseProperties = readReleaseProperties(javaHome)
     val javaLibRelative = resolveJavaLibRelative(javaHome, releaseProperties["OS_ARCH"])
     val javaLibDir = javaHome.resolve(javaLibRelative)
-    val jliLibDir = if (Files.exists(javaLibDir.resolve("jli/libjli.so"))) {
-        javaLibDir.resolve("jli")
-    } else {
-        javaLibDir
+    val legacyLibDir = javaHome.resolve("lib")
+    val preferredJavaLibDir = if (Files.isRegularFile(legacyLibDir.resolve("server/libjvm.so"))) legacyLibDir else javaLibDir
+    val jliLibDir = when {
+        Files.exists(preferredJavaLibDir.resolve("jli/libjli.so")) -> preferredJavaLibDir.resolve("jli")
+        Files.exists(preferredJavaLibDir.resolve("libjli.so")) -> preferredJavaLibDir
+        Files.exists(javaLibDir.resolve("jli/libjli.so")) -> javaLibDir.resolve("jli")
+        else -> javaLibDir
     }
-    val jvmLibDir = if (Files.exists(javaLibDir.resolve("server/libjvm.so"))) {
-        javaLibDir.resolve("server")
-    } else {
-        javaLibDir.resolve("client")
+    val jvmLibDir = when {
+        Files.exists(preferredJavaLibDir.resolve("server/libjvm.so")) -> preferredJavaLibDir.resolve("server")
+        Files.exists(preferredJavaLibDir.resolve("client/libjvm.so")) -> preferredJavaLibDir.resolve("client")
+        Files.exists(javaLibDir.resolve("server/libjvm.so")) -> javaLibDir.resolve("server")
+        else -> javaLibDir.resolve("client")
     }
     val libjliPath = jliLibDir.resolve("libjli.so")
     val libjvmPath = jvmLibDir.resolve("libjvm.so")
@@ -177,7 +181,7 @@ private fun runtimeLauncherDotVersion(fullVersion: String): String = if (fullVer
     fullVersion.substringBefore('.')
 }
 
-private fun resolveJavaLibRelative(javaHome: Path, osArch: String?): Path {
+internal fun resolveJavaLibRelative(javaHome: Path, osArch: String?): Path {
     val normalizedCandidates = when (osArch?.trim()?.trim('"')) {
         null, "" -> emptyList()
         "x86" -> listOf("i386", "i486", "i586", "x86")

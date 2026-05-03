@@ -235,6 +235,43 @@ class JavaRuntimeManagerTest {
         assertThat(error).hasMessageThat().contains("ARM64")
     }
 
+    @Test
+    fun installRuntimeFromTarXz_createsLegacyLibCompatibilityLinksForAndroidJliLaunchers() {
+        val filesDir = Files.createTempDirectory("mcgo-jre-install-java17-compat")
+        val archive = filesDir.resolve("jre17-compat.tar.xz")
+        Files.write(
+            archive,
+            tarXz(
+                file("./release", "JAVA_VERSION=\"17.0.14\"\nOS_ARCH=\"aarch64\"\n"),
+                directory("./bin"),
+                file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
+                directory("./lib"),
+                directory("./lib/aarch64"),
+                directory("./lib/aarch64/server"),
+                directory("./lib/aarch64/jli"),
+                file("./lib/aarch64/server/libjvm.so", "jvm"),
+                file("./lib/aarch64/jli/libjli.so", "jli"),
+                file("./lib/aarch64/libjava.so", "java"),
+                file("./lib/aarch64/libverify.so", "verify"),
+                file("./lib/aarch64/libnet.so", "net"),
+                file("./lib/aarch64/libnio.so", "nio"),
+            ),
+        )
+
+        val javaHome = installRuntimeFromTarXz(
+            archivePath = archive,
+            filesDir = filesDir,
+            majorVersion = 17,
+        )
+
+        assertThat(Files.exists(javaHome.resolve("lib/server/libjvm.so"))).isTrue()
+        assertThat(Files.exists(javaHome.resolve("lib/jli/libjli.so"))).isTrue()
+        assertThat(Files.exists(javaHome.resolve("lib/libjava.so"))).isTrue()
+        assertThat(Files.exists(javaHome.resolve("lib/libverify.so"))).isTrue()
+        assertThat(Files.exists(javaHome.resolve("lib/libnet.so"))).isTrue()
+        assertThat(Files.exists(javaHome.resolve("lib/libnio.so"))).isTrue()
+    }
+
     private data class TarSpec(
         val name: String,
         val bytes: ByteArray = byteArrayOf(),

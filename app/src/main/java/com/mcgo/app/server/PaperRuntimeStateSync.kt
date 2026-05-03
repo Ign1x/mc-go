@@ -3,6 +3,7 @@ package com.mcgo.app.server
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.finalizePendingServerDeletion
+import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markLaunchRunning
 import com.mcgo.app.ui.model.withLaunchProgress
@@ -10,17 +11,30 @@ import com.mcgo.app.ui.storage.ServerProfileStore
 import java.nio.file.Path
 
 fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): ServerCardState = when (event.status) {
-    PaperServerEventStatus.Running -> server.markLaunchRunning(event.message)
+    PaperServerEventStatus.Running -> server.markLaunchRunning(event.message).copy(
+        activeTunnelLabel = event.activeTunnelLabel ?: server.activeTunnelLabel,
+        runtimeAddress = event.runtimeAddress ?: server.runtimeAddress,
+    )
     PaperServerEventStatus.Failed -> server.markLaunchFailed(event.message)
-    PaperServerEventStatus.Stopping -> server.markLaunchStopping(event.message)
+    PaperServerEventStatus.Stopping -> server.markLaunchStopping(event.message).copy(
+        activeTunnelLabel = event.activeTunnelLabel ?: server.activeTunnelLabel,
+        runtimeAddress = event.runtimeAddress ?: server.runtimeAddress,
+    )
     PaperServerEventStatus.Stopped -> server.clearRuntimeState(ServerLaunchStatus.Stopped, event.message)
     PaperServerEventStatus.Launching -> server.withLaunchProgress(
         progress = event.progress ?: server.launchProgress,
         logLine = event.message,
         status = ServerLaunchStatus.Launching,
         online = false,
+    ).copy(
+        activeTunnelLabel = event.activeTunnelLabel ?: server.activeTunnelLabel,
+        runtimeAddress = event.runtimeAddress ?: server.runtimeAddress,
     )
-    null -> server.copy(runtimeLogs = (server.runtimeLogs + event.message).takeLast(12))
+    null -> server.copy(
+        activeTunnelLabel = event.activeTunnelLabel ?: server.activeTunnelLabel,
+        runtimeAddress = event.runtimeAddress ?: server.runtimeAddress,
+        runtimeLogs = (server.runtimeLogs + event.message).takeLast(12),
+    )
 }
 
 fun syncPaperRuntimeEvent(filesDir: Path, event: PaperServerEvent) {
@@ -43,17 +57,28 @@ fun reconcilePersistedRuntimeState(
 ): List<ServerCardState> = if (runtimeAlive) {
     servers
 } else {
-    servers.map { server ->
-        if (
-            server.launchStatus == ServerLaunchStatus.Launching ||
+    reconcilePersistedRuntimeState(
+        servers = servers,
+        activeRuntimeSlots = emptySet(),
+    )
+}
+
+fun reconcilePersistedRuntimeState(
+    servers: List<ServerCardState>,
+    activeRuntimeSlots: Set<Int>,
+): List<ServerCardState> = servers.map { server ->
+    val effectiveRuntimeSlot = server.runtimeSlot ?: if (activeRuntimeSlots.contains(1) && server.isRuntimeBusy()) 1 else null
+    val runtimeSlotAlive = effectiveRuntimeSlot?.let(activeRuntimeSlots::contains) ?: false
+    if (
+        (server.launchStatus == ServerLaunchStatus.Launching ||
             server.launchStatus == ServerLaunchStatus.Stopping ||
             server.launchStatus == ServerLaunchStatus.Running ||
-            server.isOnline
-        ) {
-            server.clearRuntimeState(ServerLaunchStatus.Stopped, "运行时进程已结束，已恢复为空闲状态")
-        } else {
-            server
-        }
+            server.isOnline) &&
+            !runtimeSlotAlive
+    ) {
+        server.clearRuntimeState(ServerLaunchStatus.Stopped, "运行时进程已结束，已恢复为空闲状态")
+    } else {
+        if (server.runtimeSlot == null && effectiveRuntimeSlot != null) server.copy(runtimeSlot = effectiveRuntimeSlot) else server
     }
 }
 
@@ -67,6 +92,7 @@ private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, messag
     isOnline = false,
     port = defaultPort,
     activeTunnelLabel = null,
+    runtimeAddress = null,
     launchStatus = status,
     launchProgress = 0,
     runtimeLogs = (runtimeLogs + message).takeLast(12),

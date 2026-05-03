@@ -94,6 +94,33 @@ class JavaRuntimeLayoutTest {
         assertThat(names.indexOf("libnet.so")).isLessThan(names.indexOf("libnio.so"))
     }
 
+    @Test
+    fun resolveManagedJavaRuntimeLayout_prefersLegacyLibServerCompatPathsWhenPresent() {
+        val javaHome = createRuntimeLayout(
+            osArch = "aarch64",
+            withDedicatedJliDirectory = true,
+        ).also { home ->
+            Files.createDirectories(home.resolve("lib/server"))
+            Files.createDirectories(home.resolve("lib/jli"))
+            Files.write(home.resolve("lib/server/libjvm.so"), byteArrayOf(1))
+            Files.write(home.resolve("lib/jli/libjli.so"), byteArrayOf(1))
+            Files.write(home.resolve("lib/libjava.so"), byteArrayOf(1))
+            Files.write(home.resolve("lib/libverify.so"), byteArrayOf(1))
+            Files.write(home.resolve("lib/libnet.so"), byteArrayOf(1))
+            Files.write(home.resolve("lib/libnio.so"), byteArrayOf(1))
+        }
+
+        val layout = resolveManagedJavaRuntimeLayout(
+            javaHome = javaHome,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(layout.libjvmPath).isEqualTo(javaHome.resolve("lib/server/libjvm.so"))
+        assertThat(layout.libjliPath).isEqualTo(javaHome.resolve("lib/jli/libjli.so"))
+        assertThat(layout.libraryPath.split(':').first()).isEqualTo(javaHome.resolve("lib/server").toString())
+    }
+
     private fun createRuntimeLayout(
         osArch: String,
         withDedicatedJliDirectory: Boolean,

@@ -20,6 +20,21 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:process=":paper_runtime" />
+        <service
+            android:name=".server.PaperServerServiceSlot2"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:process=":paper_runtime_2" />
+        <service
+            android:name=".server.PaperServerServiceSlot3"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:process=":paper_runtime_3" />
+        <service
+            android:name=".server.PaperServerServiceSlot4"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:process=":paper_runtime_4" />
 
         <receiver
             android:name=".server.PaperRuntimeEventReceiver"

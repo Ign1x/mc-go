@@ -108,6 +108,7 @@ fun ServersScreen(
         StartServerDialog(
             server = server,
             availableTunnels = availableTunnels,
+            frpRuntimeSupported = supportedProvisionableJavaVersions.contains(25),
             onDismiss = { pendingStartServer = null },
             onConfirm = { tunnelId, startupPort ->
                 onStartServer(server.id, tunnelId, startupPort)
@@ -164,7 +165,7 @@ private fun ServerCard(
         ServerLaunchStatus.Failed -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val connectionAddress = server.port.let { "127.0.0.1:$it" }
+    val connectionAddress = server.runtimeAddress ?: server.port.let { "127.0.0.1:$it" }
     GlassCard(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -561,6 +562,7 @@ private fun CreatePaperServerDialog(
 private fun StartServerDialog(
     server: ServerCardState,
     availableTunnels: List<TunnelProfile>,
+    frpRuntimeSupported: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (tunnelId: String?, startupPort: Int) -> Unit,
 ) {
@@ -575,12 +577,13 @@ private fun StartServerDialog(
     }
 
     val canEditPort = selectedTunnel?.supportsCustomPortOnStart() == true
+    val runtimeTunnelSupported = selectedTunnel == null || (selectedTunnel.kind == com.mcgo.app.ui.model.TunnelKind.Frp && frpRuntimeSupported)
     val resolvedPort = selectedTunnel?.resolveStartupPort(server.defaultPort, portInput.toIntOrNull()) ?: server.defaultPort
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = { onConfirm(selectedTunnelId, resolvedPort) }) {
+            TextButton(onClick = { onConfirm(selectedTunnelId, resolvedPort) }, enabled = runtimeTunnelSupported) {
                 Text("启动实例")
             }
         },
@@ -644,6 +647,17 @@ private fun StartServerDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (!runtimeTunnelSupported) {
+                        Text(
+                            text = if (!frpRuntimeSupported) {
+                                "当前设备暂不支持内置 FRP 客户端，仅 arm64-v8a 设备可真启动隧道。"
+                            } else {
+                                "当前仅支持 FRP 隧道真启动；该隧道类型会导致启动失败。"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         },

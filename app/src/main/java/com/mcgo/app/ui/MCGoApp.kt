@@ -1,6 +1,5 @@
 package com.mcgo.app.ui
 
-import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -88,9 +87,12 @@ import com.mcgo.app.server.JavaRuntimeArchiveSource
 import com.mcgo.app.server.JavaRuntimeInstallException
 import com.mcgo.app.server.OfficialPojavLauncherApkSha256
 import com.mcgo.app.server.OfficialPojavLauncherCertSha256
+import com.mcgo.app.server.MaxPaperRuntimeSlots
 import com.mcgo.app.server.PaperServerEvents
 import com.mcgo.app.server.PaperServerService
 import com.mcgo.app.server.abiArchiveName
+import com.mcgo.app.server.activePaperRuntimeSlots
+import com.mcgo.app.server.allocateRuntimeSlot
 import com.mcgo.app.server.classifyJavaRuntimeArchiveName
 import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.extractTarXzSafely
@@ -169,7 +171,6 @@ import java.util.jar.JarFile
 private const val RuntimePrefsName = "mcgo_runtime_permissions"
 private const val ServerDirectoryUriKey = "server_directory_uri"
 private const val ServerDirectoryGrantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-private const val PaperRuntimeProcessSuffix = ":paper_runtime"
 
 private data class PendingStartRequest(
     val serverId: String,
@@ -213,13 +214,13 @@ fun MCGoApp() {
     val supportedProvisionableJavaVersions = remember {
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") setOf(8, 11, 17, 21, 25) else setOf(8, 11, 17, 21)
     }
-    val runtimeAliveOnLaunch = remember(context) { isPaperRuntimeProcessAlive(context) }
+    val activeRuntimeSlotsOnLaunch = remember(context) { activePaperRuntimeSlots(context) }
     val persistedServers = remember(serverStore) { serverStore.load() }
-    val reconciledPersistedServers = remember(persistedServers, runtimeAliveOnLaunch) {
+    val reconciledPersistedServers = remember(persistedServers, activeRuntimeSlotsOnLaunch) {
         finalizePendingServerDeletion(
             reconcilePersistedRuntimeState(
                 servers = persistedServers,
-                runtimeAlive = runtimeAliveOnLaunch,
+                activeRuntimeSlots = activeRuntimeSlotsOnLaunch,
             ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
         )
     }
@@ -357,8 +358,26 @@ private fun MCGoAppScaffold(
             scope.launch { snackbarHostState.showSnackbar("${targetServer.name} 已在启动或运行中") }
             return
         }
-        if (servers.any { it.id != request.serverId && it.isRuntimeBusy() }) {
-            scope.launch { snackbarHostState.showSnackbar("当前版本先支持单服运行，请先停止其他服务器") }
+        val resolvedPort = tunnel?.resolveStartupPort(targetServer.defaultPort, request.startupPort) ?: request.startupPort
+        val runtimeAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
+        if (tunnel != null && tunnel.kind != com.mcgo.app.ui.model.TunnelKind.Frp) {
+            scope.launch { snackbarHostState.showSnackbar("当前仅支持 FRP 隧道真启动；请先取消该隧道或改用 FRP") }
+            return
+        }
+        if (tunnel != null && runtimeAbi != "arm64-v8a") {
+            scope.launch { snackbarHostState.showSnackbar("当前设备 ABI 为 $runtimeAbi，暂不支持内置 FRP 客户端") }
+            return
+        }
+        if (servers.any { it.id != request.serverId && it.isRuntimeBusy() && it.port == resolvedPort }) {
+            scope.launch { snackbarHostState.showSnackbar("端口 $resolvedPort 已被其他运行中的服务器占用") }
+            return
+        }
+        val allocatedSlot = allocateRuntimeSlot(
+            servers = servers,
+            targetServerId = request.serverId,
+            maxSlots = MaxPaperRuntimeSlots,
+        ) ?: run {
+            scope.launch { snackbarHostState.showSnackbar("同时运行的服务器已达到上限（$MaxPaperRuntimeSlots）") }
             return
         }
         if (targetServer.javaMajorVersion !in installedJavaVersions) {
@@ -393,13 +412,16 @@ private fun MCGoAppScaffold(
                 server
             } else {
                 server.startWithTunnel(tunnel = tunnel, startupPort = request.startupPort)
-                    .copy(runtimeLogPath = runtimeLogPath)
+                    .copy(
+                        runtimeLogPath = runtimeLogPath,
+                        runtimeSlot = allocatedSlot,
+                    )
                     .withLaunchProgress(8, "已提交启动任务，准备使用内置 HotSpot 运行")
             }
         }
         onServersChange(updatedServers)
         onPersistServers(updatedServers)
-        updatedServers.firstOrNull { it.id == request.serverId }?.let { PaperServerService.start(appContext, it) }
+        updatedServers.firstOrNull { it.id == request.serverId }?.let { PaperServerService.start(appContext, it, tunnel) }
         scope.launch {
             snackbarHostState.showSnackbar(
                 tunnel?.let { "${targetServer.name} 已通过 ${it.name} 开始启动" } ?: "${targetServer.name} 开始启动",
@@ -422,11 +444,13 @@ private fun MCGoAppScaffold(
     LaunchedEffect(appContext) {
         while (true) {
             val serverSnapshot = latestServers
-            if (serverSnapshot.any { it.isRuntimeBusy() } && !isPaperRuntimeProcessAlive(appContext)) {
+            val activeSlots = activePaperRuntimeSlots(appContext)
+            val expectedBusySlots = serverSnapshot.filter { it.isRuntimeBusy() }.mapNotNull { it.runtimeSlot }.toSet()
+            if (serverSnapshot.any { it.isRuntimeBusy() } && expectedBusySlots != activeSlots) {
                 val reconciledServers = finalizePendingServerDeletion(
                     reconcilePersistedRuntimeState(
                         servers = serverSnapshot,
-                        runtimeAlive = false,
+                        activeRuntimeSlots = activeSlots,
                     ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
                 )
                 if (reconciledServers != serverSnapshot) {
@@ -457,20 +481,6 @@ private fun MCGoAppScaffold(
             }
             onTunnelsChange(applyTunnelLatencyResults(latestTunnels, measuredResults))
         }
-    }
-
-    LaunchedEffect(tunnels) {
-        onServersChange(
-            servers.map { server ->
-                when {
-                    !server.isOnline -> server.copy(activeTunnelLabel = null)
-                    else -> {
-                        val matchedTunnel = tunnels.firstOrNull { it.id == server.selectedTunnelId }
-                        server.copy(activeTunnelLabel = matchedTunnel?.let { "${it.name} · ${it.latencyLabel()}" })
-                    }
-                }
-            },
-        )
     }
 
     LaunchedEffect(destination) {
@@ -595,7 +605,7 @@ private fun MCGoAppScaffold(
                             onDismiss = { consoleServerId = null },
                             onSubmitCommand = { command ->
                                 val normalized = normalizeConsoleCommand(command)
-                                PaperServerService.sendCommand(appContext, server.id, normalized.trim())
+                                PaperServerService.sendCommand(appContext, server.id, normalized.trim(), server.runtimeSlot)
                                 scope.launch {
                                     snackbarHostState.showSnackbar("已发送指令：${normalized.trim()}")
                                 }
@@ -646,11 +656,14 @@ private fun MCGoAppScaffold(
                             }
                         },
                         onStopServer = { serverId ->
-                            PaperServerService.stop(appContext, serverId)
+                            val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen
+                            PaperServerService.stop(appContext, serverId, targetServer.runtimeSlot)
                             val updatedServers = servers.map { server ->
                                 if (server.id == serverId) {
-                                    server.copy(runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(12))
-                                        .stopServer()
+                                    server.copy(
+                                        launchStatus = ServerLaunchStatus.Stopping,
+                                        runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(12),
+                                    )
                                 } else {
                                     server
                                 }
@@ -661,7 +674,7 @@ private fun MCGoAppScaffold(
                         onDeleteServer = { serverId ->
                             val targetServer = servers.firstOrNull { it.id == serverId }
                             if (targetServer?.isRuntimeBusy() == true) {
-                                PaperServerService.stop(appContext, serverId)
+                                PaperServerService.stop(appContext, serverId, targetServer.runtimeSlot)
                                 val updatedServers = finalizePendingServerDeletion(
                                     servers.map { server ->
                                         if (server.id == serverId) requestServerDeletion(server).copy(
@@ -877,15 +890,6 @@ private fun runtimeDownloadUrlsForRegion(context: Context, canonicalUrl: String)
     val mirror = "https://gh-proxy.com/$canonicalUrl"
     val language = context.resources.configuration.locales.get(0).language.lowercase()
     return if (language == "zh") listOf(mirror, canonicalUrl) else listOf(canonicalUrl, mirror)
-}
-
-private fun isPaperRuntimeProcessAlive(context: Context): Boolean {
-    val activityManager = context.getSystemService(ActivityManager::class.java) ?: return false
-    val targetProcessName = context.packageName + PaperRuntimeProcessSuffix
-    @Suppress("DEPRECATION")
-    return activityManager.runningAppProcesses?.any { process ->
-        process.processName == targetProcessName
-    } == true
 }
 
 private fun installJavaRuntimeFromUri(

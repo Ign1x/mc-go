@@ -8,6 +8,14 @@ import java.net.URI
 
 private const val DefaultBundledFrpcAssetArm64 = "frp/android_arm64/frpc"
 
+data class TunnelRuntimePlan(
+    val binaryPath: java.nio.file.Path,
+    val configPath: java.nio.file.Path,
+    val configText: String,
+    val displayLabel: String,
+    val runtimeAddress: String,
+)
+
 fun defaultBundledFrpcAssetRelativePath(abi: String): String = when (abi) {
     "arm64-v8a" -> DefaultBundledFrpcAssetArm64
     else -> error("暂不支持的 FRP ABI：$abi")
@@ -51,4 +59,28 @@ fun buildFrpcConfigForTunnel(server: ServerCardState, tunnel: TunnelProfile): St
         appendLine("localPort = ${server.port}")
         appendLine("remotePort = $remotePort")
     }
+}
+
+fun tunnelRuntimePlanForStart(
+    filesDir: java.nio.file.Path,
+    server: ServerCardState,
+    tunnel: TunnelProfile?,
+    supportedAbi: String,
+): TunnelRuntimePlan? {
+    if (tunnel == null) return null
+    if (tunnel.kind != TunnelKind.Frp) {
+        throw JavaRuntimeInstallException("当前仅支持 FRP 真启动；其他隧道类型暂未接入运行时")
+    }
+    defaultBundledFrpcAssetRelativePath(supportedAbi)
+    val frpDir = managedPaperServerDirectory(filesDir, server.id).resolve("frp")
+    val endpoint = URI("tcp://${tunnel.serverAddress}")
+    val host = endpoint.host ?: error("FRP 服务端地址无效")
+    val remotePort = tunnel.remotePort ?: server.port
+    return TunnelRuntimePlan(
+        binaryPath = frpDir.resolve("frpc"),
+        configPath = frpDir.resolve("frpc.toml"),
+        configText = buildFrpcConfigForTunnel(server, tunnel),
+        displayLabel = "${tunnel.name} · $host:$remotePort",
+        runtimeAddress = "$host:$remotePort",
+    )
 }

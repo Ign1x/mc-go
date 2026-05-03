@@ -183,4 +183,46 @@ class PaperRuntimeEventPersistenceTest {
 
         assertThat(finalized).isEmpty()
     }
+
+    @Test
+    fun reconcilePersistedRuntimeState_keepsOnlyServersWhoseRuntimeSlotIsStillAlive() {
+        val alpha = createPaperServer(
+            name = "A服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+        ).copy(
+            id = "alpha",
+            isOnline = true,
+            launchStatus = ServerLaunchStatus.Running,
+            runtimeSlot = 1,
+            port = 25571,
+        )
+        val beta = createPaperServer(
+            name = "B服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25566,
+        ).copy(
+            id = "beta",
+            isOnline = true,
+            launchStatus = ServerLaunchStatus.Running,
+            runtimeSlot = 2,
+            port = 25572,
+            activeTunnelLabel = "家庭 FRP · frp.example.com:38002",
+        )
+
+        val reconciled = reconcilePersistedRuntimeState(
+            servers = listOf(alpha, beta),
+            activeRuntimeSlots = setOf(2),
+        )
+
+        assertThat(reconciled.single { it.id == "alpha" }.launchStatus).isEqualTo(ServerLaunchStatus.Stopped)
+        assertThat(reconciled.single { it.id == "alpha" }.runtimeSlot).isNull()
+        assertThat(reconciled.single { it.id == "beta" }.launchStatus).isEqualTo(ServerLaunchStatus.Running)
+        assertThat(reconciled.single { it.id == "beta" }.runtimeSlot).isEqualTo(2)
+        assertThat(reconciled.single { it.id == "beta" }.activeTunnelLabel).isEqualTo("家庭 FRP · frp.example.com:38002")
+    }
 }
