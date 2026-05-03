@@ -156,6 +156,7 @@ open class PaperServerService : Service() {
                 ensureLaunchNotCancelled()
                 val tunnelPlan = tunnelRuntimePlanForStart(
                     filesDir = filesDir.toPath(),
+                    nativeLibraryDir = java.io.File(applicationInfo.nativeLibraryDir).toPath(),
                     server = server,
                     tunnel = tunnel,
                     supportedAbi = android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
@@ -397,14 +398,13 @@ open class PaperServerService : Service() {
     }
 
     private fun startFrpcForPlan(server: ServerCardState, plan: TunnelRuntimePlan) {
-        Files.createDirectories(plan.binaryPath.parent)
-        assets.open(defaultBundledFrpcAssetRelativePath(android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty())).use { input ->
-            Files.copy(input, plan.binaryPath, StandardCopyOption.REPLACE_EXISTING)
+        Files.createDirectories(plan.configPath.parent)
+        check(Files.exists(plan.binaryPath)) {
+            "内置 FRP 组件缺失：${plan.binaryPath.fileName}"
         }
-        plan.binaryPath.toFile().setExecutable(true, false)
         Files.write(plan.configPath, plan.configText.toByteArray())
         val process = ProcessBuilder(plan.binaryPath.toString(), "-c", plan.configPath.toString())
-            .directory(plan.binaryPath.parent.toFile())
+            .directory(plan.configPath.parent.toFile())
             .redirectErrorStream(true)
             .redirectOutput(ProcessBuilder.Redirect.appendTo(managedPaperServerLogFile(filesDir.toPath(), server.id).toFile()))
             .start()

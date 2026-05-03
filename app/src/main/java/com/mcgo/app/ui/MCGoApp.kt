@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapHoriz
@@ -46,6 +47,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -583,11 +585,21 @@ private fun MCGoAppScaffold(
                         icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
                         text = { Text("创建 Paper") },
                     )
-                    McGoDestination.Tunnels -> ExtendedFloatingActionButton(
-                        onClick = { showTunnelComposer = true },
-                        icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                        text = { Text("新增隧道") },
-                    )
+                    McGoDestination.Tunnels -> Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FloatingActionButton(
+                            onClick = { refreshTunnelLatency(null) },
+                        ) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = "Refresh tunnels")
+                        }
+                        ExtendedFloatingActionButton(
+                            onClick = { showTunnelComposer = true },
+                            icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                            text = { Text("新增隧道") },
+                        )
+                    }
                     else -> Unit
                 }
             },
@@ -725,7 +737,6 @@ private fun MCGoAppScaffold(
                             onServersChange(updatedServers)
                             onPersistServers(updatedServers)
                         },
-                        onRefreshTunnelLatency = ::refreshTunnelLatency,
                         modifier = Modifier.fillMaxSize(),
                     )
                     McGoDestination.Settings -> SettingsScreen(

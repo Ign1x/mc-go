@@ -5,6 +5,7 @@ import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.createPaperServer
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
@@ -27,8 +28,10 @@ class TunnelRuntimeHelperTest {
             portRange = "38000-38100",
         ).copy(remotePort = 38001)
 
+        val nativeLibraryDir = Path.of("/data/app/com.mcgo.app/lib/arm64")
         val plan = tunnelRuntimePlanForStart(
             filesDir = filesDir,
+            nativeLibraryDir = nativeLibraryDir,
             server = server,
             tunnel = tunnel,
             supportedAbi = "arm64-v8a",
@@ -36,7 +39,7 @@ class TunnelRuntimeHelperTest {
 
         assertThat(plan).isNotNull()
         assertThat(plan!!.displayLabel).isEqualTo("家庭 FRP · frp.example.com:38001")
-        assertThat(plan.binaryPath).isEqualTo(filesDir.resolve("servers/${server.id}/frp/frpc"))
+        assertThat(plan.binaryPath).isEqualTo(nativeLibraryDir.resolve("libfrpc.so"))
         assertThat(plan.configPath).isEqualTo(filesDir.resolve("servers/${server.id}/frp/frpc.toml"))
         assertThat(plan.configText).contains("remotePort = 38001")
     }
@@ -56,6 +59,7 @@ class TunnelRuntimeHelperTest {
         val error = assertFailsWith<JavaRuntimeInstallException> {
             tunnelRuntimePlanForStart(
                 filesDir = filesDir,
+                nativeLibraryDir = Path.of("/data/app/com.mcgo.app/lib/arm64"),
                 server = server,
                 tunnel = tunnel,
                 supportedAbi = "arm64-v8a",

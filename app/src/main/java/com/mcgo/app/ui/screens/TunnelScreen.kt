@@ -63,7 +63,6 @@ fun TunnelsScreen(
     onSaveTunnel: (TunnelProfile) -> Unit,
     onEditTunnel: (String) -> Unit,
     onDeleteTunnel: (String) -> Unit,
-    onRefreshTunnelLatency: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val editingTunnel = remember(editingTunnelId, tunnels) {
@@ -95,9 +94,6 @@ fun TunnelsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(text = "还没有隧道", style = MaterialTheme.typography.titleMedium)
-                        TextButton(onClick = { onRefreshTunnelLatency(null) }) {
-                            Text("刷新延迟")
-                        }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -118,7 +114,6 @@ fun TunnelsScreen(
                 TunnelCard(
                     tunnel = tunnel,
                     modifier = Modifier.padding(horizontal = 20.dp),
-                    onRefresh = { onRefreshTunnelLatency(tunnel.id) },
                     onEdit = { onEditTunnel(tunnel.id) },
                     onDelete = { onDeleteTunnel(tunnel.id) },
                 )
@@ -131,7 +126,6 @@ fun TunnelsScreen(
 @Composable
 private fun TunnelCard(
     tunnel: TunnelProfile,
-    onRefresh: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -172,9 +166,6 @@ private fun TunnelCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LatencyBadge(lines = listOf(tunnel.latencyLabel()), accent = accent)
-                TextButton(onClick = onRefresh) {
-                    Text("刷新")
-                }
             }
         }
         Spacer(modifier = Modifier.height(14.dp))

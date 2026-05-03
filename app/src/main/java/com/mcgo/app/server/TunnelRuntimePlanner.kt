@@ -63,6 +63,7 @@ fun buildFrpcConfigForTunnel(server: ServerCardState, tunnel: TunnelProfile): St
 
 fun tunnelRuntimePlanForStart(
     filesDir: java.nio.file.Path,
+    nativeLibraryDir: java.nio.file.Path,
     server: ServerCardState,
     tunnel: TunnelProfile?,
     supportedAbi: String,
@@ -71,16 +72,22 @@ fun tunnelRuntimePlanForStart(
     if (tunnel.kind != TunnelKind.Frp) {
         throw JavaRuntimeInstallException("当前仅支持 FRP 真启动；其他隧道类型暂未接入运行时")
     }
-    defaultBundledFrpcAssetRelativePath(supportedAbi)
     val frpDir = managedPaperServerDirectory(filesDir, server.id).resolve("frp")
+    val frpcAssetRelativePath = defaultBundledFrpcAssetRelativePath(supportedAbi)
+    val frpcBinaryName = nativeLibraryExecutableNameForAsset(frpcAssetRelativePath)
     val endpoint = URI("tcp://${tunnel.serverAddress}")
     val host = endpoint.host ?: error("FRP 服务端地址无效")
     val remotePort = tunnel.remotePort ?: server.port
     return TunnelRuntimePlan(
-        binaryPath = frpDir.resolve("frpc"),
+        binaryPath = nativeLibraryDir.resolve(frpcBinaryName),
         configPath = frpDir.resolve("frpc.toml"),
         configText = buildFrpcConfigForTunnel(server, tunnel),
         displayLabel = "${tunnel.name} · $host:$remotePort",
         runtimeAddress = "$host:$remotePort",
     )
+}
+
+fun nativeLibraryExecutableNameForAsset(assetRelativePath: String): String {
+    val baseName = assetRelativePath.substringAfterLast('/')
+    return if (baseName.startsWith("lib") && baseName.endsWith(".so")) baseName else "lib${baseName}.so"
 }
