@@ -6,52 +6,76 @@ import kotlin.test.Test
 class FluidGradientSpecTest {
 
     @Test
-    fun lightFluidGradient_usesMutedThreeColorPaletteAndSlowLoop() {
+    fun lightFluidGradient_usesLaterColorfulLiquidRecipe() {
         val spec = fluidGradientSpec(darkTheme = false)
 
         assertThat(spec.backdropHexes).containsExactly(
-            0xFFF8F4EE,
-            0xFFEEF5FF,
-            0xFFF2EEFF,
+            0xFFF8FAFF,
+            0xFFFFF7FB,
+            0xFFF3FBFF,
+            0xFFFFFCF1,
+            0xFFF6F4FF,
         ).inOrder()
-        assertThat(spec.blobs.map { it.colorHex }.distinct()).containsExactly(
-            0xFFD8E8FF,
-            0xFFE2DBFF,
-            0xFFF7EEDD,
+        assertThat(spec.blobs.map { it.colorHex }).containsExactly(
+            0xFFFF7AB8,
+            0xFF60D7FF,
+            0xFF75F0BE,
+            0xFFFFD166,
+            0xFF9B8CFF,
         ).inOrder()
-        assertThat(spec.blobs).hasSize(3)
-        spec.blobs.forEach { blob ->
-            assertThat(blob.durationMillis).isAtLeast(10_000)
-            assertThat(blob.durationMillis).isAtMost(15_000)
-            assertThat(blob.alpha).isAtMost(0.55f)
-        }
-        assertThat(spec.blurRadiusDp).isAtLeast(160f)
-        assertThat(spec.overlayAlpha).isEqualTo(0.12f)
-        assertThat(spec.noiseOverlay.opacity).isAtLeast(0.03f)
-        assertThat(spec.noiseOverlay.opacity).isAtMost(0.05f)
-        assertThat(spec.noiseOverlay.blendModeName).isAnyOf("Overlay", "Multiply")
-        assertThat(spec.noiseOverlay.tileSizePx).isAtLeast(64)
+        assertThat(spec.blobs.map { it.durationMillis }).containsExactly(
+            28_000,
+            24_000,
+            31_000,
+            26_000,
+            33_000,
+        ).inOrder()
+        assertThat(spec.blobs.map { it.alpha }).containsExactly(
+            0.18f,
+            0.20f,
+            0.16f,
+            0.14f,
+            0.13f,
+        ).inOrder()
+        assertThat(spec.overlayAlpha).isEqualTo(0.06f)
+        assertThat(spec.blurRadiusDp).isEqualTo(280f)
+        assertThat(spec.noiseOverlay.opacity).isEqualTo(0.010f)
+        assertThat(spec.noiseOverlay.blendModeName).isEqualTo("Overlay")
+        assertThat(spec.noiseOverlay.tileSizePx).isEqualTo(128)
     }
 
     @Test
-    fun darkFluidGradient_preservesReadabilityWithCalmPalette() {
+    fun darkFluidGradient_usesLaterColorfulReadableRecipe() {
         val spec = fluidGradientSpec(darkTheme = true)
 
         assertThat(spec.backdropHexes).containsExactly(
-            0xFF1C1C1E,
-            0xFF1E1E1E,
-            0xFF252525,
+            0xFF0B0D12,
+            0xFF111827,
+            0xFF17111F,
+            0xFF0E1B1E,
         ).inOrder()
-        assertThat(spec.blobs.map { it.colorHex }.distinct()).containsExactly(
-            0xFF7887A0,
-            0xFF877EA1,
-            0xFFB2A796,
+        assertThat(spec.blobs.map { it.colorHex }).containsExactly(
+            0xFF2E7CFF,
+            0xFF13D8C8,
+            0xFF8A5CFF,
+            0xFFFF7A90,
         ).inOrder()
-        assertThat(spec.blobs.map { it.durationMillis }).containsExactly(12_000, 14_000, 15_000).inOrder()
-        assertThat(spec.overlayAlpha).isEqualTo(0.18f)
-        assertThat(spec.noiseOverlay.opacity).isAtLeast(0.03f)
-        assertThat(spec.noiseOverlay.opacity).isAtMost(0.05f)
-        assertThat(spec.noiseOverlay.blendModeName).isAnyOf("Overlay", "Multiply")
-        assertThat(spec.noiseOverlay.tileSizePx).isAtLeast(64)
+        assertThat(spec.blobs.map { it.durationMillis }).containsExactly(
+            30_000,
+            27_000,
+            34_000,
+            36_000,
+        ).inOrder()
+        assertThat(spec.blobs.map { it.alpha }).containsExactly(
+            0.16f,
+            0.14f,
+            0.13f,
+            0.10f,
+        ).inOrder()
+        assertThat(spec.overlayAlpha).isEqualTo(0.16f)
+        assertThat(spec.blurRadiusDp).isEqualTo(300f)
+        assertThat(spec.noiseOverlay.opacity).isEqualTo(0.010f)
+        assertThat(spec.noiseOverlay.blendModeName).isEqualTo("Overlay")
+        assertThat(spec.noiseOverlay.tileSizePx).isEqualTo(128)
     }
 }
