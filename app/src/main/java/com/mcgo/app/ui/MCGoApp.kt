@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -670,6 +672,7 @@ private fun MCGoAppScaffold(
                             server = server,
                             paperVersions = paperVersions,
                             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
+                            dynamicBackground = appearancePreferences.dynamicBackground,
                             onDismiss = { editingServerId = null },
                             onSave = { edited ->
                                 val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
@@ -1220,6 +1223,7 @@ private fun EditPaperServerDialog(
     server: ServerCardState,
     paperVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
+    dynamicBackground: Boolean,
     onDismiss: () -> Unit,
     onSave: (ServerCardState) -> Unit,
 ) {
@@ -1311,6 +1315,7 @@ private fun EditPaperServerDialog(
         PaperServerPropertiesEditorDialog(
             server = draftServer,
             initialText = buildPaperServerPropertiesEditorText(draftServer),
+            dynamicBackground = dynamicBackground,
             onDismiss = { showPropertiesEditor = false },
             onApply = { editedText ->
                 applyDraftToForm(parsePaperServerPropertiesEditorText(draftServer, editedText))
@@ -1323,183 +1328,13 @@ private fun EditPaperServerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = Color(0xFFF5F5F7),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(modifier = Modifier.size(48.dp))
-                    Text(
-                        text = "编辑 ${server.name}",
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Outlined.Close, contentDescription = "关闭")
-                    }
-                }
-
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    if (server.isRuntimeBusy()) {
-                        Surface(
-                            color = Color.White,
-                            shape = RoundedCornerShape(22.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                EditSettingsLeadingIcon(icon = Icons.Outlined.Tune)
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = "当前运行中，只更新配置资料",
-                                        style = MaterialTheme.typography.titleSmall,
-                                    )
-                                    Text(
-                                        text = "服务器当前正在启动或运行；本次保存仅更新配置资料，不会强制改动当前运行中的端口与日志状态。",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    EditSettingsSectionCard(title = "基础设置") {
-                        EditTextSettingRow(
-                            icon = Icons.Outlined.Edit,
-                            label = "服务器名称",
-                            value = name,
-                            placeholder = "请输入名称",
-                            onValueChange = { name = it },
-                        )
-                        EditSettingsDivider()
-                        EditMenuSettingRow(
-                            icon = Icons.Outlined.Dns,
-                            label = "Minecraft 版本",
-                            valueLabel = minecraftVersion,
-                            options = versionOptions.asReversed(),
-                            optionLabel = { it },
-                            onSelect = { minecraftVersion = it },
-                        )
-                    }
-
-                    EditSettingsSectionCard(title = "核心与性能") {
-                        EditMenuSettingRow(
-                            icon = Icons.Outlined.Settings,
-                            label = "Java",
-                            valueLabel = if (javaSelectionMode == JavaSelectionMode.Recommended) {
-                                "自动（推荐 Java $recommendedJava）"
-                            } else {
-                                "Java $manualJavaMajorVersion"
-                            },
-                            options = listOf<String>("自动") + javaVersionOptions.map { "Java $it" },
-                            optionLabel = { it },
-                            onSelect = { selected ->
-                                if (selected == "自动") {
-                                    javaSelectionMode = JavaSelectionMode.Recommended
-                                    manualJavaMajorVersion = recommendedJava
-                                } else {
-                                    javaSelectionMode = JavaSelectionMode.Manual
-                                    manualJavaMajorVersion = selected.removePrefix("Java ").toIntOrNull() ?: manualJavaMajorVersion
-                                }
-                            },
-                        )
-                        EditSettingsDivider()
-                        EditTextSettingRow(
-                            icon = Icons.Outlined.Speed,
-                            label = "分配内存 MB",
-                            value = memoryMb,
-                            placeholder = server.memoryMb.toString(),
-                            keyboardType = KeyboardType.Number,
-                            onValueChange = { memoryMb = it.filter(Char::isDigit) },
-                        )
-                    }
-
-                    EditSettingsSectionCard(title = "常用游戏规则") {
-                        EditTextSettingRow(
-                            icon = Icons.Outlined.Public,
-                            label = "世界名称",
-                            value = worldName,
-                            placeholder = "world",
-                            onValueChange = { worldName = it },
-                        )
-                        EditSettingsDivider()
-                        EditMenuSettingRow(
-                            icon = Icons.Outlined.Tune,
-                            label = "游戏模式",
-                            valueLabel = gameMode.displayLabel(),
-                            options = PaperGameMode.entries,
-                            optionLabel = { it.displayLabel() },
-                            onSelect = { gameMode = it },
-                        )
-                        EditSettingsDivider()
-                        EditMenuSettingRow(
-                            icon = Icons.Outlined.Tune,
-                            label = "难度",
-                            valueLabel = difficulty.displayLabel(),
-                            options = PaperDifficulty.entries,
-                            optionLabel = { it.displayLabel() },
-                            onSelect = { difficulty = it },
-                        )
-                        EditSettingsDivider()
-                        EditSwitchSettingRow(
-                            icon = Icons.Outlined.Public,
-                            label = "正版验证",
-                            supportingText = "关闭后可允许离线/外网玩家，安全风险更高，请谨慎使用",
-                            supportingTextColor = MaterialTheme.colorScheme.error,
-                            checked = onlineMode,
-                            onCheckedChange = { onlineMode = it },
-                        )
-                        EditSettingsDivider()
-                        EditSwitchSettingRow(
-                            icon = Icons.Outlined.Tune,
-                            label = "PvP",
-                            checked = pvpEnabled,
-                            onCheckedChange = { pvpEnabled = it },
-                        )
-                    }
-
-                    EditSettingsSectionCard(title = "网络与高级") {
-                        EditTextSettingRow(
-                            icon = Icons.Outlined.Dns,
-                            label = "最大玩家数",
-                            value = maxPlayers,
-                            placeholder = server.maxPlayers.toString(),
-                            keyboardType = KeyboardType.Number,
-                            onValueChange = { maxPlayers = it.filter(Char::isDigit) },
-                        )
-                        EditSettingsDivider()
-                        EditTextSettingRow(
-                            icon = Icons.Outlined.SwapHoriz,
-                            label = "默认端口",
-                            value = port,
-                            placeholder = server.defaultPort.toString(),
-                            keyboardType = KeyboardType.Number,
-                            onValueChange = { port = it.filter(Char::isDigit) },
-                        )
-                    }
-                }
-
+        EditFullScreenScaffold(
+            title = "编辑 ${server.name}",
+            subtitle = "与主页面一致的卡片式配置页，深色模式下保持高对比",
+            leadingIcon = Icons.Outlined.Tune,
+            dynamicBackground = dynamicBackground,
+            onDismiss = onDismiss,
+            footer = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = { showPropertiesEditor = true },
@@ -1521,6 +1356,136 @@ private fun EditPaperServerDialog(
                         Text("保存配置")
                     }
                 }
+            },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (server.isRuntimeBusy()) {
+                    EditSettingsInfoCard(
+                        icon = Icons.Outlined.Tune,
+                        title = "当前运行中，只更新配置资料",
+                        body = "服务器当前正在启动或运行；本次保存仅更新配置资料，不会强制改动当前运行中的端口与日志状态。",
+                    )
+                }
+
+                EditSettingsSectionCard(title = "基础设置") {
+                    EditTextSettingRow(
+                        icon = Icons.Outlined.Edit,
+                        label = "服务器名称",
+                        value = name,
+                        placeholder = "请输入名称",
+                        onValueChange = { name = it },
+                    )
+                    EditSettingsDivider()
+                    EditMenuSettingRow(
+                        icon = Icons.Outlined.Dns,
+                        label = "Minecraft 版本",
+                        valueLabel = minecraftVersion,
+                        options = versionOptions.asReversed(),
+                        optionLabel = { it },
+                        onSelect = { minecraftVersion = it },
+                    )
+                }
+
+                EditSettingsSectionCard(title = "核心与性能") {
+                    EditMenuSettingRow(
+                        icon = Icons.Outlined.Settings,
+                        label = "Java",
+                        valueLabel = if (javaSelectionMode == JavaSelectionMode.Recommended) {
+                            "自动（推荐 Java $recommendedJava）"
+                        } else {
+                            "Java $manualJavaMajorVersion"
+                        },
+                        options = listOf<String>("自动") + javaVersionOptions.map { "Java $it" },
+                        optionLabel = { it },
+                        onSelect = { selected ->
+                            if (selected == "自动") {
+                                javaSelectionMode = JavaSelectionMode.Recommended
+                                manualJavaMajorVersion = recommendedJava
+                            } else {
+                                javaSelectionMode = JavaSelectionMode.Manual
+                                manualJavaMajorVersion = selected.removePrefix("Java ").toIntOrNull() ?: manualJavaMajorVersion
+                            }
+                        },
+                    )
+                    EditSettingsDivider()
+                    EditTextSettingRow(
+                        icon = Icons.Outlined.Speed,
+                        label = "分配内存 MB",
+                        value = memoryMb,
+                        placeholder = server.memoryMb.toString(),
+                        keyboardType = KeyboardType.Number,
+                        onValueChange = { memoryMb = it.filter(Char::isDigit) },
+                    )
+                }
+
+                EditSettingsSectionCard(title = "常用游戏规则") {
+                    EditTextSettingRow(
+                        icon = Icons.Outlined.Public,
+                        label = "世界名称",
+                        value = worldName,
+                        placeholder = "world",
+                        onValueChange = { worldName = it },
+                    )
+                    EditSettingsDivider()
+                    EditMenuSettingRow(
+                        icon = Icons.Outlined.Tune,
+                        label = "游戏模式",
+                        valueLabel = gameMode.displayLabel(),
+                        options = PaperGameMode.entries,
+                        optionLabel = { it.displayLabel() },
+                        onSelect = { gameMode = it },
+                    )
+                    EditSettingsDivider()
+                    EditMenuSettingRow(
+                        icon = Icons.Outlined.Tune,
+                        label = "难度",
+                        valueLabel = difficulty.displayLabel(),
+                        options = PaperDifficulty.entries,
+                        optionLabel = { it.displayLabel() },
+                        onSelect = { difficulty = it },
+                    )
+                    EditSettingsDivider()
+                    EditSwitchSettingRow(
+                        icon = Icons.Outlined.Public,
+                        label = "正版验证",
+                        supportingText = "关闭后可允许离线/外网玩家，安全风险更高，请谨慎使用",
+                        supportingTextColor = MaterialTheme.colorScheme.error,
+                        checked = onlineMode,
+                        onCheckedChange = { onlineMode = it },
+                    )
+                    EditSettingsDivider()
+                    EditSwitchSettingRow(
+                        icon = Icons.Outlined.Tune,
+                        label = "PvP",
+                        checked = pvpEnabled,
+                        onCheckedChange = { pvpEnabled = it },
+                    )
+                }
+
+                EditSettingsSectionCard(title = "网络与高级") {
+                    EditTextSettingRow(
+                        icon = Icons.Outlined.Dns,
+                        label = "最大玩家数",
+                        value = maxPlayers,
+                        placeholder = server.maxPlayers.toString(),
+                        keyboardType = KeyboardType.Number,
+                        onValueChange = { maxPlayers = it.filter(Char::isDigit) },
+                    )
+                    EditSettingsDivider()
+                    EditTextSettingRow(
+                        icon = Icons.Outlined.SwapHoriz,
+                        label = "默认端口",
+                        value = port,
+                        placeholder = server.defaultPort.toString(),
+                        keyboardType = KeyboardType.Number,
+                        onValueChange = { port = it.filter(Char::isDigit) },
+                    )
+                }
             }
         }
     }
@@ -1530,6 +1495,7 @@ private fun EditPaperServerDialog(
 private fun PaperServerPropertiesEditorDialog(
     server: ServerCardState,
     initialText: String,
+    dynamicBackground: Boolean,
     onDismiss: () -> Unit,
     onApply: (String) -> Unit,
 ) {
@@ -1539,70 +1505,14 @@ private fun PaperServerPropertiesEditorDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = Color(0xFFF5F5F7),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(modifier = Modifier.size(48.dp))
-                    Text(
-                        text = "编辑 server.properties",
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Outlined.Close, contentDescription = "关闭")
-                    }
-                }
-
-                Text(
-                    text = "受管理字段会同步回表单：motd、level-name、max-players、server-port、gamemode、difficulty、online-mode、pvp；其他未知项会保留为 override。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    color = Color.White,
-                    shape = RoundedCornerShape(24.dp),
-                ) {
-                    BasicTextField(
-                        value = editorText,
-                        onValueChange = { editorText = it },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(18.dp)
-                            .verticalScroll(rememberScrollState()),
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                        decorationBox = { innerTextField ->
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                if (editorText.isBlank()) {
-                                    Text(
-                                        text = "# 在这里直接编辑 server.properties",
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        },
-                    )
-                }
-
+        val colors = editPageColors()
+        EditFullScreenScaffold(
+            title = "编辑 server.properties",
+            subtitle = "受管理字段会同步回表单，其余未知项保留为 override",
+            leadingIcon = Icons.Outlined.Edit,
+            dynamicBackground = dynamicBackground,
+            onDismiss = onDismiss,
+            footer = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1620,6 +1530,214 @@ private fun PaperServerPropertiesEditorDialog(
                         Text("应用并返回")
                     }
                 }
+            },
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    text = "受管理字段会同步回表单：motd、level-name、max-players、server-port、gamemode、difficulty、online-mode、pvp；其他未知项会保留为 override。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondaryText,
+                )
+
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    color = colors.editorContainerColor,
+                    contentColor = colors.primaryText,
+                    shape = RoundedCornerShape(26.dp),
+                    border = BorderStroke(1.dp, colors.cardStrokeColor),
+                ) {
+                    BasicTextField(
+                        value = editorText,
+                        onValueChange = { editorText = it },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(18.dp)
+                            .verticalScroll(rememberScrollState()),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = colors.primaryText,
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                if (editorText.isBlank()) {
+                                    Text(
+                                        text = "# 在这里直接编辑 server.properties",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                        color = colors.secondaryText,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class EditPageColors(
+    val backgroundOverlayColor: Color,
+    val cardContainerColor: Color,
+    val editorContainerColor: Color,
+    val iconContainerColor: Color,
+    val cardStrokeColor: Color,
+    val dividerColor: Color,
+    val primaryText: Color,
+    val secondaryText: Color,
+)
+
+@Composable
+private fun editPageColors(): EditPageColors {
+    val visuals = LocalMcGoVisualTokens.current
+    val scheme = MaterialTheme.colorScheme
+    return EditPageColors(
+        backgroundOverlayColor = scheme.background.copy(alpha = 0.52f),
+        cardContainerColor = scheme.surface.copy(alpha = 0.92f),
+        editorContainerColor = scheme.surfaceVariant.copy(alpha = 0.88f),
+        iconContainerColor = scheme.primary.copy(alpha = 0.14f),
+        cardStrokeColor = visuals.cardStrokeColor,
+        dividerColor = scheme.outline.copy(alpha = 0.24f),
+        primaryText = visuals.primaryTextColor,
+        secondaryText = visuals.secondaryTextColor,
+    )
+}
+
+@Composable
+private fun EditFullScreenScaffold(
+    title: String,
+    subtitle: String,
+    leadingIcon: ImageVector,
+    dynamicBackground: Boolean,
+    onDismiss: () -> Unit,
+    footer: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val colors = editPageColors()
+    val backgroundSpec = LocalMcGoVisualTokens.current.fluidBackgroundSpec
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = colors.primaryText,
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            FluidGradientBackground(
+                spec = backgroundSpec,
+                animate = dynamicBackground,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(colors.backgroundOverlayColor),
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = colors.cardContainerColor,
+                    contentColor = colors.primaryText,
+                    shape = RoundedCornerShape(28.dp),
+                    border = BorderStroke(1.dp, colors.cardStrokeColor),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        EditSettingsLeadingIcon(icon = leadingIcon)
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = colors.primaryText,
+                            )
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.secondaryText,
+                            )
+                        }
+                        Surface(
+                            color = colors.iconContainerColor,
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = "关闭",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    content()
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = colors.cardContainerColor,
+                    contentColor = colors.primaryText,
+                    shape = RoundedCornerShape(26.dp),
+                    border = BorderStroke(1.dp, colors.cardStrokeColor),
+                ) {
+                    Box(modifier = Modifier.padding(14.dp)) {
+                        footer()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditSettingsInfoCard(
+    icon: ImageVector,
+    title: String,
+    body: String,
+) {
+    val colors = editPageColors()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = colors.cardContainerColor,
+        contentColor = colors.primaryText,
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, colors.cardStrokeColor),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            EditSettingsLeadingIcon(icon = icon)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = colors.primaryText,
+                )
+                Text(
+                    text = body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondaryText,
+                )
             }
         }
     }
@@ -1630,15 +1748,18 @@ private fun EditSettingsSectionCard(
     title: String,
     content: @Composable () -> Unit,
 ) {
+    val colors = editPageColors()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.secondaryText,
         )
         Surface(
-            color = Color.White,
+            color = colors.cardContainerColor,
+            contentColor = colors.primaryText,
             shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, colors.cardStrokeColor),
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 content()
@@ -1649,8 +1770,10 @@ private fun EditSettingsSectionCard(
 
 @Composable
 private fun EditSettingsLeadingIcon(icon: ImageVector) {
+    val colors = editPageColors()
     Surface(
-        color = Color(0xFFF2F2F6),
+        color = colors.iconContainerColor,
+        contentColor = MaterialTheme.colorScheme.primary,
         shape = RoundedCornerShape(14.dp),
     ) {
         Icon(
@@ -1669,6 +1792,7 @@ private fun EditSettingRowShell(
     onClick: (() -> Unit)? = null,
     trailingContent: @Composable () -> Unit,
 ) {
+    val colors = editPageColors()
     val clickableModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick)
     } else {
@@ -1687,6 +1811,7 @@ private fun EditSettingRowShell(
             text = label,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyLarge,
+            color = colors.primaryText,
         )
         Box(
             modifier = Modifier.weight(1f),
@@ -1706,6 +1831,7 @@ private fun EditTextSettingRow(
     keyboardType: KeyboardType = KeyboardType.Text,
     onValueChange: (String) -> Unit,
 ) {
+    val colors = editPageColors()
     EditSettingRowShell(icon = icon, label = label) {
         BasicTextField(
             value = value,
@@ -1714,7 +1840,7 @@ private fun EditTextSettingRow(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
             textStyle = MaterialTheme.typography.bodyMedium.copy(
-                color = MaterialTheme.colorScheme.onSurface,
+                color = colors.primaryText,
                 textAlign = TextAlign.End,
             ),
             decorationBox = { innerTextField ->
@@ -1726,7 +1852,7 @@ private fun EditTextSettingRow(
                         Text(
                             text = placeholder,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.secondaryText,
                             textAlign = TextAlign.End,
                         )
                     }
@@ -1746,6 +1872,7 @@ private fun <T> EditMenuSettingRow(
     optionLabel: (T) -> String,
     onSelect: (T) -> Unit,
 ) {
+    val colors = editPageColors()
     var expanded by remember(label, valueLabel, options) { mutableStateOf(false) }
 
     Box {
@@ -1761,13 +1888,13 @@ private fun <T> EditMenuSettingRow(
                 Text(
                     text = valueLabel,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.secondaryText,
                     textAlign = TextAlign.End,
                 )
                 Icon(
                     imageVector = Icons.Outlined.ExpandMore,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = colors.secondaryText,
                 )
             }
         }
@@ -1822,12 +1949,13 @@ private fun EditSwitchSettingRow(
 
 @Composable
 private fun EditSettingsDivider() {
+    val colors = editPageColors()
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .height(1.dp)
-            .background(Color(0xFFE9E9EE)),
+            .background(colors.dividerColor),
     )
 }
 
