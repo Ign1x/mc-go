@@ -81,6 +81,23 @@ class PerformanceMathTest {
     }
 
     @Test
+    fun clampMetricChartAxisYBounds_capsPercentAxesWithinZeroToHundred() {
+        val axis = MetricChartAxis(
+            windowStartMillis = 0L,
+            windowEndMillis = 5 * 60_000L,
+            xTicks = listOf(0L, 60_000L, 120_000L, 180_000L),
+            yTicks = listOf(-1.2f, 32f, 67f, 101.4f),
+        )
+
+        val clamped = clampMetricChartAxisYBounds(axis, minimum = 0f, maximum = 100f)
+
+        assertThat(clamped.yTicks).containsExactly(0f, 32f, 67f, 100f).inOrder()
+        assertThat(clamped.windowStartMillis).isEqualTo(0L)
+        assertThat(clamped.windowEndMillis).isEqualTo(5 * 60_000L)
+        assertThat(clamped.xTicks).containsExactly(0L, 60_000L, 120_000L, 180_000L).inOrder()
+    }
+
+    @Test
     fun formatRamMetric_prefersCompactPercentPlusUsedCapacityDetail() {
         val formatted = formatRamMetric(usedBytes = 3L * GIGABYTE_BYTES, totalBytes = 8L * GIGABYTE_BYTES)
 

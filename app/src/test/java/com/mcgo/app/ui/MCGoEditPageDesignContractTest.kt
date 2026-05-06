@@ -84,6 +84,66 @@ class MCGoEditPageDesignContractTest {
         assertThat(systemBarHelper).contains("isAppearanceLightNavigationBars")
     }
 
+    @Test
+    fun editPagesAvoidImeAndBringFocusedInputsIntoView() {
+        val editDialog = source.substringBetween(
+            start = "private fun EditPaperServerDialog(",
+            end = "private fun PaperServerPropertiesEditorDialog(",
+        )
+        val propertiesDialog = source.substringBetween(
+            start = "private fun PaperServerPropertiesEditorDialog(",
+            end = "private fun EditSettingsSectionCard(",
+        )
+        val scaffold = source.substringBetween(
+            start = "private fun EditFullScreenScaffold(",
+            end = "private fun EditSettingsInfoCard(",
+        )
+        val textRow = source.substringBetween(
+            start = "private fun EditTextSettingRow(",
+            end = "@Composable\nprivate fun EditSwitchSettingRow(",
+        )
+
+        assertThat(source).contains("import androidx.compose.foundation.relocation.BringIntoViewRequester")
+        assertThat(source).contains("import androidx.compose.foundation.relocation.bringIntoViewRequester")
+        assertThat(source).contains("import androidx.compose.foundation.layout.imePadding")
+        assertThat(source).contains("import androidx.compose.ui.focus.onFocusEvent")
+        assertThat(scaffold).contains("imePadding()")
+        assertThat(editDialog).contains("imePadding()")
+        assertThat(propertiesDialog).contains("rememberImeBringIntoViewRequester()")
+        assertThat(propertiesDialog).contains("bringIntoViewRequester(propertiesBringIntoViewRequester)")
+        assertThat(propertiesDialog).contains("onFocusEvent")
+        assertThat(textRow).contains("rememberImeBringIntoViewRequester()")
+        assertThat(textRow).contains("bringIntoViewRequester(bringIntoViewRequester)")
+        assertThat(textRow).contains("onFocusEvent")
+        assertThat(source).contains("private fun rememberImeBringIntoViewRequester(): Pair<BringIntoViewRequester, (Boolean) -> Unit>")
+        assertThat(source).contains("bringIntoViewRequester.bringIntoView()")
+    }
+
+    @Test
+    fun bottomNavigationUsesFloatingTranslucentGlassMenu() {
+        val scaffold = source.substringBetween(
+            start = "private fun MCGoAppScaffold(",
+            end = "@Composable\nprivate fun RequestRuntimePermissions(",
+        )
+        val bottomMenu = source.substringBetween(
+            start = "private fun FloatingGlassBottomMenu(",
+            end = "private fun ServerDirectoryPermissionEffect(",
+        )
+
+        assertThat(source).contains("private fun FloatingGlassBottomMenu(")
+        assertThat(scaffold).contains("FloatingGlassBottomMenu(")
+        assertThat(scaffold).doesNotContain("NavigationBar(")
+        assertThat(scaffold).doesNotContain("NavigationBarItem(")
+        assertThat(bottomMenu).contains("navigationBarsPadding()")
+        assertThat(bottomMenu).contains("RoundedCornerShape(28.dp)")
+        assertThat(bottomMenu).contains("alpha = bottomBarAlpha")
+        assertThat(bottomMenu).contains("BorderStroke")
+        assertThat(bottomMenu).contains("tonalElevation")
+        assertThat(bottomMenu).contains("shadowElevation")
+        assertThat(bottomMenu).contains("Row(")
+        assertThat(bottomMenu).contains("McGoDestination.entries.forEach")
+    }
+
     private fun String.substringBetween(start: String, end: String): String {
         val startIndex = indexOf(start)
         val endIndex = indexOf(end, startIndex.coerceAtLeast(0))

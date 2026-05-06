@@ -82,6 +82,14 @@ fun buildMetricChartAxis(samples: List<MetricTrendSample>): MetricChartAxis {
     )
 }
 
+fun clampMetricChartAxisYBounds(
+    axis: MetricChartAxis,
+    minimum: Float,
+    maximum: Float,
+): MetricChartAxis = axis.copy(
+    yTicks = axis.yTicks.map { it.coerceIn(minimum, maximum) },
+)
+
 fun formatElapsedAxisLabel(elapsedMillis: Long): String {
     val safeMillis = elapsedMillis.coerceAtLeast(0L)
     val totalSeconds = safeMillis / 1000L

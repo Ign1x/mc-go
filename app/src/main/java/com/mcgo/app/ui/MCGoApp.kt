@@ -17,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -28,6 +29,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -67,8 +70,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -94,6 +95,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -308,6 +310,7 @@ private fun MCGoAppScaffold(
     onTunnelsChangeAndPersist: (List<TunnelProfile>) -> Unit,
     onPersistServers: (List<ServerCardState>) -> Unit,
 ) {
+    RequestRuntimePermissions()
     val appContext = LocalContext.current
     var destination by rememberSaveable { mutableStateOf(McGoDestination.Status) }
     var showTunnelComposer by remember { mutableStateOf(false) }
@@ -358,13 +361,7 @@ private fun MCGoAppScaffold(
             if (uri == null) remove(ServerDirectoryUriKey) else putString(ServerDirectoryUriKey, uri.toString())
         }.apply()
     }
-    fun hasServerDirectoryGrant(): Boolean = serverDirectoryUriText
-        ?.let { Uri.parse(it) }
-        ?.let { uri ->
-            appContext.contentResolver.persistedUriPermissions.any { permission ->
-                permission.uri == uri && permission.isReadPermission && permission.isWritePermission
-            }
-        } == true
+    fun hasServerDirectoryGrant(): Boolean = ServerDirectoryPermissionEffect(serverDirectoryUriText, appContext)
     val directoryPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -613,18 +610,11 @@ private fun MCGoAppScaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             bottomBar = {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = bottomBarAlpha),
-                ) {
-                    McGoDestination.entries.forEach { item ->
-                        NavigationBarItem(
-                            selected = destination == item,
-                            onClick = { destination = item },
-                            icon = { Icon(item.icon, contentDescription = null) },
-                            label = { Text(stringResource(item.labelRes)) },
-                        )
-                    }
-                }
+                FloatingGlassBottomMenu(
+                    destination = destination,
+                    bottomBarAlpha = bottomBarAlpha,
+                    onDestinationSelected = { destination = it },
+                )
             },
             floatingActionButton = {
                 when (destination) {
@@ -819,6 +809,73 @@ private fun MCGoAppScaffold(
         }
     }
 }
+
+@Composable
+private fun RequestRuntimePermissions() {
+    // 当前版本不需要预先申请危险权限；目录访问会在具体操作时通过 SAF 触发授权。
+}
+
+@Composable
+private fun FloatingGlassBottomMenu(
+    destination: McGoDestination,
+    bottomBarAlpha: Float,
+    onDestinationSelected: (McGoDestination) -> Unit,
+) {
+    val visuals = LocalMcGoVisualTokens.current
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = bottomBarAlpha),
+        contentColor = visuals.primaryTextColor,
+        shape = RoundedCornerShape(28.dp),
+        border = BorderStroke(1.dp, visuals.cardStrokeColor.copy(alpha = 0.92f)),
+        tonalElevation = 10.dp,
+        shadowElevation = 18.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            McGoDestination.entries.forEach { item ->
+                val selected = destination == item
+                FilterChip(
+                    selected = selected,
+                    onClick = { onDestinationSelected(item) },
+                    modifier = Modifier.weight(1f),
+                    leadingIcon = {
+                        Icon(
+                            imageVector = item.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = stringResource(item.labelRes),
+                            maxLines = 1,
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun ServerDirectoryPermissionEffect(
+    serverDirectoryUriText: String?,
+    context: Context,
+): Boolean = serverDirectoryUriText
+    ?.let(Uri::parse)
+    ?.let { uri ->
+        context.contentResolver.persistedUriPermissions.any { permission ->
+            permission.uri == uri && permission.isReadPermission && permission.isWritePermission
+        }
+    } == true
 
 private fun downloadAndInstallPojavRuntime(
     context: Context,
@@ -1375,6 +1432,7 @@ private fun EditPaperServerDialog(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .imePadding()
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -1514,6 +1572,7 @@ private fun PaperServerPropertiesEditorDialog(
     onApply: (String) -> Unit,
 ) {
     var editorText by remember(server.id, initialText) { mutableStateOf(initialText) }
+    val (propertiesBringIntoViewRequester, onPropertiesFocusChanged) = rememberImeBringIntoViewRequester()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1550,7 +1609,9 @@ private fun PaperServerPropertiesEditorDialog(
             },
         ) {
             Column(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(
@@ -1571,6 +1632,8 @@ private fun PaperServerPropertiesEditorDialog(
                         onValueChange = { editorText = it },
                         modifier = Modifier
                             .fillMaxSize()
+                            .bringIntoViewRequester(propertiesBringIntoViewRequester)
+                            .onFocusEvent { onPropertiesFocusChanged(it.isFocused) }
                             .padding(18.dp)
                             .verticalScroll(rememberScrollState()),
                         textStyle = MaterialTheme.typography.bodyMedium.copy(
@@ -1709,6 +1772,7 @@ private fun EditFullScreenScaffold(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
+                    .imePadding()
                     .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1903,11 +1967,15 @@ private fun EditTextSettingRow(
     onValueChange: (String) -> Unit,
 ) {
     val colors = editPageColors()
+    val (bringIntoViewRequester, onFocusChanged) = rememberImeBringIntoViewRequester()
     EditSettingRowShell(icon = icon, label = label) {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewRequester(bringIntoViewRequester)
+                .onFocusEvent { onFocusChanged(it.isFocused) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
             textStyle = MaterialTheme.typography.bodyMedium.copy(
@@ -1932,6 +2000,23 @@ private fun EditTextSettingRow(
             },
         )
     }
+}
+
+@Composable
+private fun rememberImeBringIntoViewRequester(): Pair<BringIntoViewRequester, (Boolean) -> Unit> {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+    val onFocusChanged = remember(bringIntoViewRequester, scope) {
+        { isFocused: Boolean ->
+            if (isFocused) {
+                scope.launch {
+                    delay(120)
+                    bringIntoViewRequester.bringIntoView()
+                }
+            }
+        }
+    }
+    return bringIntoViewRequester to onFocusChanged
 }
 
 @Composable

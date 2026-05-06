@@ -28,6 +28,39 @@ class StatusScreenChartContractTest {
     }
 
     @Test
+    fun metricSparklineUsesCompactLeftShiftedAxisTypography() {
+        val metricCard = statusScreenSource.substringBetween(
+            start = "private fun MetricCard(",
+            end = "@Composable\nprivate fun MetricSparkline(",
+        )
+        val sparkline = statusScreenSource.substringBetween(
+            start = "private fun MetricSparkline(",
+            end = "@Composable\nprivate fun metricAccentColor",
+        )
+
+        assertThat(statusScreenSource).contains("private val ChartAxisLabelTextSize = 7.sp")
+        assertThat(statusScreenSource).contains("private val ChartElapsedLabelTextSize = 7.sp")
+        assertThat(statusScreenSource).contains("private val ChartLeftInset = 22.dp")
+        assertThat(statusScreenSource).contains("private val ChartLabelGap = 3.dp")
+        assertThat(metricCard).contains("valueLabel = metric.valueLabel")
+        assertThat(sparkline).contains("chartLeft = ChartLeftInset.toPx()")
+        assertThat(sparkline).contains("ChartAxisLabelTextSize.toPx()")
+        assertThat(sparkline).contains("ChartElapsedLabelTextSize.toPx()")
+        assertThat(sparkline).contains("formatValueAxisLabel(tick, valueLabel)")
+        assertThat(sparkline).doesNotContain("textSize = 9.sp.toPx()")
+        assertThat(sparkline).doesNotContain("chartLeft = 30.dp.toPx()")
+    }
+
+    @Test
+    fun metricSparklineFormatsRamAsPercentAndTemperatureWithDecimals() {
+        assertThat(statusScreenSource).contains("private fun formatValueAxisLabel(value: Float, valueLabel: String): String")
+        assertThat(statusScreenSource).contains("valueLabel.contains(\"%\") -> String.format(Locale.US, \"%.0f%%\", value)")
+        assertThat(statusScreenSource).contains("valueLabel.contains(\"°C\") -> String.format(Locale.US, \"%.1f\", value)")
+        assertThat(monitorSource).contains("usedMemoryPercent(ramStats.usedBytes, ramStats.totalBytes).toFloat()")
+        assertThat(monitorSource).doesNotContain("ramStats.usedBytes / GIGABYTE_BYTES.toFloat()")
+    }
+
+    @Test
     fun statusTimelineUsesAppEntryTimestampThatSurvivesTabSwitches() {
         val topLevelApp = appSource.substringBetween(
             start = "fun MCGoApp() {",

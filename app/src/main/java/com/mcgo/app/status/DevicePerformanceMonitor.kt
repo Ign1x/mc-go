@@ -11,6 +11,7 @@ import android.os.SystemClock
 import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.MetricAccent
 import com.mcgo.app.ui.model.MetricTrendSample
+import com.mcgo.app.ui.model.usedMemoryPercent
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import java.io.File
@@ -93,7 +94,7 @@ class DevicePerformanceMonitor(
         val gpuTemperature = readHardwareTemperature(ThermalSensorKind.Gpu)
 
         val elapsedSinceAppEntry = SystemClock.elapsedRealtime() - appEntryElapsedRealtimeMillis
-        ramHistory = appendTimedHistorySample(ramHistory, ramStats.usedBytes / GIGABYTE_BYTES.toFloat(), elapsedSinceAppEntry)
+        ramHistory = appendTimedHistorySample(ramHistory, usedMemoryPercent(ramStats.usedBytes, ramStats.totalBytes).toFloat(), elapsedSinceAppEntry)
         networkReading.stats?.let {
             val combinedMbps = (it.uploadBytesPerSecond + it.downloadBytesPerSecond) / 125_000f
             networkHistory = appendTimedHistorySample(networkHistory, combinedMbps, elapsedSinceAppEntry)

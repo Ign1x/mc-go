@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcgo.app.R
 import com.mcgo.app.status.buildMetricChartAxis
+import com.mcgo.app.status.clampMetricChartAxisYBounds
 import com.mcgo.app.status.formatElapsedAxisLabel
 import com.mcgo.app.status.rememberStatusDashboardState
 import com.mcgo.app.ui.components.GlassCard
@@ -107,6 +108,10 @@ private fun MetricGrid(metrics: List<DashboardMetric>, modifier: Modifier = Modi
 }
 
 private val MetricCardMinHeight = 176.dp
+private val ChartAxisLabelTextSize = 7.sp
+private val ChartElapsedLabelTextSize = 7.sp
+private val ChartLeftInset = 22.dp
+private val ChartLabelGap = 3.dp
 
 @Composable
 private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
@@ -143,6 +148,7 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
         MetricSparkline(
             points = metric.trendSamples,
             accent = accent,
+            valueLabel = metric.valueLabel,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(72.dp),
@@ -151,27 +157,35 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun MetricSparkline(points: List<MetricTrendSample>, accent: Color, modifier: Modifier = Modifier) {
+private fun MetricSparkline(
+    points: List<MetricTrendSample>,
+    accent: Color,
+    valueLabel: String,
+    modifier: Modifier = Modifier,
+) {
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
     val gridColor = colors.secondary.copy(alpha = 0.18f)
     val axisColor = colors.secondary.copy(alpha = 0.72f)
     Canvas(modifier = modifier) {
-        val axis = buildMetricChartAxis(points)
+        var axis = buildMetricChartAxis(points)
+        if (valueLabel.contains("%")) {
+            axis = clampMetricChartAxisYBounds(axis, minimum = 0f, maximum = 100f)
+        }
         val xAxisLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = axisColor.toArgb()
             textAlign = Paint.Align.CENTER
-            textSize = 9.sp.toPx()
+            textSize = ChartElapsedLabelTextSize.toPx()
         }
         val yAxisLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = axisColor.toArgb()
             textAlign = Paint.Align.RIGHT
-            textSize = 9.sp.toPx()
+            textSize = ChartAxisLabelTextSize.toPx()
         }
         val labelOffsetY = ((xAxisLabelPaint.descent() - xAxisLabelPaint.ascent()) / 2f) - xAxisLabelPaint.descent()
-        val chartLeft = 30.dp.toPx()
+        val chartLeft = ChartLeftInset.toPx()
         val chartTop = 4.dp.toPx()
         val chartRight = size.width - 4.dp.toPx()
-        val chartBottom = size.height - 15.dp.toPx()
+        val chartBottom = size.height - (ChartElapsedLabelTextSize.toPx() + 8.dp.toPx())
         val chartWidth = (chartRight - chartLeft).coerceAtLeast(1f)
         val chartHeight = (chartBottom - chartTop).coerceAtLeast(1f)
         val minValue = axis.yTicks.firstOrNull() ?: 0f
@@ -199,8 +213,8 @@ private fun MetricSparkline(points: List<MetricTrendSample>, accent: Color, modi
                 strokeWidth = 1f,
             )
             nativeCanvas.drawText(
-                formatValueAxisLabel(tick),
-                chartLeft - 5.dp.toPx(),
+                formatValueAxisLabel(tick, valueLabel),
+                chartLeft - ChartLabelGap.toPx(),
                 y + labelOffsetY,
                 yAxisLabelPaint,
             )
@@ -269,7 +283,9 @@ private fun MetricSparkline(points: List<MetricTrendSample>, accent: Color, modi
     }
 }
 
-private fun formatValueAxisLabel(value: Float): String = when {
+private fun formatValueAxisLabel(value: Float, valueLabel: String): String = when {
+    valueLabel.contains("%") -> String.format(Locale.US, "%.0f%%", value)
+    valueLabel.contains("°C") -> String.format(Locale.US, "%.1f", value)
     kotlin.math.abs(value) >= 100f -> value.toInt().toString()
     kotlin.math.abs(value) >= 10f -> String.format(Locale.US, "%.0f", value)
     else -> String.format(Locale.US, "%.1f", value)
