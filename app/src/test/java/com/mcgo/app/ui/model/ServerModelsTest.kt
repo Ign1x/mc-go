@@ -166,7 +166,93 @@ class ServerModelsTest {
         assertThat(text).contains("white-list=false")
         assertThat(text).contains("enforce-secure-profile=true")
         assertThat(text).contains("sync-chunk-writes=true")
-        assertThat(text.lineSequence().count { it.contains("=") }).isAtLeast(45)
+        assertThat(text).contains("accepts-transfers=false")
+        assertThat(text).contains("enable-code-of-conduct=false")
+        assertThat(text).contains("management-server-enabled=false")
+        assertThat(text).contains("management-server-tls-enabled=true")
+        assertThat(text).contains("status-heartbeat-interval=0")
+        assertThat(text).contains("text-filtering-version=0")
+        assertThat(text).doesNotContain("accept-transfers=")
+        assertThat(text.lineSequence().count { it.contains("=") }).isAtLeast(58)
+    }
+
+    @Test
+    fun buildPaperServerPropertiesEditorText_coversCurrentJavaServerPropertiesDefaults() {
+        val server = createPaperServer("生存服", "1.21.11", 20, 2048)
+        val editorProperties = parsePropertyMap(buildPaperServerPropertiesEditorText(server))
+
+        listOf(
+            "accepts-transfers",
+            "allow-flight",
+            "broadcast-console-to-ops",
+            "broadcast-rcon-to-ops",
+            "bug-report-link",
+            "difficulty",
+            "enable-code-of-conduct",
+            "enable-jmx-monitoring",
+            "enable-query",
+            "enable-rcon",
+            "enable-status",
+            "enforce-secure-profile",
+            "enforce-whitelist",
+            "entity-broadcast-range-percentage",
+            "force-gamemode",
+            "function-permission-level",
+            "gamemode",
+            "generate-structures",
+            "generator-settings",
+            "hardcore",
+            "hide-online-players",
+            "initial-disabled-packs",
+            "initial-enabled-packs",
+            "level-name",
+            "level-seed",
+            "level-type",
+            "log-ips",
+            "management-server-allowed-origins",
+            "management-server-enabled",
+            "management-server-host",
+            "management-server-port",
+            "management-server-secret",
+            "management-server-tls-enabled",
+            "management-server-tls-keystore",
+            "management-server-tls-keystore-password",
+            "max-chained-neighbor-updates",
+            "max-players",
+            "max-tick-time",
+            "max-world-size",
+            "motd",
+            "network-compression-threshold",
+            "online-mode",
+            "op-permission-level",
+            "pause-when-empty-seconds",
+            "player-idle-timeout",
+            "prevent-proxy-connections",
+            "query.port",
+            "rate-limit",
+            "rcon.password",
+            "rcon.port",
+            "region-file-compression",
+            "require-resource-pack",
+            "resource-pack",
+            "resource-pack-id",
+            "resource-pack-prompt",
+            "resource-pack-sha1",
+            "server-ip",
+            "server-port",
+            "simulation-distance",
+            "spawn-protection",
+            "status-heartbeat-interval",
+            "sync-chunk-writes",
+            "text-filtering-config",
+            "text-filtering-version",
+            "use-native-transport",
+            "view-distance",
+            "white-list",
+        ).forEach { key ->
+            assertThat(editorProperties).containsKey(key)
+        }
+        assertThat(editorProperties).doesNotContainKey("accept-transfers")
     }
 
     @Test
