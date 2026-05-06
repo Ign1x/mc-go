@@ -91,7 +91,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -832,78 +831,62 @@ private fun FloatingGlassBottomMenu(
     } else {
         visuals.cardContainerColor
     }
-    val containerGradient = Brush.verticalGradient(
-        colors = listOf(
-            Color.Transparent,
-            containerColor.copy(alpha = containerColor.alpha * 0.18f),
-            containerColor.copy(alpha = containerColor.alpha * 0.42f),
-        ),
-    )
-    Box(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 18.dp)
-            .padding(top = 0.dp, bottom = 12.dp)
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        color = containerColor,
+        contentColor = unselectedContentColor,
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, visuals.cardStrokeColor.copy(alpha = 0.58f)),
+        tonalElevation = 0.dp,
+        shadowElevation = 24.dp,
     ) {
-        Box(
-            modifier = Modifier.matchParentSize()
-                .background(containerGradient),
-        )
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = containerColor,
-            contentColor = unselectedContentColor,
-            shape = RoundedCornerShape(999.dp),
-            border = BorderStroke(1.dp, visuals.cardStrokeColor.copy(alpha = 0.58f)),
-            tonalElevation = 0.dp,
-            shadowElevation = 24.dp,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                McGoDestination.entries.forEach { item ->
-                    val selected = destination == item
-                    val contentColor = if (selected) selectedContentColor else unselectedContentColor
-                    Column(
+            McGoDestination.entries.forEach { item ->
+                val selected = destination == item
+                val contentColor = if (selected) selectedContentColor else unselectedContentColor
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .selectable(
+                            selected = selected,
+                            onClick = { onDestinationSelected(item) },
+                            role = Role.Tab,
+                        )
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .selectable(
-                                selected = selected,
-                                onClick = { onDestinationSelected(item) },
-                                role = Role.Tab,
+                            .background(
+                                color = if (selected) selectedContentColor.copy(alpha = 0.14f) else Color.Transparent,
+                                shape = CircleShape,
                             )
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    color = if (selected) selectedContentColor.copy(alpha = 0.14f) else Color.Transparent,
-                                    shape = CircleShape,
-                                )
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = contentColor,
-                            )
-                        }
-                        Text(
-                            text = stringResource(item.labelRes),
-                            color = contentColor,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
+                        Icon(
+                            imageVector = item.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = contentColor,
                         )
                     }
+                    Text(
+                        text = stringResource(item.labelRes),
+                        color = contentColor,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
                 }
             }
         }
