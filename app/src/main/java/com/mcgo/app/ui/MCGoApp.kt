@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -64,9 +65,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -98,6 +97,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -613,6 +613,7 @@ private fun MCGoAppScaffold(
                 FloatingGlassBottomMenu(
                     destination = destination,
                     bottomBarAlpha = bottomBarAlpha,
+                    transparentCards = appearancePreferences.transparentCards,
                     onDestinationSelected = { destination = it },
                 )
             },
@@ -819,48 +820,74 @@ private fun RequestRuntimePermissions() {
 private fun FloatingGlassBottomMenu(
     destination: McGoDestination,
     bottomBarAlpha: Float,
+    transparentCards: Boolean,
     onDestinationSelected: (McGoDestination) -> Unit,
 ) {
     val visuals = LocalMcGoVisualTokens.current
+    val selectedContentColor = MaterialTheme.colorScheme.primary
+    val unselectedContentColor = visuals.primaryTextColor.copy(alpha = 0.6f)
+    val containerColor = if (transparentCards) {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.7f * bottomBarAlpha)
+    } else {
+        visuals.cardContainerColor
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 18.dp, vertical = 12.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = bottomBarAlpha),
-        contentColor = visuals.primaryTextColor,
-        shape = RoundedCornerShape(28.dp),
-        border = BorderStroke(1.dp, visuals.cardStrokeColor.copy(alpha = 0.92f)),
-        tonalElevation = 10.dp,
-        shadowElevation = 18.dp,
+        color = containerColor,
+        contentColor = unselectedContentColor,
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, visuals.cardStrokeColor.copy(alpha = 0.58f)),
+        tonalElevation = 0.dp,
+        shadowElevation = 24.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             McGoDestination.entries.forEach { item ->
                 val selected = destination == item
-                FilterChip(
-                    selected = selected,
-                    onClick = { onDestinationSelected(item) },
-                    modifier = Modifier.weight(1f),
-                    leadingIcon = {
+                val contentColor = if (selected) selectedContentColor else unselectedContentColor
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .selectable(
+                            selected = selected,
+                            onClick = { onDestinationSelected(item) },
+                            role = Role.Tab,
+                        )
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = if (selected) selectedContentColor.copy(alpha = 0.14f) else Color.Transparent,
+                                shape = CircleShape,
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Icon(
                             imageVector = item.icon,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(20.dp),
+                            tint = contentColor,
                         )
-                    },
-                    label = {
-                        Text(
-                            text = stringResource(item.labelRes),
-                            maxLines = 1,
-                        )
-                    },
-                )
+                    }
+                    Text(
+                        text = stringResource(item.labelRes),
+                        color = contentColor,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
