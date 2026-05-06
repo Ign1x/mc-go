@@ -10,6 +10,7 @@ import android.os.HardwarePropertiesManager
 import android.os.SystemClock
 import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.MetricAccent
+import com.mcgo.app.ui.model.MetricTrendSample
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import java.io.File
@@ -57,23 +58,25 @@ private data class BatteryStats(
     val isCharging: Boolean,
 )
 
-class DevicePerformanceMonitor(private val context: Context) {
+class DevicePerformanceMonitor(
+    private val context: Context,
+    private val appEntryElapsedRealtimeMillis: Long,
+) {
 
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
     private val hardwarePropertiesManager = context.getSystemService(Context.HARDWARE_PROPERTIES_SERVICE) as? HardwarePropertiesManager
-    private val historyLength = 8
 
     private var previousCpuSnapshot: CpuStatSnapshot? = readCpuSnapshot()
     private var previousCpuTimestampMillis: Long = SystemClock.elapsedRealtime()
     private var previousNetworkSnapshot: NetworkSnapshot = readNetworkSnapshot()
 
-    private var ramHistory: List<Float> = emptyList()
-    private var networkHistory: List<Float> = emptyList()
-    private var cpuTemperatureHistory: List<Float> = emptyList()
-    private var gpuTemperatureHistory: List<Float> = emptyList()
-    private var batteryTemperatureHistory: List<Float> = emptyList()
-    private var batteryCurrentHistory: List<Float> = emptyList()
+    private var ramHistory: List<MetricTrendSample> = emptyList()
+    private var networkHistory: List<MetricTrendSample> = emptyList()
+    private var cpuTemperatureHistory: List<MetricTrendSample> = emptyList()
+    private var gpuTemperatureHistory: List<MetricTrendSample> = emptyList()
+    private var batteryTemperatureHistory: List<MetricTrendSample> = emptyList()
+    private var batteryCurrentHistory: List<MetricTrendSample> = emptyList()
 
     fun resetSamplingBaselines() {
         previousCpuSnapshot = readCpuSnapshot()
@@ -89,19 +92,20 @@ class DevicePerformanceMonitor(private val context: Context) {
         val cpuTemperature = readHardwareTemperature(ThermalSensorKind.Cpu)
         val gpuTemperature = readHardwareTemperature(ThermalSensorKind.Gpu)
 
-        ramHistory = appendHistorySample(ramHistory, ramStats.usedBytes / GIGABYTE_BYTES.toFloat(), historyLength)
+        val elapsedSinceAppEntry = SystemClock.elapsedRealtime() - appEntryElapsedRealtimeMillis
+        ramHistory = appendTimedHistorySample(ramHistory, ramStats.usedBytes / GIGABYTE_BYTES.toFloat(), elapsedSinceAppEntry)
         networkReading.stats?.let {
             val combinedMbps = (it.uploadBytesPerSecond + it.downloadBytesPerSecond) / 125_000f
-            networkHistory = appendHistorySample(networkHistory, combinedMbps, historyLength)
+            networkHistory = appendTimedHistorySample(networkHistory, combinedMbps, elapsedSinceAppEntry)
         }
-        cpuTemperature?.let { cpuTemperatureHistory = appendHistorySample(cpuTemperatureHistory, it, historyLength) }
-        gpuTemperature?.let { gpuTemperatureHistory = appendHistorySample(gpuTemperatureHistory, it, historyLength) }
+        cpuTemperature?.let { cpuTemperatureHistory = appendTimedHistorySample(cpuTemperatureHistory, it, elapsedSinceAppEntry) }
+        gpuTemperature?.let { gpuTemperatureHistory = appendTimedHistorySample(gpuTemperatureHistory, it, elapsedSinceAppEntry) }
         batteryStats.batteryTemperatureCelsius?.let {
-            batteryTemperatureHistory = appendHistorySample(batteryTemperatureHistory, it, historyLength)
+            batteryTemperatureHistory = appendTimedHistorySample(batteryTemperatureHistory, it, elapsedSinceAppEntry)
         }
         batteryStats.currentMilliAmps?.let {
             val normalizedCurrent = if (batteryStats.isCharging) abs(it) else -abs(it)
-            batteryCurrentHistory = appendHistorySample(batteryCurrentHistory, normalizedCurrent.toFloat() / 1000f, historyLength)
+            batteryCurrentHistory = appendTimedHistorySample(batteryCurrentHistory, normalizedCurrent.toFloat() / 1000f, elapsedSinceAppEntry)
         }
 
         val ramMetric = buildRamMetric(ramStats)
@@ -137,8 +141,9 @@ class DevicePerformanceMonitor(private val context: Context) {
             title = "CPU 温度",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = cpuTemperatureHistory,
+            trendValues = cpuTemperatureHistory.map { it.value },
             accent = MetricAccent.Coral,
+            trendSamples = cpuTemperatureHistory,
         )
     }
 
@@ -152,8 +157,9 @@ class DevicePerformanceMonitor(private val context: Context) {
             title = "GPU 温度",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = gpuTemperatureHistory,
+            trendValues = gpuTemperatureHistory.map { it.value },
             accent = MetricAccent.Violet,
+            trendSamples = gpuTemperatureHistory,
         )
     }
 
@@ -167,8 +173,9 @@ class DevicePerformanceMonitor(private val context: Context) {
             title = "电池温度",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = batteryTemperatureHistory,
+            trendValues = batteryTemperatureHistory.map { it.value },
             accent = MetricAccent.Gold,
+            trendSamples = batteryTemperatureHistory,
         )
     }
 
@@ -182,8 +189,9 @@ class DevicePerformanceMonitor(private val context: Context) {
             title = "电池电流",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = batteryCurrentHistory,
+            trendValues = batteryCurrentHistory.map { it.value },
             accent = MetricAccent.Teal,
+            trendSamples = batteryCurrentHistory,
         )
     }
 
@@ -193,8 +201,9 @@ class DevicePerformanceMonitor(private val context: Context) {
             title = "RAM",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = ramHistory,
+            trendValues = ramHistory.map { it.value },
             accent = MetricAccent.Green,
+            trendSamples = ramHistory,
         )
     }
 
@@ -211,12 +220,13 @@ class DevicePerformanceMonitor(private val context: Context) {
             title = "Network I/O",
             valueLabel = when (networkReading.state) {
                 SampleState.Ready -> formatted?.valueLabel ?: "0.0 Mbps"
-                SampleState.WarmingUp -> if (networkHistory.isEmpty()) "采集中" else "${networkHistory.last().roundToInt()} Mbps"
+                SampleState.WarmingUp -> if (networkHistory.isEmpty()) "采集中" else "${networkHistory.last().value.roundToInt()} Mbps"
                 SampleState.Unavailable -> "不可用"
             },
             detailLabel = detailLabel,
-            trendValues = networkHistory,
+            trendValues = networkHistory.map { it.value },
             accent = MetricAccent.Blue,
+            trendSamples = networkHistory,
         )
     }
 

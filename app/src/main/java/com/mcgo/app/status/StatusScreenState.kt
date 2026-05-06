@@ -18,10 +18,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @Composable
-fun rememberStatusDashboardState(): StatusDashboardState {
+fun rememberStatusDashboardState(appEntryElapsedRealtimeMillis: Long): StatusDashboardState {
     val appContext = LocalContext.current.applicationContext
     val lifecycleOwner = LocalLifecycleOwner.current
-    val monitor = remember(appContext) { DevicePerformanceMonitor(appContext) }
+    val monitor = remember(appContext, appEntryElapsedRealtimeMillis) {
+        DevicePerformanceMonitor(appContext, appEntryElapsedRealtimeMillis)
+    }
     var isStarted by remember(lifecycleOwner) {
         mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
     }

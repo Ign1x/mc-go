@@ -49,6 +49,41 @@ class MCGoEditPageDesignContractTest {
         }
     }
 
+    @Test
+    fun editDialogs_requestEdgeToEdgeSystemBarsForImmersiveBackground() {
+        val dialogPropertiesCalls = Regex("DialogProperties\\([^)]*usePlatformDefaultWidth = false[^)]*\\)")
+            .findAll(source)
+            .map { it.value }
+            .toList()
+
+        assertThat(dialogPropertiesCalls).hasSize(2)
+        dialogPropertiesCalls.forEach { call ->
+            assertThat(call).contains("decorFitsSystemWindows = false")
+        }
+    }
+
+    @Test
+    fun editDialogs_makeTheirOwnWindowSystemBarsTransparent() {
+        val scaffold = source.substringBetween(
+            start = "private fun EditFullScreenScaffold(",
+            end = "private fun EditSettingsInfoCard(",
+        )
+        val systemBarHelper = source.substringBetween(
+            start = "private fun EditDialogImmersiveSystemBars(",
+            end = "@Composable\nprivate fun EditFullScreenScaffold(",
+        )
+
+        assertThat(scaffold).contains("EditDialogImmersiveSystemBars()")
+        assertThat(systemBarHelper).contains("DialogWindowProvider")
+        assertThat(systemBarHelper).contains("WindowCompat.setDecorFitsSystemWindows(window, false)")
+        assertThat(systemBarHelper).contains("statusBarColor = android.graphics.Color.TRANSPARENT")
+        assertThat(systemBarHelper).contains("navigationBarColor = android.graphics.Color.TRANSPARENT")
+        assertThat(systemBarHelper).contains("isNavigationBarContrastEnforced = false")
+        assertThat(systemBarHelper).contains("isStatusBarContrastEnforced = false")
+        assertThat(systemBarHelper).contains("isAppearanceLightStatusBars")
+        assertThat(systemBarHelper).contains("isAppearanceLightNavigationBars")
+    }
+
     private fun String.substringBetween(start: String, end: String): String {
         val startIndex = indexOf(start)
         val endIndex = indexOf(end, startIndex.coerceAtLeast(0))

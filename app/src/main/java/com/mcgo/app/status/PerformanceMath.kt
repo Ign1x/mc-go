@@ -1,5 +1,6 @@
 package com.mcgo.app.status
 
+import com.mcgo.app.ui.model.MetricTrendSample
 import com.mcgo.app.ui.model.formatBatteryCurrent
 import com.mcgo.app.ui.model.usedMemoryPercent
 import kotlin.math.max
@@ -37,6 +38,60 @@ fun calculateCpuUsagePercent(previous: CpuStatSnapshot, current: CpuStatSnapshot
 fun appendHistorySample(history: List<Float>, nextValue: Float, maxPoints: Int = 8): List<Float> {
     val safeMaxPoints = maxPoints.coerceAtLeast(1)
     return (history + nextValue).takeLast(safeMaxPoints)
+}
+
+const val MetricHistoryMaxWindowMillis: Long = 60 * 60_000L
+
+data class MetricChartAxis(
+    val windowStartMillis: Long,
+    val windowEndMillis: Long,
+    val xTicks: List<Long>,
+    val yTicks: List<Float>,
+)
+
+fun appendTimedHistorySample(
+    history: List<MetricTrendSample>,
+    nextValue: Float,
+    elapsedMillis: Long,
+    maxWindowMillis: Long = MetricHistoryMaxWindowMillis,
+): List<MetricTrendSample> {
+    val safeElapsedMillis = elapsedMillis.coerceAtLeast(0L)
+    val windowStart = (safeElapsedMillis - maxWindowMillis.coerceAtLeast(1L)).coerceAtLeast(0L)
+    return (history + MetricTrendSample(safeElapsedMillis, nextValue))
+        .filter { it.elapsedMillis >= windowStart && it.elapsedMillis <= safeElapsedMillis }
+}
+
+fun buildMetricChartAxis(samples: List<MetricTrendSample>): MetricChartAxis {
+    val latestElapsed = samples.maxOfOrNull { it.elapsedMillis } ?: 0L
+    val windowEnd = latestElapsed
+    val windowStart = (windowEnd - MetricHistoryMaxWindowMillis).coerceAtLeast(0L)
+    val visibleValues = samples
+        .filter { it.elapsedMillis in windowStart..windowEnd }
+        .map { it.value }
+    val minValue = visibleValues.minOrNull() ?: 0f
+    val maxValue = visibleValues.maxOrNull() ?: 1f
+    val paddedRange = ((maxValue - minValue).takeIf { it > 0f } ?: 1f) * 0.12f
+    val axisMin = (minValue - paddedRange).coerceAtMost(minValue)
+    val axisMax = (maxValue + paddedRange).coerceAtLeast(maxValue + 0.001f)
+    val tickStep = (axisMax - axisMin) / 3f
+    return MetricChartAxis(
+        windowStartMillis = windowStart,
+        windowEndMillis = windowEnd,
+        xTicks = (0..3).map { windowStart + ((windowEnd - windowStart) * it / 3) },
+        yTicks = (0..3).map { axisMin + tickStep * it },
+    )
+}
+
+fun formatElapsedAxisLabel(elapsedMillis: Long): String {
+    val safeMillis = elapsedMillis.coerceAtLeast(0L)
+    val totalSeconds = safeMillis / 1000L
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return if (minutes == 0L) {
+        "${seconds}s"
+    } else {
+        "${minutes}m"
+    }
 }
 
 fun formatRamMetric(usedBytes: Long, totalBytes: Long): FormattedMetric {

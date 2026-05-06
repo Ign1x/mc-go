@@ -3,6 +3,7 @@ package com.mcgo.app.ui.model
 import com.google.common.truth.Truth.assertThat
 import com.mcgo.app.server.PaperServerEvent
 import com.mcgo.app.server.PaperServerEventStatus
+import com.mcgo.app.server.buildServerProperties
 import com.mcgo.app.server.reducePaperRuntimeEvent
 import kotlin.test.Test
 
@@ -145,6 +146,95 @@ class ServerModelsTest {
         assertThat(edited.difficulty).isEqualTo(PaperDifficulty.Peaceful)
         assertThat(edited.onlineMode).isFalse()
         assertThat(edited.pvpEnabled).isFalse()
+    }
+
+    @Test
+    fun buildPaperServerPropertiesEditorText_outputsDocumentedFullTemplate() {
+        val server = createPaperServer("生存服", "1.21.11", 20, 2048)
+        val text = buildPaperServerPropertiesEditorText(server)
+
+        assertThat(text).contains("# MC-GO server.properties 模板")
+        assertThat(text).contains("# MC-GO: motd - 服务器列表中显示的名称")
+        assertThat(text).contains("motd=生存服")
+        assertThat(text).contains("# MC-GO: view-distance - 客户端视距，数值越高越吃内存/CPU")
+        assertThat(text).contains("view-distance=8")
+        assertThat(text).contains("simulation-distance=4")
+        assertThat(text).contains("spawn-protection=16")
+        assertThat(text).contains("allow-nether=true")
+        assertThat(text).contains("enable-command-block=true")
+        assertThat(text).contains("allow-flight=true")
+        assertThat(text).contains("white-list=false")
+        assertThat(text).contains("enforce-secure-profile=true")
+        assertThat(text).contains("sync-chunk-writes=true")
+        assertThat(text.lineSequence().count { it.contains("=") }).isAtLeast(45)
+    }
+
+    @Test
+    fun buildPaperServerPropertiesEditorText_usesRuntimeManagedDefaultsForDocumentedTemplate() {
+        val server = createPaperServer("生存服", "1.21.11", 20, 2048)
+        val editorProperties = parsePropertyMap(buildPaperServerPropertiesEditorText(server))
+        val runtimeProperties = parsePropertyMap(buildServerProperties(server))
+
+        listOf(
+            "enable-command-block",
+            "allow-flight",
+            "view-distance",
+            "simulation-distance",
+        ).forEach { key ->
+            assertThat(editorProperties[key]).isEqualTo(runtimeProperties[key])
+        }
+    }
+
+    @Test
+    fun parsePaperServerPropertiesEditorText_ignoresUnchangedGeneratedTemplateCommentsAndDefaults() {
+        val server = createPaperServer("生存服", "1.21.11", 20, 2048)
+        val parsed = parsePaperServerPropertiesEditorText(
+            server = server,
+            text = buildPaperServerPropertiesEditorText(server),
+        )
+
+        assertThat(parsed.name).isEqualTo(server.name)
+        assertThat(parsed.worldName).isEqualTo(server.worldName)
+        assertThat(parsed.maxPlayers).isEqualTo(server.maxPlayers)
+        assertThat(parsed.defaultPort).isEqualTo(server.defaultPort)
+        assertThat(parsed.serverPropertiesOverride).isNull()
+    }
+
+    @Test
+    fun parsePaperServerPropertiesEditorText_preservesEditedTemplateDefaultsAsOverrides() {
+        val server = createPaperServer("生存服", "1.21.11", 20, 2048)
+        val editedText = buildPaperServerPropertiesEditorText(server)
+            .replace("view-distance=8", "view-distance=12")
+            .replace("enable-command-block=true", "enable-command-block=false")
+
+        val parsed = parsePaperServerPropertiesEditorText(server, editedText)
+
+        assertThat(parsed.serverPropertiesOverride).contains("view-distance=12")
+        assertThat(parsed.serverPropertiesOverride).contains("enable-command-block=false")
+        assertThat(parsed.serverPropertiesOverride).doesNotContain("# MC-GO")
+    }
+
+    @Test
+    fun parsePaperServerPropertiesEditorText_preservesExistingRuntimeDivergentOverridesAfterTemplateRoundTrip() {
+        val server = createPaperServer("生存服", "1.21.11", 20, 2048)
+            .copy(
+                serverPropertiesOverride = """
+                    view-distance=10
+                    simulation-distance=10
+                    enable-command-block=false
+                    allow-flight=false
+                """.trimIndent(),
+            )
+
+        val parsed = parsePaperServerPropertiesEditorText(
+            server = server,
+            text = buildPaperServerPropertiesEditorText(server),
+        )
+
+        assertThat(parsed.serverPropertiesOverride).contains("view-distance=10")
+        assertThat(parsed.serverPropertiesOverride).contains("simulation-distance=10")
+        assertThat(parsed.serverPropertiesOverride).contains("enable-command-block=false")
+        assertThat(parsed.serverPropertiesOverride).contains("allow-flight=false")
     }
 
     @Test
@@ -414,4 +504,15 @@ class ServerModelsTest {
         val missing = server.copy(runtimeLogPath = logFile.resolveSibling("missing.log").toString())
         assertThat(resolveServerConsoleText(missing)).isEqualTo("fallback-1\nfallback-2")
     }
+
+    private fun parsePropertyMap(text: String): Map<String, String> = text
+        .lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") }
+        .mapNotNull { line ->
+            val separatorIndex = line.indexOf('=')
+            if (separatorIndex <= 0) return@mapNotNull null
+            line.substring(0, separatorIndex).trim() to line.substring(separatorIndex + 1).trim()
+        }
+        .toMap()
 }

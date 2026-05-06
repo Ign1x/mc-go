@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,6 +79,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,6 +92,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -99,6 +102,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.R
 import com.mcgo.app.network.measureTcpLatency
@@ -227,6 +232,7 @@ private enum class McGoDestination(
 @Composable
 fun MCGoApp() {
     val context = LocalContext.current
+    val appEntryElapsedRealtimeMillis = remember { SystemClock.elapsedRealtime() }
     val tunnelStore = remember(context) {
         TunnelProfileStore(context.filesDir.toPath().resolve("tunnel_profiles.properties"))
     }
@@ -272,6 +278,7 @@ fun MCGoApp() {
             tunnels = tunnels,
             paperVersions = paperVersions,
             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
+            appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
             onAppearancePreferencesChange = {
                 appearancePreferences = it
                 appearanceStore.save(it)
@@ -294,6 +301,7 @@ private fun MCGoAppScaffold(
     tunnels: List<TunnelProfile>,
     paperVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
+    appEntryElapsedRealtimeMillis: Long,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     onServersChange: (List<ServerCardState>) -> Unit,
     onTunnelsChange: (List<TunnelProfile>) -> Unit,
@@ -685,7 +693,10 @@ private fun MCGoAppScaffold(
                     }
                 }
                 when (destination) {
-                    McGoDestination.Status -> StatusScreen(modifier = Modifier.fillMaxSize())
+                    McGoDestination.Status -> StatusScreen(
+                        modifier = Modifier.fillMaxSize(),
+                        appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
+                    )
                     McGoDestination.Servers -> ServersScreen(
                         servers = servers,
                         availableTunnels = tunnels,
@@ -1326,7 +1337,10 @@ private fun EditPaperServerDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
     ) {
         EditFullScreenScaffold(
             title = "编辑 ${server.name}",
@@ -1503,7 +1517,10 @@ private fun PaperServerPropertiesEditorDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
     ) {
         val colors = editPageColors()
         EditFullScreenScaffold(
@@ -1606,6 +1623,59 @@ private fun editPageColors(): EditPageColors {
     )
 }
 
+@Suppress("DEPRECATION")
+@Composable
+private fun EditDialogImmersiveSystemBars() {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val lightSystemBars = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    DisposableEffect(view, lightSystemBars) {
+        val window = (view.parent as? DialogWindowProvider)?.window
+        if (window == null) {
+            onDispose { }
+        } else {
+            val previousStatusBarColor = window.statusBarColor
+            val previousNavigationBarColor = window.navigationBarColor
+            val previousLightStatusBars = WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars
+            val previousLightNavigationBars = WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars
+            val previousNavigationBarContrast = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced
+            } else {
+                false
+            }
+            val previousStatusBarContrast = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isStatusBarContrastEnforced
+            } else {
+                false
+            }
+
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = lightSystemBars
+                isAppearanceLightNavigationBars = lightSystemBars
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
+                window.isStatusBarContrastEnforced = false
+            }
+
+            onDispose {
+                window.statusBarColor = previousStatusBarColor
+                window.navigationBarColor = previousNavigationBarColor
+                WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = previousLightStatusBars
+                    isAppearanceLightNavigationBars = previousLightNavigationBars
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    window.isNavigationBarContrastEnforced = previousNavigationBarContrast
+                    window.isStatusBarContrastEnforced = previousStatusBarContrast
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun EditFullScreenScaffold(
     title: String,
@@ -1616,6 +1686,7 @@ private fun EditFullScreenScaffold(
     footer: @Composable () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    EditDialogImmersiveSystemBars()
     val colors = editPageColors()
     val backgroundSpec = LocalMcGoVisualTokens.current.fluidBackgroundSpec
     Surface(

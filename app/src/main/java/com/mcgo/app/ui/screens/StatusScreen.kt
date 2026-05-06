@@ -1,5 +1,6 @@
 package com.mcgo.app.ui.screens
 
+import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
@@ -23,20 +24,30 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mcgo.app.R
+import com.mcgo.app.status.buildMetricChartAxis
+import com.mcgo.app.status.formatElapsedAxisLabel
 import com.mcgo.app.status.rememberStatusDashboardState
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.MetricAccent
+import com.mcgo.app.ui.model.MetricTrendSample
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.screenTextColors
+import java.util.Locale
 
 @Composable
-fun StatusScreen(modifier: Modifier = Modifier) {
-    val dashboardState = rememberStatusDashboardState()
+fun StatusScreen(
+    modifier: Modifier = Modifier,
+    appEntryElapsedRealtimeMillis: Long,
+) {
+    val dashboardState = rememberStatusDashboardState(appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis)
 
     LazyColumn(
         modifier = modifier,
@@ -130,7 +141,7 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.weight(1f))
         MetricSparkline(
-            points = metric.trendValues,
+            points = metric.trendSamples,
             accent = accent,
             modifier = Modifier
                 .fillMaxWidth()
@@ -140,56 +151,128 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun MetricSparkline(points: List<Float>, accent: Color, modifier: Modifier = Modifier) {
+private fun MetricSparkline(points: List<MetricTrendSample>, accent: Color, modifier: Modifier = Modifier) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
+    val gridColor = colors.secondary.copy(alpha = 0.18f)
+    val axisColor = colors.secondary.copy(alpha = 0.72f)
     Canvas(modifier = modifier) {
-        if (points.isEmpty()) return@Canvas
-        val maxValue = points.maxOrNull() ?: 0f
-        val minValue = points.minOrNull() ?: 0f
-        val range = (maxValue - minValue).takeIf { it > 0f } ?: 1f
-        val stepX = size.width / points.lastIndex.coerceAtLeast(1)
+        val axis = buildMetricChartAxis(points)
+        val xAxisLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = axisColor.toArgb()
+            textAlign = Paint.Align.CENTER
+            textSize = 9.sp.toPx()
+        }
+        val yAxisLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = axisColor.toArgb()
+            textAlign = Paint.Align.RIGHT
+            textSize = 9.sp.toPx()
+        }
+        val labelOffsetY = ((xAxisLabelPaint.descent() - xAxisLabelPaint.ascent()) / 2f) - xAxisLabelPaint.descent()
+        val chartLeft = 30.dp.toPx()
+        val chartTop = 4.dp.toPx()
+        val chartRight = size.width - 4.dp.toPx()
+        val chartBottom = size.height - 15.dp.toPx()
+        val chartWidth = (chartRight - chartLeft).coerceAtLeast(1f)
+        val chartHeight = (chartBottom - chartTop).coerceAtLeast(1f)
+        val minValue = axis.yTicks.firstOrNull() ?: 0f
+        val maxValue = axis.yTicks.lastOrNull() ?: 1f
+        val valueRange = (maxValue - minValue).takeIf { it > 0f } ?: 1f
+        val timeRange = (axis.windowEndMillis - axis.windowStartMillis).coerceAtLeast(1L).toFloat()
+        val nativeCanvas = drawContext.canvas.nativeCanvas
 
+        fun xForTick(elapsedMillis: Long): Float {
+            val ratio = ((elapsedMillis - axis.windowStartMillis).toFloat() / timeRange).coerceIn(0f, 1f)
+            return chartLeft + ratio * chartWidth
+        }
+
+        fun yForValue(value: Float): Float {
+            val ratio = ((value - minValue) / valueRange).coerceIn(0f, 1f)
+            return chartBottom - ratio * chartHeight
+        }
+
+        axis.yTicks.forEach { tick ->
+            val y = yForValue(tick)
+            drawLine(
+                color = gridColor,
+                start = Offset(chartLeft, y),
+                end = Offset(chartRight, y),
+                strokeWidth = 1f,
+            )
+            nativeCanvas.drawText(
+                formatValueAxisLabel(tick),
+                chartLeft - 5.dp.toPx(),
+                y + labelOffsetY,
+                yAxisLabelPaint,
+            )
+        }
+        axis.xTicks.forEach { tick ->
+            val x = xForTick(tick)
+            drawLine(
+                color = gridColor.copy(alpha = 0.82f),
+                start = Offset(x, chartTop),
+                end = Offset(x, chartBottom),
+                strokeWidth = 1f,
+            )
+            nativeCanvas.drawText(
+                formatElapsedAxisLabel(tick),
+                x.coerceIn(chartLeft, chartRight),
+                size.height - 2.dp.toPx(),
+                xAxisLabelPaint,
+            )
+        }
+
+        val visiblePoints = points.filter { it.elapsedMillis in axis.windowStartMillis..axis.windowEndMillis }
+        if (visiblePoints.isEmpty()) return@Canvas
         val linePath = Path()
-        val fillPath = Path().apply { moveTo(0f, size.height) }
+        val fillPath = Path()
         var lastPoint = Offset.Zero
 
-        points.forEachIndexed { index, point ->
-            val x = stepX * index
-            val normalized = (point - minValue) / range
-            val y = size.height - (normalized * size.height)
+        visiblePoints.forEachIndexed { index, point ->
+            val x = xForTick(point.elapsedMillis)
+            val y = yForValue(point.value)
             lastPoint = Offset(x, y)
             if (index == 0) {
                 linePath.moveTo(x, y)
+                fillPath.moveTo(x, chartBottom)
+                fillPath.lineTo(x, y)
             } else {
                 linePath.lineTo(x, y)
+                fillPath.lineTo(x, y)
             }
-            fillPath.lineTo(x, y)
         }
 
-        fillPath.lineTo(size.width, size.height)
+        fillPath.lineTo(lastPoint.x, chartBottom)
         fillPath.close()
 
         drawPath(
             path = fillPath,
             brush = Brush.verticalGradient(
-                colors = listOf(accent.copy(alpha = 0.28f), Color.Transparent),
-                endY = size.height,
+                colors = listOf(accent.copy(alpha = 0.24f), Color.Transparent),
+                startY = chartTop,
+                endY = chartBottom,
             ),
         )
         drawPath(
             path = linePath,
             color = accent,
             style = Stroke(
-                width = 5f,
+                width = 4f,
                 cap = StrokeCap.Round,
                 join = StrokeJoin.Round,
             ),
         )
         drawCircle(
             color = accent,
-            radius = 7f,
+            radius = 5.5f,
             center = lastPoint,
         )
     }
+}
+
+private fun formatValueAxisLabel(value: Float): String = when {
+    kotlin.math.abs(value) >= 100f -> value.toInt().toString()
+    kotlin.math.abs(value) >= 10f -> String.format(Locale.US, "%.0f", value)
+    else -> String.format(Locale.US, "%.1f", value)
 }
 
 @Composable

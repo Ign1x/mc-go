@@ -1,6 +1,7 @@
 package com.mcgo.app.status
 
 import com.google.common.truth.Truth.assertThat
+import com.mcgo.app.ui.model.MetricTrendSample
 import kotlin.test.Test
 
 class PerformanceMathTest {
@@ -20,6 +21,63 @@ class PerformanceMathTest {
         assertThat(appendHistorySample(original, nextValue = 9f, maxPoints = 8))
             .containsExactly(2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f)
             .inOrder()
+    }
+
+    @Test
+    fun appendTimedHistorySample_keepsAtMostOneHourSinceAppEntry() {
+        val original = listOf(
+            MetricTrendSample(elapsedMillis = 0L, value = 1f),
+            MetricTrendSample(elapsedMillis = 30 * 60_000L, value = 2f),
+            MetricTrendSample(elapsedMillis = 59 * 60_000L, value = 3f),
+        )
+
+        val history = appendTimedHistorySample(
+            history = original,
+            nextValue = 4f,
+            elapsedMillis = 61 * 60_000L,
+        )
+
+        assertThat(history.map { it.elapsedMillis })
+            .containsExactly(30 * 60_000L, 59 * 60_000L, 61 * 60_000L)
+            .inOrder()
+        assertThat(history.map { it.value }).containsExactly(2f, 3f, 4f).inOrder()
+    }
+
+    @Test
+    fun buildMetricChartAxis_startsAtAppEntryBeforeTheFirstHour() {
+        val samples = listOf(
+            MetricTrendSample(elapsedMillis = 0L, value = 1f),
+            MetricTrendSample(elapsedMillis = 5 * 60_000L, value = 2f),
+            MetricTrendSample(elapsedMillis = 10 * 60_000L, value = 3f),
+        )
+
+        val axis = buildMetricChartAxis(samples)
+
+        assertThat(axis.windowStartMillis).isEqualTo(0L)
+        assertThat(axis.windowEndMillis).isEqualTo(10 * 60_000L)
+        assertThat(axis.xTicks.map(::formatElapsedAxisLabel))
+            .containsExactly("0s", "3m", "6m", "10m")
+            .inOrder()
+    }
+
+    @Test
+    fun buildMetricChartAxis_usesElapsedTimeTicksFromAppEntryWithinOneHourWindow() {
+        val samples = listOf(
+            MetricTrendSample(elapsedMillis = 10 * 60_000L, value = 2f),
+            MetricTrendSample(elapsedMillis = 40 * 60_000L, value = 4f),
+            MetricTrendSample(elapsedMillis = 70 * 60_000L, value = 6f),
+        )
+
+        val axis = buildMetricChartAxis(samples)
+
+        assertThat(axis.windowStartMillis).isEqualTo(10 * 60_000L)
+        assertThat(axis.windowEndMillis).isEqualTo(70 * 60_000L)
+        assertThat(axis.xTicks.map(::formatElapsedAxisLabel))
+            .containsExactly("10m", "30m", "50m", "70m")
+            .inOrder()
+        assertThat(axis.yTicks).hasSize(4)
+        assertThat(axis.yTicks.first()).isAtMost(2f)
+        assertThat(axis.yTicks.last()).isAtLeast(6f)
     }
 
     @Test
