@@ -1470,9 +1470,10 @@ private fun EditPaperServerDialog(
     ) {
         EditFullScreenScaffold(
             title = "编辑 ${server.name}",
-            subtitle = "与主页面一致的卡片式配置页，深色模式下保持高对比",
+            subtitle = "与主页面一致的卡片式配置页，可直接保存常用参数或编辑 server.properties",
             leadingIcon = Icons.Outlined.Tune,
             dynamicBackground = dynamicBackground,
+            layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome,
             onDismiss = onDismiss,
             footer = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1486,7 +1487,7 @@ private fun EditPaperServerDialog(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("进阶：直接编辑 server.properties")
+                        Text("编辑 server.properties")
                     }
                     Button(
                         onClick = { onSave(buildDraftServer()) },
@@ -1499,10 +1500,7 @@ private fun EditPaperServerDialog(
             },
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 if (server.isRuntimeBusy()) {
@@ -1632,6 +1630,11 @@ private fun EditPaperServerDialog(
     }
 }
 
+private enum class EditFullScreenScaffoldLayoutMode {
+    PinnedChrome,
+    InlineChrome,
+}
+
 @Composable
 private fun PaperServerPropertiesEditorDialog(
     server: ServerCardState,
@@ -1656,6 +1659,7 @@ private fun PaperServerPropertiesEditorDialog(
             subtitle = "受管理字段会同步回表单，其余未知项保留为 override",
             leadingIcon = Icons.Outlined.Edit,
             dynamicBackground = dynamicBackground,
+            layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome,
             onDismiss = onDismiss,
             footer = {
                 Row(
@@ -1814,6 +1818,7 @@ private fun EditFullScreenScaffold(
     subtitle: String,
     leadingIcon: ImageVector,
     dynamicBackground: Boolean,
+    layoutMode: EditFullScreenScaffoldLayoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome,
     onDismiss: () -> Unit,
     footer: @Composable () -> Unit,
     content: @Composable () -> Unit,
@@ -1846,65 +1851,85 @@ private fun EditFullScreenScaffold(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = colors.cardContainerColor,
-                    contentColor = colors.primaryText,
-                    shape = RoundedCornerShape(28.dp),
-                    border = BorderStroke(1.dp, colors.cardStrokeColor),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                val headerCard: @Composable () -> Unit = {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = colors.cardContainerColor,
+                        contentColor = colors.primaryText,
+                        shape = RoundedCornerShape(28.dp),
+                        border = BorderStroke(1.dp, colors.cardStrokeColor),
                     ) {
-                        EditSettingsLeadingIcon(icon = leadingIcon)
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = colors.primaryText,
-                            )
-                            Text(
-                                text = subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.secondaryText,
-                            )
-                        }
-                        Surface(
-                            color = colors.iconContainerColor,
-                            shape = RoundedCornerShape(16.dp),
-                        ) {
-                            IconButton(onClick = onDismiss) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Close,
-                                    contentDescription = "关闭",
-                                    tint = MaterialTheme.colorScheme.primary,
+                            EditSettingsLeadingIcon(icon = leadingIcon)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = colors.primaryText,
                                 )
+                                Text(
+                                    text = subtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.secondaryText,
+                                )
+                            }
+                            Surface(
+                                color = colors.iconContainerColor,
+                                shape = RoundedCornerShape(16.dp),
+                            ) {
+                                IconButton(onClick = onDismiss) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Close,
+                                        contentDescription = "关闭",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                ) {
-                    content()
-                }
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = colors.cardContainerColor,
-                    contentColor = colors.primaryText,
-                    shape = RoundedCornerShape(26.dp),
-                    border = BorderStroke(1.dp, colors.cardStrokeColor),
-                ) {
-                    Box(modifier = Modifier.padding(14.dp)) {
-                        footer()
+                val footerCard: @Composable () -> Unit = {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = colors.cardContainerColor,
+                        contentColor = colors.primaryText,
+                        shape = RoundedCornerShape(26.dp),
+                        border = BorderStroke(1.dp, colors.cardStrokeColor),
+                    ) {
+                        Box(modifier = Modifier.padding(14.dp)) {
+                            footer()
+                        }
                     }
+                }
+                if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        headerCard()
+                        content()
+                        footerCard()
+                    }
+                } else {
+                    headerCard()
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                    ) {
+                        content()
+                    }
+                    footerCard()
                 }
             }
         }

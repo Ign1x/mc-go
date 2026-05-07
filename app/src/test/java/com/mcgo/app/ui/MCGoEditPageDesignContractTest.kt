@@ -109,7 +109,7 @@ class MCGoEditPageDesignContractTest {
         assertThat(source).contains("import androidx.compose.foundation.layout.imePadding")
         assertThat(source).contains("import androidx.compose.ui.focus.onFocusEvent")
         assertThat(scaffold).contains("imePadding()")
-        assertThat(editDialog).contains("imePadding()")
+        assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome")
         assertThat(propertiesDialog).contains("rememberImeBringIntoViewRequester()")
         assertThat(propertiesDialog).contains("bringIntoViewRequester(propertiesBringIntoViewRequester)")
         assertThat(propertiesDialog).contains("onFocusEvent")
@@ -179,6 +179,34 @@ class MCGoEditPageDesignContractTest {
         assertThat(bottomMenu).contains("McGoDestination.entries.forEach")
         assertThat(bottomMenu).doesNotContain("FilterChip(")
         assertThat(bottomMenu).doesNotContain("Color(0xFF0088CC)")
+    }
+
+
+    @Test
+    fun editPaperServerDialog_usesInlineChromeAndNonStickyConfigActions() {
+        val editDialog = source.substringBetween(
+            start = "private fun EditPaperServerDialog(",
+            end = "private fun PaperServerPropertiesEditorDialog(",
+        )
+        val propertiesDialog = source.substringBetween(
+            start = "private fun PaperServerPropertiesEditorDialog(",
+            end = "private fun EditSettingsSectionCard(",
+        )
+        val scaffold = source.substringBetween(
+            start = "private fun EditFullScreenScaffold(",
+            end = "private fun EditSettingsInfoCard(",
+        )
+
+        assertThat(source).contains("private enum class EditFullScreenScaffoldLayoutMode")
+        assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome")
+        assertThat(propertiesDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome")
+        assertThat(editDialog).contains("Text(\"编辑 server.properties\")")
+        assertThat(editDialog).doesNotContain("Text(\"进阶：直接编辑 server.properties\")")
+        assertThat(editDialog).doesNotContain(".verticalScroll(rememberScrollState())")
+        assertThat(scaffold).contains("if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome)")
+        assertThat(scaffold).contains("verticalScroll(rememberScrollState())")
+        assertThat(scaffold).contains("headerCard()")
+        assertThat(scaffold).contains("footerCard()")
     }
 
     private fun String.substringBetween(start: String, end: String): String {
