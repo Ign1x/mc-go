@@ -161,6 +161,7 @@ import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.PaperDifficulty
 import com.mcgo.app.ui.model.PaperGameMode
+import com.mcgo.app.ui.model.SettingsDestination
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.ThemeModePreference
@@ -322,6 +323,7 @@ private fun MCGoAppScaffold(
     RequestRuntimePermissions()
     val appContext = LocalContext.current
     var destination by rememberSaveable { mutableStateOf(McGoDestination.Status) }
+    var settingsDestination by rememberSaveable { mutableStateOf(SettingsDestination.Overview) }
     var showTunnelComposer by remember { mutableStateOf(false) }
     var showServerComposer by remember { mutableStateOf(false) }
     var editingTunnelId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -541,6 +543,9 @@ private fun MCGoAppScaffold(
     }
 
     LaunchedEffect(destination) {
+        if (destination != McGoDestination.Settings) {
+            settingsDestination = SettingsDestination.Overview
+        }
         if (destination != McGoDestination.Tunnels) {
             showTunnelComposer = false
             editingTunnelId = null
@@ -620,12 +625,14 @@ private fun MCGoAppScaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             bottomBar = {
-                FloatingGlassBottomMenu(
-                    destination = destination,
-                    bottomBarAlpha = bottomBarAlpha,
-                    transparentCards = appearancePreferences.transparentCards,
-                    onDestinationSelected = { destination = it },
-                )
+                if (!(destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview)) {
+                    FloatingGlassBottomMenu(
+                        destination = destination,
+                        bottomBarAlpha = bottomBarAlpha,
+                        transparentCards = appearancePreferences.transparentCards,
+                        onDestinationSelected = { destination = it },
+                    )
+                }
             },
             floatingActionButton = {
                 when (destination) {
@@ -823,6 +830,8 @@ private fun MCGoAppScaffold(
                         onInstallJavaArchive = onInstallJavaArchive,
                         onDeleteJava = onDeleteJava,
                         serverDirectoryUri = serverDirectoryUriText,
+                        settingsDestination = settingsDestination,
+                        onSettingsDestinationChange = { settingsDestination = it },
                         onRequestServerDirectory = {
                             requestServerDirectory(PendingServerDirectoryAction.SettingsRequest)
                         },

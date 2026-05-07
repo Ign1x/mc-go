@@ -107,6 +107,8 @@ fun SettingsScreen(
     onRequestServerDirectory: () -> Unit = {},
     modifier: Modifier = Modifier,
     bottomContentPadding: Dp = 0.dp,
+    settingsDestination: SettingsDestination = SettingsDestination.Overview,
+    onSettingsDestinationChange: (SettingsDestination) -> Unit = {},
 ) {
     val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground, javaManagementState.summaryLabel) {
         McGoSampleRepository.settingsSections().map { section ->
@@ -188,11 +190,10 @@ fun SettingsScreen(
         }
     }
     val appearanceOptions = remember { McGoSampleRepository.appearanceSettings() }
-    var destination by rememberSaveable { mutableStateOf(SettingsDestination.Overview) }
-    val navigationState = remember(destination) { SettingsNavigationState(destination = destination) }
+    val navigationState = remember(settingsDestination) { SettingsNavigationState(destination = settingsDestination) }
 
     BackHandler(enabled = navigationState.canNavigateBack) {
-        destination = navigationState.navigateBack().destination
+        onSettingsDestinationChange(navigationState.navigateBack().destination)
     }
 
     when (navigationState.destination) {
@@ -200,9 +201,9 @@ fun SettingsScreen(
             modifier = modifier,
             bottomContentPadding = bottomContentPadding,
             sections = settingsSections,
-            onOpenAppearance = { destination = navigationState.openAppearance().destination },
-            onOpenJavaManagement = { destination = navigationState.openJavaManagement().destination },
-            onOpenRuntimePermissions = { destination = navigationState.openRuntimePermissions().destination },
+            onOpenAppearance = { onSettingsDestinationChange(navigationState.openAppearance().destination) },
+            onOpenJavaManagement = { onSettingsDestinationChange(navigationState.openJavaManagement().destination) },
+            onOpenRuntimePermissions = { onSettingsDestinationChange(navigationState.openRuntimePermissions().destination) },
         )
         SettingsDestination.Appearance -> AppearanceDetailScreen(
             modifier = modifier,
@@ -210,7 +211,7 @@ fun SettingsScreen(
             section = appearanceSection,
             appearancePreferences = appearancePreferences,
             appearanceOptions = appearanceOptions,
-            onNavigateBack = { destination = navigationState.navigateBack().destination },
+            onNavigateBack = { onSettingsDestinationChange(navigationState.navigateBack().destination) },
             onAppearancePreferencesChange = onAppearancePreferencesChange,
         )
         SettingsDestination.JavaManagement -> JavaManagementDetailScreen(
@@ -218,7 +219,7 @@ fun SettingsScreen(
             bottomContentPadding = bottomContentPadding,
             section = javaManagementSection,
             state = javaManagementState,
-            onNavigateBack = { destination = navigationState.navigateBack().destination },
+            onNavigateBack = { onSettingsDestinationChange(navigationState.navigateBack().destination) },
             onDownloadJava = onDownloadJava,
             onImportJava = requestJavaArchive,
             onDeleteJava = onDeleteJava,
@@ -228,7 +229,7 @@ fun SettingsScreen(
             bottomContentPadding = bottomContentPadding,
             section = runtimePermissionSection,
             state = runtimePermissionState,
-            onNavigateBack = { destination = navigationState.navigateBack().destination },
+            onNavigateBack = { onSettingsDestinationChange(navigationState.navigateBack().destination) },
             onPermissionAction = onRuntimePermissionAction,
         )
     }

@@ -7,6 +7,7 @@ import kotlin.test.Test
 
 class MCGoEditPageDesignContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
+    private val settingsScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/SettingsScreen.kt")))
 
     @Test
     fun editPages_shareFullScreenFluidScaffoldWithCurrentVisualTokens() {
@@ -131,7 +132,15 @@ class MCGoEditPageDesignContractTest {
         )
 
         assertThat(source).contains("private fun FloatingGlassBottomMenu(")
+        assertThat(settingsScreenSource).contains("settingsDestination: SettingsDestination = SettingsDestination.Overview")
+        assertThat(settingsScreenSource).contains("onSettingsDestinationChange: (SettingsDestination) -> Unit = {}")
+        assertThat(settingsScreenSource).doesNotContain("LaunchedEffect(navigationState.canNavigateBack)")
+        assertThat(settingsScreenSource).doesNotContain("onBottomBarVisibilityChange(!navigationState.canNavigateBack)")
         assertThat(scaffold).contains("FloatingGlassBottomMenu(")
+        assertThat(scaffold).contains("destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview")
+        assertThat(scaffold).contains("if (!(destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview))")
+        assertThat(scaffold).contains("settingsDestination = SettingsDestination.Overview")
+        assertThat(scaffold).contains("settingsDestination = it")
         assertThat(scaffold).doesNotContain("NavigationBar(")
         assertThat(scaffold).doesNotContain("NavigationBarItem(")
         assertThat(scaffold).contains("containerColor = Color.Transparent")
