@@ -45,7 +45,7 @@ class RuntimePermissionModelsTest {
         assertThat(directory.status).isEqualTo(RuntimePermissionStatus.NeedsRequest)
         assertThat(directory.required).isFalse()
         assertThat(directory.actionLabel).isEqualTo("授权")
-        assertThat(directory.detail).contains("仅影响导入、备份与编辑")
+        assertThat(directory.detail).contains("卸载 App 后重新授权同一目录，仍可找回服务器数据")
     }
 
     @Test

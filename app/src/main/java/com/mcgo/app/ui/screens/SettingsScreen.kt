@@ -162,7 +162,9 @@ fun SettingsScreen(
         } else {
             true
         },
-        serverDirectorySelected = serverDirectoryUri != null,
+        serverDirectorySelected = serverDirectoryUri != null && context.contentResolver.persistedUriPermissions.any { permission ->
+            permission.uri.toString() == serverDirectoryUri && permission.isReadPermission && permission.isWritePermission
+        },
         batteryOptimizationIgnored = batteryOptimizationIgnored,
         serverDirectoryUri = serverDirectoryUri,
     )

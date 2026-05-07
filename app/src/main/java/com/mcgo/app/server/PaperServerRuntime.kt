@@ -133,7 +133,7 @@ fun fetchPaperVersions(): List<String> = runCatching {
 }.getOrElse { filterProvisionablePaperVersions(fallbackPaperVersions()) }
 
 fun preparePaperServerFiles(server: ServerCardState, rootDir: Path): PreparedPaperServerFiles {
-    val workDir = rootDir.resolve(server.id)
+    val workDir = rootDir.resolve(sanitizeManagedServerId(server.id))
     Files.createDirectories(workDir)
     val eulaPath = workDir.resolve("eula.txt")
     val propertiesPath = workDir.resolve("server.properties")

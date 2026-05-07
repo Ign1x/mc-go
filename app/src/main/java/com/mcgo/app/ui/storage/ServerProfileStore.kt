@@ -12,10 +12,12 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
 
+internal val ServerProfileStoreGlobalLock = Any()
+
 class ServerProfileStore(
     private val storePath: Path,
 ) {
-    fun load(): List<ServerCardState> {
+    fun load(): List<ServerCardState> = synchronized(ServerProfileStoreGlobalLock) {
         if (!Files.exists(storePath)) return emptyList()
 
         val properties = Properties()
@@ -100,7 +102,7 @@ class ServerProfileStore(
         }
     }
 
-    fun save(servers: List<ServerCardState>) {
+    fun save(servers: List<ServerCardState>) = synchronized(ServerProfileStoreGlobalLock) {
         storePath.parent?.let { parent -> Files.createDirectories(parent) }
         val properties = Properties()
         properties.setProperty("version", "2")

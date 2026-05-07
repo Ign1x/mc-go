@@ -86,14 +86,14 @@ fun defaultRuntimePermissionState(
             item(
                 id = "server-directory",
                 title = "服务器目录",
-                description = "授权后用于导入、备份和编辑服务器文件；内置 Java 开服使用应用私有目录。",
+                description = "授权后用于持久保存服务器实例数据、导入、备份和编辑服务器文件。",
                 granted = serverDirectorySelected,
                 required = false,
                 actionWhenMissing = "授权",
                 detail = if (serverDirectorySelected) {
                     serverDirectoryUri?.let { "已持久授权：$it" } ?: "已持久授权服务器工作目录"
                 } else {
-                    "未授权时仍可正常开服；仅影响导入、备份与编辑。"
+                    "卸载 App 后重新授权同一目录，仍可找回服务器数据。"
                 },
             ),
             item(

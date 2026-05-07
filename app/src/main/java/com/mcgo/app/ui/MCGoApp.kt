@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import androidx.documentfile.provider.DocumentFile
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -134,7 +135,10 @@ import com.mcgo.app.server.abiArchiveName
 import com.mcgo.app.server.activePaperRuntimeSlots
 import com.mcgo.app.server.allocateRuntimeSlot
 import com.mcgo.app.server.classifyJavaRuntimeArchiveName
+import com.mcgo.app.server.authorizedServerProfilesAvailable
 import com.mcgo.app.server.deleteJavaRuntime
+import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
+import com.mcgo.app.server.deleteManagedServerWorkspaceFromPrivateDirectory
 import com.mcgo.app.server.extractTarXzSafely
 import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fetchPaperVersions
@@ -144,14 +148,21 @@ import com.mcgo.app.server.installRuntimeFromTarXz
 import com.mcgo.app.server.installRuntimeWithStaging
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
 import com.mcgo.app.server.managedPaperServerLogFile
+import com.mcgo.app.server.migratePrivateServerDataToAuthorizedDirectory
 import com.mcgo.app.server.reconcilePersistedRuntimeState
 import com.mcgo.app.server.reducePaperRuntimeEvent
 import com.mcgo.app.server.resolvePojavRuntimeComponent
+import com.mcgo.app.server.restoreManagedServerWorkspaceFromAuthorizedDirectory
+import com.mcgo.app.server.restoreServerProfilesFromAuthorizedDirectory
 import com.mcgo.app.server.scanInstalledJavaVersions
 import com.mcgo.app.server.sha256Hex
 import com.mcgo.app.server.stopRequestMessage
+import com.mcgo.app.server.syncManagedServerWorkspaceToAuthorizedDirectory
+import com.mcgo.app.server.syncServerProfilesToAuthorizedDirectory
+import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.trustedRuntimeArchivesForVersion
 import com.mcgo.app.server.validateRuntimeArchiveTrust
+
 import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearancePreferencesSaver
@@ -201,6 +212,7 @@ import com.mcgo.app.ui.screens.StatusScreen
 import com.mcgo.app.ui.screens.TunnelsScreen
 import com.mcgo.app.ui.storage.AppearancePreferencesStore
 import com.mcgo.app.ui.storage.ServerProfileStore
+import com.mcgo.app.ui.storage.ServerProfileStoreGlobalLock
 import com.mcgo.app.ui.storage.TunnelProfileStore
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.McGoTheme
@@ -251,8 +263,13 @@ fun MCGoApp() {
     val tunnelStore = remember(context) {
         TunnelProfileStore(context.filesDir.toPath().resolve("tunnel_profiles.properties"))
     }
-    val serverStore = remember(context) {
-        ServerProfileStore(context.filesDir.toPath().resolve("server_profiles.properties"))
+    val serverStorePath = remember(context) { context.filesDir.toPath().resolve("server_profiles.properties") }
+    val serverStore = remember(serverStorePath) {
+        ServerProfileStore(serverStorePath)
+    }
+    val runtimePrefs = remember(context) { context.getSharedPreferences(RuntimePrefsName, Context.MODE_PRIVATE) }
+    val persistedServerDirectoryUri = remember(runtimePrefs) {
+        runtimePrefs.getString(ServerDirectoryUriKey, null)
     }
     val appearanceStore = remember(context) {
         AppearancePreferencesStore(context.filesDir.toPath().resolve("appearance_preferences.properties"))
@@ -264,7 +281,31 @@ fun MCGoApp() {
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") setOf(8, 11, 17, 21, 25) else setOf(8, 11, 17, 21)
     }
     val activeRuntimeSlotsOnLaunch = remember(context) { activePaperRuntimeSlots(context) }
-    val persistedServers = remember(serverStore) { serverStore.load() }
+    val persistedServers = remember(serverStore, persistedServerDirectoryUri) {
+        val authorizedProfilesAvailable = authorizedServerProfilesAvailable(context, persistedServerDirectoryUri)
+        if (authorizedProfilesAvailable) {
+            restoreServerProfilesFromAuthorizedDirectory(
+                context = context,
+                authorizedDirectoryUri = persistedServerDirectoryUri,
+                targetProfilesPath = serverStorePath,
+            )
+        }
+        serverStore.load().also { loadedServers ->
+            if (!authorizedProfilesAvailable && persistedServerDirectoryUri != null && loadedServers.isNotEmpty()) {
+                migratePrivateServerDataToAuthorizedDirectory(
+                    context = context,
+                    authorizedDirectoryUri = persistedServerDirectoryUri,
+                    filesDir = context.filesDir.toPath(),
+                    serverIds = loadedServers.map { it.id },
+                )
+                syncServerProfilesToAuthorizedDirectory(
+                    context = context,
+                    authorizedDirectoryUri = persistedServerDirectoryUri,
+                    sourceProfilesPath = serverStorePath,
+                )
+            }
+        }
+    }
     val reconciledPersistedServers = remember(persistedServers, activeRuntimeSlotsOnLaunch) {
         finalizePendingServerDeletion(
             reconcilePersistedRuntimeState(
@@ -277,9 +318,16 @@ fun MCGoApp() {
         mutableStateOf(reconciledPersistedServers)
     }
     var tunnels by remember(tunnelStore) { mutableStateOf(tunnelStore.load()) }
-    LaunchedEffect(reconciledPersistedServers) {
+    LaunchedEffect(reconciledPersistedServers, persistedServerDirectoryUri) {
         if (reconciledPersistedServers != persistedServers) {
             serverStore.save(reconciledPersistedServers)
+        }
+        if (authorizedServerProfilesAvailable(context, persistedServerDirectoryUri)) {
+            syncServerProfilesToAuthorizedDirectory(
+                context = context,
+                authorizedDirectoryUri = persistedServerDirectoryUri,
+                sourceProfilesPath = serverStorePath,
+            )
         }
     }
     val paperVersions by produceState(initialValue = filterProvisionablePaperVersions(fallbackPaperVersions())) {
@@ -304,6 +352,8 @@ fun MCGoApp() {
                 tunnels = it
                 tunnelStore.save(it)
             },
+            serverStorePath = serverStorePath,
+            serverStore = serverStore,
             onPersistServers = { serverStore.save(it) },
         )
     }
@@ -321,6 +371,8 @@ private fun MCGoAppScaffold(
     onServersChange: (List<ServerCardState>) -> Unit,
     onTunnelsChange: (List<TunnelProfile>) -> Unit,
     onTunnelsChangeAndPersist: (List<TunnelProfile>) -> Unit,
+    serverStorePath: Path,
+    serverStore: ServerProfileStore,
     onPersistServers: (List<ServerCardState>) -> Unit,
 ) {
     RequestRuntimePermissions()
@@ -368,7 +420,17 @@ private fun MCGoAppScaffold(
     var serverDirectoryUriText by remember(appContext) {
         mutableStateOf(runtimePrefs.getString(ServerDirectoryUriKey, null))
     }
+    val restoreProfilesFromAuthorizedDirectory = remember(appContext, serverStorePath) {
+        {
+            restoreServerProfilesFromAuthorizedDirectory(
+                context = appContext,
+                authorizedDirectoryUri = serverDirectoryUriText,
+                targetProfilesPath = serverStorePath,
+            )
+        }
+    }
     var pendingServerDirectoryAction by remember { mutableStateOf<PendingServerDirectoryAction?>(null) }
+    var pendingStartRequest by remember { mutableStateOf<PendingStartRequest?>(null) }
     val latestServers by rememberUpdatedState(servers)
     fun persistServerDirectoryUri(uri: Uri?) {
         serverDirectoryUriText = uri?.toString()
@@ -376,17 +438,74 @@ private fun MCGoAppScaffold(
             if (uri == null) remove(ServerDirectoryUriKey) else putString(ServerDirectoryUriKey, uri.toString())
         }.apply()
     }
+    fun syncServerProfilesToAuthorizedDirectoryNow(serverSnapshot: List<ServerCardState>) {
+        synchronized(ServerProfileStoreGlobalLock) {
+            onPersistServers(serverSnapshot)
+            syncServerProfilesToAuthorizedDirectory(
+                context = appContext,
+                authorizedDirectoryUri = serverDirectoryUriText,
+                sourceProfilesPath = serverStorePath,
+            )
+        }
+    }
     fun hasServerDirectoryGrant(): Boolean = ServerDirectoryPermissionEffect(serverDirectoryUriText, appContext)
     val directoryPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
         if (uri != null) {
-            runCatching {
+            val permissionGranted = runCatching {
                 appContext.contentResolver.takePersistableUriPermission(uri, ServerDirectoryGrantFlags)
+                true
+            }.getOrDefault(false)
+            if (!permissionGranted) {
+                pendingStartRequest = null
+                pendingServerDirectoryAction = null
+                scope.launch { snackbarHostState.showSnackbar("服务器目录授权失败，请重新选择可持久授权的目录") }
+                return@rememberLauncherForActivityResult
             }
             persistServerDirectoryUri(uri)
-            scope.launch { snackbarHostState.showSnackbar("服务器目录已授权") }
+            scope.launch {
+                val restoredServers = withContext(Dispatchers.IO) {
+                    val authorizedProfilesAvailable = authorizedServerProfilesAvailable(appContext, serverDirectoryUriText)
+                    if (authorizedProfilesAvailable) {
+                        restoreProfilesFromAuthorizedDirectory()
+                    }
+                    val restoredServers = finalizePendingServerDeletion(
+                        reconcilePersistedRuntimeState(
+                            servers = serverStore.load(),
+                            activeRuntimeSlots = activePaperRuntimeSlots(appContext),
+                        ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
+                    )
+                    syncServerProfilesToAuthorizedDirectoryNow(restoredServers)
+                    if (authorizedProfilesAvailable) {
+                        restoredServers.filterNot { it.isRuntimeBusy() }.forEach { server ->
+                            restoreManagedServerWorkspaceFromAuthorizedDirectory(
+                                context = appContext,
+                                authorizedDirectoryUri = serverDirectoryUriText,
+                                serverId = server.id,
+                                targetWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), server.id),
+                            )
+                        }
+                    } else {
+                        migratePrivateServerDataToAuthorizedDirectory(
+                            context = appContext,
+                            authorizedDirectoryUri = serverDirectoryUriText,
+                            filesDir = appContext.filesDir.toPath(),
+                            serverIds = restoredServers.map { it.id },
+                        )
+                    }
+                    syncServerProfilesToAuthorizedDirectory(
+                        context = appContext,
+                        authorizedDirectoryUri = serverDirectoryUriText,
+                        sourceProfilesPath = serverStorePath,
+                    )
+                    restoredServers
+                }
+                onServersChange(restoredServers)
+                snackbarHostState.showSnackbar("服务器目录已授权，现有服务器数据已同步到该目录")
+            }
         } else {
+            pendingStartRequest = null
             pendingServerDirectoryAction = null
             scope.launch { snackbarHostState.showSnackbar("目录功能需要先授权服务器目录") }
         }
@@ -455,7 +574,7 @@ private fun MCGoAppScaffold(
                 }
             }
             onServersChange(failedServers)
-            onPersistServers(failedServers)
+            syncServerProfilesToAuthorizedDirectoryNow(failedServers)
             scope.launch {
                 snackbarHostState.showSnackbar(
                     if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
@@ -482,13 +601,18 @@ private fun MCGoAppScaffold(
             }
         }
         onServersChange(updatedServers)
-        onPersistServers(updatedServers)
+        syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
         updatedServers.firstOrNull { it.id == request.serverId }?.let { PaperServerService.start(appContext, it, tunnel) }
         scope.launch {
             snackbarHostState.showSnackbar(
                 tunnel?.let { "${targetServer.name} 已通过 ${it.name} 开始启动" } ?: "${targetServer.name} 开始启动",
             )
         }
+    }
+    val queuedStartRequest = pendingStartRequest
+    if (queuedStartRequest != null && hasServerDirectoryGrant()) {
+        pendingStartRequest = null
+        startServerNow(queuedStartRequest)
     }
 
     LaunchedEffect(Unit) {
@@ -499,7 +623,6 @@ private fun MCGoAppScaffold(
                 },
             )
             onServersChange(updatedServers)
-            onPersistServers(updatedServers)
         }
     }
 
@@ -517,7 +640,7 @@ private fun MCGoAppScaffold(
                 )
                 if (reconciledServers != serverSnapshot) {
                     onServersChange(reconciledServers)
-                    onPersistServers(reconciledServers)
+                    syncServerProfilesToAuthorizedDirectoryNow(reconciledServers)
                 }
             }
             delay(1500)
@@ -704,7 +827,7 @@ private fun MCGoAppScaffold(
                             onSave = { edited ->
                                 val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
                                 onServersChange(updatedServers)
-                                onPersistServers(updatedServers)
+                                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
                                 editingServerId = null
                                 scope.launch { snackbarHostState.showSnackbar("已更新 ${edited.name}") }
                             },
@@ -729,12 +852,13 @@ private fun MCGoAppScaffold(
                         onCreateServer = { server ->
                             val updatedServers = servers + server.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
                             onServersChange(updatedServers)
-                            onPersistServers(updatedServers)
+                            syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
                             showServerComposer = false
                             scope.launch { snackbarHostState.showSnackbar("已创建 ${server.name}") }
                         },
                         onStartServer = { serverId, tunnelId, startupPort, remotePort ->
                             if (!hasServerDirectoryGrant()) {
+                                pendingStartRequest = PendingStartRequest(serverId, tunnelId, startupPort, remotePort)
                                 requestServerDirectory(PendingServerDirectoryAction.StartServer)
                             } else {
                                 startServerNow(PendingStartRequest(serverId, tunnelId, startupPort, remotePort))
@@ -754,7 +878,7 @@ private fun MCGoAppScaffold(
                                 }
                             }
                             onServersChange(updatedServers)
-                            onPersistServers(updatedServers)
+                            syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
                         },
                         onDeleteServer = { serverId ->
                             val targetServer = servers.firstOrNull { it.id == serverId }
@@ -768,12 +892,14 @@ private fun MCGoAppScaffold(
                                     },
                                 )
                                 onServersChange(updatedServers)
-                                onPersistServers(updatedServers)
+                                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
                                 scope.launch { snackbarHostState.showSnackbar("已停止并删除 ${targetServer.name}") }
                             } else {
                                 val updatedServers = finalizePendingServerDeletion(servers.filterNot { it.id == serverId })
+                                deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), serverId)
+                                deleteManagedServerWorkspaceFromAuthorizedDirectory(appContext, serverDirectoryUriText, serverId)
                                 onServersChange(updatedServers)
-                                onPersistServers(updatedServers)
+                                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
                                 scope.launch {
                                     snackbarHostState.showSnackbar("已删除 ${targetServer?.name ?: "服务器"}")
                                 }
@@ -818,7 +944,7 @@ private fun MCGoAppScaffold(
                             onTunnelsChangeAndPersist(updatedTunnels)
                             val updatedServers = detachDeletedTunnel(servers, tunnelId)
                             onServersChange(updatedServers)
-                            onPersistServers(updatedServers)
+                            syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
                         },
                         modifier = Modifier.fillMaxSize(),
                         bottomContentPadding = bottomContentPadding,

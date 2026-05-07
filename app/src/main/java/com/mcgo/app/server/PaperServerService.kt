@@ -20,6 +20,7 @@ import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.TunnelSource
 import com.mcgo.app.ui.model.createPaperServer
+import com.mcgo.app.ui.storage.ServerProfileStore
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -51,6 +52,7 @@ open class PaperServerService : Service() {
     private var stopSignalRetryJob: Job? = null
     private var logTailJob: Job? = null
     private var portMonitorJob: Job? = null
+    private var workspaceSyncJob: Job? = null
     private var frpcProcess: Process? = null
     private var frpcWatchJob: Job? = null
     @Volatile
@@ -79,6 +81,7 @@ open class PaperServerService : Service() {
         stopSignalRetryJob?.cancel()
         logTailJob?.cancel()
         portMonitorJob?.cancel()
+        workspaceSyncJob?.cancel()
         frpcWatchJob?.cancel()
         stopFrpcProcess()
         serviceScope.cancel()
@@ -129,76 +132,99 @@ open class PaperServerService : Service() {
                 }
             }
 
-            val result = runCatching {
-                ensureLaunchNotCancelled()
-                val config = buildManagedPaperLaunchConfig(
-                    server = server,
-                    filesDir = filesDir.toPath(),
-                    cacheDir = cacheDir.toPath(),
-                    nativeLibraryDir = applicationInfo.nativeLibraryDir,
-                    is64BitProcess = android.os.Process.is64Bit(),
-                )
-                ensureLaunchNotCancelled()
-                publish(server.id, PaperServerEventStatus.Launching, 26, "正在解析 Paper ${server.minecraftVersion} 下载信息")
-                if (!shouldReusePaperJar(config.jarPath)) {
-                    publish(server.id, PaperServerEventStatus.Launching, 42, "正在下载 Paper ${server.minecraftVersion}")
-                    downloadLatestPaperJar(server.minecraftVersion, config.jarPath) { progress ->
+            try {
+                val result = runCatching {
+                    ensureLaunchNotCancelled()
+                    restoreManagedServerWorkspaceFromAuthorizedDirectory(
+                        context = this@PaperServerService,
+                        authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
+                        serverId = server.id,
+                        targetWorkspaceDir = managedPaperServerDirectory(filesDir.toPath(), server.id),
+                    )
+                    val config = buildManagedPaperLaunchConfig(
+                        server = server,
+                        filesDir = filesDir.toPath(),
+                        cacheDir = cacheDir.toPath(),
+                        nativeLibraryDir = applicationInfo.nativeLibraryDir,
+                        is64BitProcess = android.os.Process.is64Bit(),
+                    )
+                    ensureLaunchNotCancelled()
+                    publish(server.id, PaperServerEventStatus.Launching, 26, "正在解析 Paper ${server.minecraftVersion} 下载信息")
+                    if (!shouldReusePaperJar(config.jarPath)) {
+                        publish(server.id, PaperServerEventStatus.Launching, 42, "正在下载 Paper ${server.minecraftVersion}")
+                        downloadLatestPaperJar(server.minecraftVersion, config.jarPath) { progress ->
+                            ensureLaunchNotCancelled()
+                            publish(
+                                server.id,
+                                PaperServerEventStatus.Launching,
+                                42 + ((progress.coerceIn(0, 100) * 34) / 100),
+                                "正在下载 Paper ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
+                            )
+                        }
                         ensureLaunchNotCancelled()
+                    } else {
+                        publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 Paper 包：${config.jarPath.fileName}")
+                    }
+                    ensureLaunchNotCancelled()
+                    val tunnelPlan = tunnelRuntimePlanForStart(
+                        filesDir = filesDir.toPath(),
+                        nativeLibraryDir = java.io.File(applicationInfo.nativeLibraryDir).toPath(),
+                        server = server,
+                        tunnel = tunnel,
+                        supportedAbi = android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+                    )
+                    tunnelPlan?.let { plan ->
                         publish(
                             server.id,
                             PaperServerEventStatus.Launching,
-                            42 + ((progress.coerceIn(0, 100) * 34) / 100),
-                            "正在下载 Paper ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
+                            68,
+                            "正在启动 ${tunnel?.name ?: "FRP"} 隧道",
+                        )
+                        startFrpcForPlan(server, plan)
+                        publishEvent(
+                            PaperServerEvent(
+                                serverId = server.id,
+                                status = PaperServerEventStatus.Launching,
+                                progress = 72,
+                                message = "FRP 隧道已启动，等待 Paper 绑定端口",
+                                activeTunnelLabel = plan.displayLabel,
+                                runtimeAddress = plan.runtimeAddress,
+                            ),
                         )
                     }
-                    ensureLaunchNotCancelled()
-                } else {
-                    publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 Paper 包：${config.jarPath.fileName}")
+                    runtimeLaunchSubmitted = true
+                    if (stopRequested) {
+                        PaperJvmLauncher.queueStopRequest()
+                    }
+                    publish(server.id, PaperServerEventStatus.Launching, 78, "正在通过内置 HotSpot 启动 Paper")
+                    startRuntimeMonitors(server, config.logFile)
+                    val exitCode = PaperJvmLauncher.launch(config)
+                    lastLaunchedJavaMajorVersion = server.javaMajorVersion
+                    publishEvent(runtimeExitEvent(server.id, exitCode, stopRequested && stopSignalDelivered, config.logFile))
                 }
-                ensureLaunchNotCancelled()
-                val tunnelPlan = tunnelRuntimePlanForStart(
-                    filesDir = filesDir.toPath(),
-                    nativeLibraryDir = java.io.File(applicationInfo.nativeLibraryDir).toPath(),
-                    server = server,
-                    tunnel = tunnel,
-                    supportedAbi = android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
-                )
-                tunnelPlan?.let { plan ->
-                    publish(
-                        server.id,
-                        PaperServerEventStatus.Launching,
-                        68,
-                        "正在启动 ${tunnel?.name ?: "FRP"} 隧道",
-                    )
-                    startFrpcForPlan(server, plan)
-                    publishEvent(
-                        PaperServerEvent(
+                stopRuntimeMonitors()
+                stopFrpcProcess()
+                result.exceptionOrNull()?.let { error ->
+                    when {
+                        error is CancellationException && stopRequested -> publishEvent(launchCancelledEvent(server.id))
+                        error is CancellationException -> Unit
+                        else -> publish(server.id, PaperServerEventStatus.Failed, 0, error.toUserFacingStartError(server.javaMajorVersion))
+                    }
+                }
+            } finally {
+                runCatching {
+                    val persistedServer = ServerProfileStore(filesDir.toPath().resolve("server_profiles.properties"))
+                        .load()
+                        .firstOrNull { persisted -> persisted.id == server.id }
+                    val serverPendingDeletion = persistedServer?.pendingDeletion == true
+                    if (!serverPendingDeletion) {
+                        syncManagedServerWorkspaceToAuthorizedDirectory(
+                            context = this@PaperServerService,
+                            authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
                             serverId = server.id,
-                            status = PaperServerEventStatus.Launching,
-                            progress = 72,
-                            message = "FRP 隧道已启动，等待 Paper 绑定端口",
-                            activeTunnelLabel = plan.displayLabel,
-                            runtimeAddress = plan.runtimeAddress,
-                        ),
-                    )
-                }
-                runtimeLaunchSubmitted = true
-                if (stopRequested) {
-                    PaperJvmLauncher.queueStopRequest()
-                }
-                publish(server.id, PaperServerEventStatus.Launching, 78, "正在通过内置 HotSpot 启动 Paper")
-                startRuntimeMonitors(server, config.logFile)
-                val exitCode = PaperJvmLauncher.launch(config)
-                lastLaunchedJavaMajorVersion = server.javaMajorVersion
-                publishEvent(runtimeExitEvent(server.id, exitCode, stopRequested && stopSignalDelivered, config.logFile))
-            }
-            stopRuntimeMonitors()
-            stopFrpcProcess()
-            result.exceptionOrNull()?.let { error ->
-                when {
-                    error is CancellationException && stopRequested -> publishEvent(launchCancelledEvent(server.id))
-                    error is CancellationException -> Unit
-                    else -> publish(server.id, PaperServerEventStatus.Failed, 0, error.toUserFacingStartError(server.javaMajorVersion))
+                            sourceWorkspaceDir = managedPaperServerDirectory(filesDir.toPath(), server.id),
+                        )
+                    }
                 }
             }
             launchJob = null
@@ -352,13 +378,33 @@ open class PaperServerService : Service() {
                 delay(1000)
             }
         }
+        workspaceSyncJob = serviceScope.launch {
+            while (isActive) {
+                runCatching {
+                    val persistedServer = ServerProfileStore(filesDir.toPath().resolve("server_profiles.properties"))
+                        .load()
+                        .firstOrNull { persisted -> persisted.id == server.id }
+                    if (persistedServer?.pendingDeletion != true) {
+                        syncManagedServerWorkspaceToAuthorizedDirectory(
+                            context = this@PaperServerService,
+                            authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
+                            serverId = server.id,
+                            sourceWorkspaceDir = managedPaperServerDirectory(filesDir.toPath(), server.id),
+                        )
+                    }
+                }
+                delay(15_000)
+            }
+        }
     }
 
     private fun stopRuntimeMonitors() {
         logTailJob?.cancel()
         portMonitorJob?.cancel()
+        workspaceSyncJob?.cancel()
         logTailJob = null
         portMonitorJob = null
+        workspaceSyncJob = null
     }
 
     private fun publish(serverId: String, status: PaperServerEventStatus, progress: Int?, message: String) {
@@ -467,6 +513,8 @@ open class PaperServerService : Service() {
         private const val ActionStart = "com.mcgo.app.server.START_PAPER"
         private const val ActionStop = "com.mcgo.app.server.STOP_PAPER"
         private const val ActionCommand = "com.mcgo.app.server.COMMAND_PAPER"
+        private const val RuntimePrefsName = "mcgo_runtime_permissions"
+        private const val ServerDirectoryUriKey = "server_directory_uri"
 
         fun start(context: Context, server: ServerCardState, tunnel: TunnelProfile? = null) {
             val slot = server.runtimeSlot ?: 1
@@ -521,6 +569,10 @@ open class PaperServerService : Service() {
                 },
             )
         }
+
+        private fun runtimePrefsServerDirectoryUri(context: Context): String? =
+            context.getSharedPreferences(RuntimePrefsName, Context.MODE_PRIVATE)
+                .getString(ServerDirectoryUriKey, null)
 
         fun sendCommand(context: Context, serverId: String, command: String, runtimeSlot: Int? = null) {
             val slot = runtimeSlot ?: 1

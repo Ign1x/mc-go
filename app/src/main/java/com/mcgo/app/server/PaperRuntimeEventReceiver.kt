@@ -3,6 +3,7 @@ package com.mcgo.app.server
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import java.util.concurrent.Executors
 
 const val PaperRuntimeEventAction = "com.mcgo.app.server.RUNTIME_EVENT"
 private const val ExtraServerId = "serverId"
@@ -29,15 +30,24 @@ fun Context.sendPaperRuntimeEvent(event: PaperServerEvent) {
 class PaperRuntimeEventReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != PaperRuntimeEventAction) return
-        val event = PaperServerEvent(
-            serverId = intent.getStringExtra(ExtraServerId) ?: return,
-            status = intent.getStringExtra(ExtraStatus)?.let(PaperServerEventStatus::valueOf),
-            progress = intent.getIntExtra(ExtraProgress, -1).takeIf { it >= 0 },
-            message = intent.getStringExtra(ExtraMessage).orEmpty(),
-            activeTunnelLabel = intent.getStringExtra(ExtraActiveTunnelLabel),
-            runtimeAddress = intent.getStringExtra(ExtraRuntimeAddress),
-        )
-        syncPaperRuntimeEvent(context.filesDir.toPath(), event)
-        PaperServerEvents.publish(event)
+        val pendingResult = goAsync()
+        RuntimeEventSyncExecutor.execute {
+            try {
+                val event = PaperServerEvent(
+                    serverId = intent.getStringExtra(ExtraServerId) ?: return@execute,
+                    status = intent.getStringExtra(ExtraStatus)?.let(PaperServerEventStatus::valueOf),
+                    progress = intent.getIntExtra(ExtraProgress, -1).takeIf { it >= 0 },
+                    message = intent.getStringExtra(ExtraMessage).orEmpty(),
+                    activeTunnelLabel = intent.getStringExtra(ExtraActiveTunnelLabel),
+                    runtimeAddress = intent.getStringExtra(ExtraRuntimeAddress),
+                )
+                syncPaperRuntimeEvent(context, event)
+                PaperServerEvents.publish(event)
+            } finally {
+                pendingResult.finish()
+            }
+        }
     }
 }
+
+private val RuntimeEventSyncExecutor = Executors.newSingleThreadExecutor()

@@ -1,5 +1,6 @@
 package com.mcgo.app.server
 
+import android.content.Context
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.finalizePendingServerDeletion
@@ -8,6 +9,7 @@ import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markLaunchRunning
 import com.mcgo.app.ui.model.withLaunchProgress
 import com.mcgo.app.ui.storage.ServerProfileStore
+import com.mcgo.app.ui.storage.ServerProfileStoreGlobalLock
 import java.nio.file.Path
 
 fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): ServerCardState = when (event.status) {
@@ -48,6 +50,40 @@ fun syncPaperRuntimeEvent(filesDir: Path, event: PaperServerEvent) {
     )
     if (updated != servers) {
         store.save(updated)
+    }
+}
+
+fun syncPaperRuntimeEvent(context: Context, event: PaperServerEvent) = synchronized(ServerProfileStoreGlobalLock) {
+    val filesDir = context.filesDir.toPath()
+    val store = ServerProfileStore(filesDir.resolve("server_profiles.properties"))
+    val servers = store.load()
+    if (servers.isEmpty()) return@synchronized
+    val updated = finalizePendingServerDeletion(
+        servers.map { server ->
+            if (server.id == event.serverId) reducePaperRuntimeEvent(server, event) else server
+        },
+    )
+    if (updated != servers) {
+        val removedPendingDeletionServerIds = servers
+            .filter { it.pendingDeletion }
+            .map { it.id }
+            .filter { removedId -> updated.none { it.id == removedId } }
+        store.save(updated)
+        removedPendingDeletionServerIds.forEach { serverId ->
+            deleteManagedServerWorkspaceFromAuthorizedDirectory(
+                context = context,
+                authorizedDirectoryUri = context.getSharedPreferences("mcgo_runtime_permissions", Context.MODE_PRIVATE)
+                    .getString("server_directory_uri", null),
+                serverId = serverId,
+            )
+            deleteManagedServerWorkspaceFromPrivateDirectory(filesDir, serverId)
+        }
+        syncServerProfilesToAuthorizedDirectory(
+            context = context,
+            authorizedDirectoryUri = context.getSharedPreferences("mcgo_runtime_permissions", Context.MODE_PRIVATE)
+                .getString("server_directory_uri", null),
+            sourceProfilesPath = filesDir.resolve("server_profiles.properties"),
+        )
     }
 }
 

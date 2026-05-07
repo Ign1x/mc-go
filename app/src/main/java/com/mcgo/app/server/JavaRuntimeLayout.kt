@@ -146,7 +146,7 @@ fun resolveManagedJavaRuntimeLayout(
     )
 }
 
-private fun sanitizeManagedServerId(serverId: String): String = serverId
+fun sanitizeManagedServerId(serverId: String): String = serverId
     .replace(Regex("[^A-Za-z0-9._-]+"), "-")
     .trim('-', '.')
     .ifBlank { "paper-server" }
