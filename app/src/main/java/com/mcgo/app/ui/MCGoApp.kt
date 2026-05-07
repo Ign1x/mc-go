@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
@@ -116,6 +117,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import android.view.WindowManager
 import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.R
 import com.mcgo.app.network.measureTcpLatency
@@ -1807,6 +1809,11 @@ private fun EditDialogImmersiveSystemBars() {
             }
 
             WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+            )
+            window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
             window.statusBarColor = android.graphics.Color.TRANSPARENT
             window.navigationBarColor = android.graphics.Color.TRANSPARENT
             WindowCompat.getInsetsController(window, view).apply {
