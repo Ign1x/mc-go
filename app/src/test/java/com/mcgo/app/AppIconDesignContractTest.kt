@@ -63,11 +63,13 @@ class AppIconDesignContractTest {
         assertThat(foreground).contains("android:fillColor=\"#39A845\"")
         assertThat(foreground).contains("android:fillColor=\"#6B4528\"")
         assertThat(foreground).contains("android:fillColor=\"#8A5A34\"")
-        assertThat(foreground).contains("android:pathData=\"M22,24h64")
+        assertThat(foreground).contains("android:pathData=\"M34,36h40")
+        assertThat(foreground).doesNotContain("android:pathData=\"M22,24h64")
         assertThat(background).contains("android:startColor=\"#C8EEFF\"")
         assertThat(background).contains("android:endColor=\"#EAF7FF\"")
         assertThat(monochrome).contains("android:fillColor=\"#FFFFFFFF\"")
-        assertThat(monochrome).contains("android:pathData=\"M22,24h64")
+        assertThat(monochrome).contains("android:pathData=\"M34,36h40")
+        assertThat(monochrome).doesNotContain("android:pathData=\"M22,24h64")
     }
 
     private fun readTextFromExisting(candidates: List<Path>): String {
