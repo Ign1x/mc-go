@@ -14,6 +14,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,6 +83,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -96,6 +99,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalContext
@@ -871,6 +875,7 @@ private fun FloatingGlassBottomMenu(
             McGoDestination.entries.forEach { item ->
                 val selected = destination == item
                 val contentColor = if (selected) selectedContentColor else unselectedContentColor
+                val interactionSource = remember(item) { MutableInteractionSource() }
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -878,6 +883,8 @@ private fun FloatingGlassBottomMenu(
                             selected = selected,
                             onClick = { onDestinationSelected(item) },
                             role = Role.Tab,
+                            interactionSource = interactionSource,
+                            indication = null,
                         )
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -885,6 +892,14 @@ private fun FloatingGlassBottomMenu(
                 ) {
                     Box(
                         modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .indication(
+                                interactionSource = interactionSource,
+                                indication = ripple(
+                                    bounded = true,
+                                    radius = 28.dp,
+                                ),
+                            )
                             .background(
                                 color = if (selected) selectedContentColor.copy(alpha = 0.14f) else Color.Transparent,
                                 shape = CircleShape,
