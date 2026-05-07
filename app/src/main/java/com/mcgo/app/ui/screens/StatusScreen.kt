@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcgo.app.R
@@ -47,6 +48,7 @@ import java.util.Locale
 fun StatusScreen(
     modifier: Modifier = Modifier,
     appEntryElapsedRealtimeMillis: Long,
+    bottomContentPadding: Dp = 0.dp,
 ) {
     val dashboardState = rememberStatusDashboardState(appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis)
 
@@ -68,7 +70,7 @@ fun StatusScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+        item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
     }
 }
 

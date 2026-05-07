@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.AccentPreset
@@ -105,6 +106,7 @@ fun SettingsScreen(
     onServerDirectorySelected: (Uri?) -> Unit = {},
     onRequestServerDirectory: () -> Unit = {},
     modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
 ) {
     val settingsSections = remember(appearancePreferences.themeMode, appearancePreferences.accentPreset, appearancePreferences.cardTransparencyPercent, appearancePreferences.transparentCards, appearancePreferences.dynamicBackground, javaManagementState.summaryLabel) {
         McGoSampleRepository.settingsSections().map { section ->
@@ -196,6 +198,7 @@ fun SettingsScreen(
     when (navigationState.destination) {
         SettingsDestination.Overview -> SettingsOverview(
             modifier = modifier,
+            bottomContentPadding = bottomContentPadding,
             sections = settingsSections,
             onOpenAppearance = { destination = navigationState.openAppearance().destination },
             onOpenJavaManagement = { destination = navigationState.openJavaManagement().destination },
@@ -203,6 +206,7 @@ fun SettingsScreen(
         )
         SettingsDestination.Appearance -> AppearanceDetailScreen(
             modifier = modifier,
+            bottomContentPadding = bottomContentPadding,
             section = appearanceSection,
             appearancePreferences = appearancePreferences,
             appearanceOptions = appearanceOptions,
@@ -211,6 +215,7 @@ fun SettingsScreen(
         )
         SettingsDestination.JavaManagement -> JavaManagementDetailScreen(
             modifier = modifier,
+            bottomContentPadding = bottomContentPadding,
             section = javaManagementSection,
             state = javaManagementState,
             onNavigateBack = { destination = navigationState.navigateBack().destination },
@@ -220,6 +225,7 @@ fun SettingsScreen(
         )
         SettingsDestination.RuntimePermissions -> RuntimePermissionDetailScreen(
             modifier = modifier,
+            bottomContentPadding = bottomContentPadding,
             section = runtimePermissionSection,
             state = runtimePermissionState,
             onNavigateBack = { destination = navigationState.navigateBack().destination },
@@ -235,6 +241,7 @@ private fun SettingsOverview(
     onOpenJavaManagement: () -> Unit,
     onOpenRuntimePermissions: () -> Unit,
     modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
 ) {
     LazyColumn(
         modifier = modifier,
@@ -255,7 +262,7 @@ private fun SettingsOverview(
                 )
             }
         }
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+        item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
     }
 }
 
@@ -267,6 +274,7 @@ private fun AppearanceDetailScreen(
     onNavigateBack: () -> Unit,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
 ) {
     val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.Appearance)
 
@@ -341,7 +349,7 @@ private fun AppearanceDetailScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+        item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
     }
 }
 
@@ -354,6 +362,7 @@ private fun JavaManagementDetailScreen(
     onImportJava: (Int) -> Unit,
     onDeleteJava: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
 ) {
     val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.JavaManagement)
 
@@ -381,7 +390,7 @@ private fun JavaManagementDetailScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+        item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
     }
 }
 
@@ -392,6 +401,7 @@ private fun RuntimePermissionDetailScreen(
     onNavigateBack: () -> Unit,
     onPermissionAction: (RuntimePermissionItem) -> Unit,
     modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
 ) {
     val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.RuntimePermissions)
 
@@ -416,7 +426,7 @@ private fun RuntimePermissionDetailScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+        item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
     }
 }
 

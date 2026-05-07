@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
 import com.mcgo.app.server.initialProvisionablePaperVersion
@@ -85,6 +86,7 @@ fun ServersScreen(
     paperVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
     modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
     showCreateServer: Boolean = false,
     onDismissCreateServer: () -> Unit = {},
     onCreateServer: (ServerCardState) -> Unit = {},
@@ -147,7 +149,7 @@ fun ServersScreen(
                 onDeleteClick = { pendingDeleteServer = server },
             )
         }
-        item { Spacer(modifier = Modifier.height(96.dp)) }
+        item { Spacer(modifier = Modifier.height(96.dp + bottomContentPadding)) }
     }
 }
 

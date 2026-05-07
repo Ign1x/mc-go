@@ -18,7 +18,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -96,6 +99,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -332,6 +337,7 @@ private fun MCGoAppScaffold(
     }
     val visuals = LocalMcGoVisualTokens.current
     val fluidBackgroundSpec = visuals.fluidBackgroundSpec
+    val layoutDirection = LocalLayoutDirection.current
     val bottomBarAlpha = if (appearancePreferences.transparentCards) {
         appearancePreferences.cardContainerAlpha().coerceIn(0.78f, 0.96f)
     } else {
@@ -644,10 +650,18 @@ private fun MCGoAppScaffold(
             },
             floatingActionButtonPosition = FabPosition.End,
         ) { innerPadding ->
+            val bottomContentPadding = innerPadding.calculateBottomPadding()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    .padding(
+                        PaddingValues(
+                            start = innerPadding.calculateStartPadding(layoutDirection),
+                            top = innerPadding.calculateTopPadding(),
+                            end = innerPadding.calculateEndPadding(layoutDirection),
+                            bottom = 0.dp,
+                        ),
+                    ),
             ) {
                 consoleServerId?.let { serverId ->
                     servers.firstOrNull { it.id == serverId }?.let { server ->
@@ -687,6 +701,7 @@ private fun MCGoAppScaffold(
                     McGoDestination.Status -> StatusScreen(
                         modifier = Modifier.fillMaxSize(),
                         appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
+                        bottomContentPadding = bottomContentPadding,
                     )
                     McGoDestination.Servers -> ServersScreen(
                         servers = servers,
@@ -694,6 +709,7 @@ private fun MCGoAppScaffold(
                         paperVersions = paperVersions,
                         supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                         modifier = Modifier.fillMaxSize(),
+                        bottomContentPadding = bottomContentPadding,
                         showCreateServer = showServerComposer,
                         onDismissCreateServer = { showServerComposer = false },
                         onCreateServer = { server ->
@@ -791,9 +807,11 @@ private fun MCGoAppScaffold(
                             onPersistServers(updatedServers)
                         },
                         modifier = Modifier.fillMaxSize(),
+                        bottomContentPadding = bottomContentPadding,
                     )
                     McGoDestination.Settings -> SettingsScreen(
                         modifier = Modifier.fillMaxSize(),
+                        bottomContentPadding = bottomContentPadding,
                         appearancePreferences = appearancePreferences,
                         onAppearancePreferencesChange = onAppearancePreferencesChange,
                         javaManagementState = javaManagementState,

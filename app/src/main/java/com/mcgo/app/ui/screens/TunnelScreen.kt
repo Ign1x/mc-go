@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.network.parseTcpEndpoint
 import com.mcgo.app.ui.components.GlassCard
@@ -64,6 +65,7 @@ fun TunnelsScreen(
     onEditTunnel: (String) -> Unit,
     onDeleteTunnel: (String) -> Unit,
     modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
 ) {
     val editingTunnel = remember(editingTunnelId, tunnels) {
         tunnels.firstOrNull { it.id == editingTunnelId }
@@ -119,7 +121,7 @@ fun TunnelsScreen(
                 )
             }
         }
-        item { Spacer(modifier = Modifier.height(96.dp)) }
+        item { Spacer(modifier = Modifier.height(96.dp + bottomContentPadding)) }
     }
 }
 
