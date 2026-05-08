@@ -428,6 +428,17 @@ private fun CreateServerDialog(
     val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: 2048
     val resolvedPort = port.toIntOrNull()?.coerceIn(1, 65535) ?: 25565
     val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
+    val javaVersionOptions = remember(
+        supportedProvisionableJavaVersions,
+        selectedJavaMajorVersion,
+        recommendedJava,
+    ) {
+        buildList {
+            add(recommendedJava)
+            add(selectedJavaMajorVersion)
+            addAll(supportedProvisionableJavaVersions)
+        }.distinct().sorted()
+    }
     LaunchedEffect(minecraftVersion, javaSelectionMode) {
         if (javaSelectionMode == JavaSelectionMode.Recommended) {
             selectedJavaMajorVersion = recommendedJava
@@ -573,32 +584,25 @@ private fun CreateServerDialog(
                         }
                     }
                 }
-                JavaSelectionModeChipRow(
-                    selectedMode = javaSelectionMode,
-                    onSelectedMode = { javaSelectionMode = it },
-                )
                 ExposedDropdownMenuBox(
                     expanded = javaVersionMenuExpanded,
-                    onExpandedChange = { if (javaSelectionMode == JavaSelectionMode.Manual) javaVersionMenuExpanded = !javaVersionMenuExpanded },
+                    onExpandedChange = { javaVersionMenuExpanded = !javaVersionMenuExpanded },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     OutlinedTextField(
-                        value = "Java $selectedJavaMajorVersion",
+                        value = if (javaSelectionMode == JavaSelectionMode.Recommended) {
+                            "自动"
+                        } else {
+                            "Java $selectedJavaMajorVersion"
+                        },
                         onValueChange = {},
                         modifier = Modifier
                             .menuAnchor()
                             .fillMaxWidth(),
                         readOnly = true,
-                        enabled = javaSelectionMode == JavaSelectionMode.Manual,
                         label = { Text("运行时 Java") },
                         supportingText = {
-                            Text(
-                                if (javaSelectionMode == JavaSelectionMode.Recommended) {
-                                    "当前推荐：Java $recommendedJava"
-                                } else {
-                                    "可手动切换；当前 Minecraft 推荐 Java $recommendedJava"
-                                },
-                            )
+                            Text("当前推荐：Java $recommendedJava")
                         },
                         singleLine = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = javaVersionMenuExpanded) },
@@ -607,11 +611,18 @@ private fun CreateServerDialog(
                         expanded = javaVersionMenuExpanded,
                         onDismissRequest = { javaVersionMenuExpanded = false },
                     ) {
-                        supportedProvisionableJavaVersions.toList().sorted().forEach { javaVersion ->
+                        val javaMenuOptions = listOf<String>("自动") + javaVersionOptions.map { "Java $it" }
+                        javaMenuOptions.forEach { selected ->
                             DropdownMenuItem(
-                                text = { Text("Java $javaVersion") },
+                                text = { Text(selected) },
                                 onClick = {
-                                    selectedJavaMajorVersion = javaVersion
+                                    if (selected == "自动") {
+                                        javaSelectionMode = JavaSelectionMode.Recommended
+                                        selectedJavaMajorVersion = recommendedJava
+                                    } else {
+                                        javaSelectionMode = JavaSelectionMode.Manual
+                                        selectedJavaMajorVersion = selected.removePrefix("Java ").toIntOrNull() ?: selectedJavaMajorVersion
+                                    }
                                     javaVersionMenuExpanded = false
                                 },
                             )
@@ -822,36 +833,6 @@ private fun TunnelStartupChoice(
             selectedLabelColor = MaterialTheme.colorScheme.primary,
         ),
     )
-}
-
-@Composable
-private fun JavaSelectionModeChipRow(
-    selectedMode: JavaSelectionMode,
-    onSelectedMode: (JavaSelectionMode) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = "Java 版本策略", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FilterChip(
-                selected = selectedMode == JavaSelectionMode.Recommended,
-                onClick = { onSelectedMode(JavaSelectionMode.Recommended) },
-                label = { Text("跟随推荐") },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                    selectedLabelColor = MaterialTheme.colorScheme.primary,
-                ),
-            )
-            FilterChip(
-                selected = selectedMode == JavaSelectionMode.Manual,
-                onClick = { onSelectedMode(JavaSelectionMode.Manual) },
-                label = { Text("手动指定") },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                    selectedLabelColor = MaterialTheme.colorScheme.primary,
-                ),
-            )
-        }
-    }
 }
 
 @Composable

@@ -1713,7 +1713,7 @@ private fun EditPaperServerDialog(
                         icon = Icons.Outlined.Settings,
                         label = "Java",
                         valueLabel = if (javaSelectionMode == JavaSelectionMode.Recommended) {
-                            "自动（推荐 Java $recommendedJava）"
+                            "自动"
                         } else {
                             "Java $manualJavaMajorVersion"
                         },

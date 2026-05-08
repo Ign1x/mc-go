@@ -624,6 +624,58 @@ class ServerModelsTest {
     }
 
     @Test
+    fun applyPaperServerEdits_keepsRecommendedJavaModeAcrossMinecraftVersionChanges() {
+        val original = createPaperServer(
+            name = "自动服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            javaMajorVersion = 21,
+            javaSelectionMode = JavaSelectionMode.Recommended,
+        )
+
+        val edited = applyPaperServerEdits(
+            server = original,
+            name = "自动服",
+            minecraftVersion = "26.1.1",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+            worldName = "world",
+        )
+
+        assertThat(edited.javaMajorVersion).isEqualTo(25)
+        assertThat(edited.javaSelectionMode).isEqualTo(JavaSelectionMode.Recommended)
+    }
+
+    @Test
+    fun applyPaperServerEdits_preservesManualSelectionEvenWhenItMatchesRecommendedJava() {
+        val original = createPaperServer(
+            name = "手动钉住推荐 Java",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            javaMajorVersion = 21,
+            javaSelectionMode = JavaSelectionMode.Manual,
+        )
+
+        val edited = applyPaperServerEdits(
+            server = original,
+            name = "手动钉住推荐 Java",
+            minecraftVersion = "26.1.1",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+            worldName = "world",
+        )
+
+        assertThat(edited.javaMajorVersion).isEqualTo(21)
+        assertThat(edited.javaSelectionMode).isEqualTo(JavaSelectionMode.Manual)
+    }
+
+    @Test
     fun resolveServerConsoleText_prefersRuntimeLogFileAndFallsBackToInMemoryLogs() {
         val logFile = java.nio.file.Files.createTempFile("mcgo-console", ".log")
         java.nio.file.Files.write(logFile, "line-a\nline-b\n".toByteArray())
