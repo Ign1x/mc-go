@@ -40,7 +40,7 @@ class StatusScreenChartContractTest {
 
         assertThat(statusScreenSource).contains("private val ChartAxisLabelTextSize = 7.sp")
         assertThat(statusScreenSource).contains("private val ChartElapsedLabelTextSize = 7.sp")
-        assertThat(statusScreenSource).contains("private val ChartLeftInset = 22.dp")
+        assertThat(statusScreenSource).contains("private val ChartLeftInset = 18.dp")
         assertThat(statusScreenSource).contains("private val ChartLabelGap = 3.dp")
         assertThat(metricCard).contains("valueLabel = metric.valueLabel")
         assertThat(sparkline).contains("chartLeft = ChartLeftInset.toPx()")

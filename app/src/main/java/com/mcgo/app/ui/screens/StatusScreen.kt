@@ -112,7 +112,7 @@ private fun MetricGrid(metrics: List<DashboardMetric>, modifier: Modifier = Modi
 private val MetricCardMinHeight = 176.dp
 private val ChartAxisLabelTextSize = 7.sp
 private val ChartElapsedLabelTextSize = 7.sp
-private val ChartLeftInset = 22.dp
+private val ChartLeftInset = 18.dp
 private val ChartLabelGap = 3.dp
 
 @Composable
