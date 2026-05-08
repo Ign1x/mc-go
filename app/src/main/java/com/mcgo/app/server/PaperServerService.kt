@@ -490,10 +490,15 @@ open class PaperServerService : Service() {
         Files.createDirectories(plan.configPath.parent)
         val executablePath = resolveExecutableFrpcPath(plan)
         Files.write(plan.configPath, plan.configText.toByteArray())
+        val frpcLogFile = managedPaperServerFrpcLogFile(filesDir.toPath(), server.id)
+        val frpcLogStartOffset = frpcLogFile
+            .takeIf { Files.isRegularFile(it) }
+            ?.let(Files::size)
+            ?: 0L
         val process = ProcessBuilder(executablePath.toString(), "-c", plan.configPath.toString())
             .directory(plan.configPath.parent.toFile())
             .redirectErrorStream(true)
-            .redirectOutput(ProcessBuilder.Redirect.appendTo(managedPaperServerLogFile(filesDir.toPath(), server.id).toFile()))
+            .redirectOutput(ProcessBuilder.Redirect.appendTo(frpcLogFile.toFile()))
             .start()
         currentActiveTunnelLabel = plan.displayLabel
         currentRuntimeAddress = plan.runtimeAddress
@@ -501,13 +506,18 @@ open class PaperServerService : Service() {
         frpcWatchJob?.cancel()
         frpcWatchJob = serviceScope.launch {
             val exitCode = process.waitFor()
+            val frpcLines = readAppendedNonBlankLines(
+                frpcLogFile,
+                frpcLogStartOffset,
+            )
+            val lastFrpcLine = selectFrpcExitLogLine(frpcLines)
             if (!stopRequested) {
                 currentActiveTunnelLabel = null
                 currentRuntimeAddress = "127.0.0.1:${server.port}"
                 publishEvent(
                     PaperServerEvent(
                         serverId = server.id,
-                        message = "FRP 退出码 $exitCode；公网入口已断开",
+                        message = frpcExitMessage(exitCode, lastFrpcLine),
                         activeTunnelLabel = null,
                         runtimeAddress = currentRuntimeAddress,
                     ),
@@ -735,6 +745,28 @@ fun runtimeExitEvent(
         progress = 0,
         message = "Paper 退出码 $exitCode；日志路径：$logFile",
     )
+}
+
+fun selectFrpcExitLogLine(lines: List<String>): String? {
+    val normalizedLines = lines.map(String::trim).filter(String::isNotBlank)
+    val matchers = listOf<(String) -> Boolean>(
+        { line -> line.contains("token in login doesn't match token from configuration", ignoreCase = true) },
+        { line -> line.contains("login to the server failed", ignoreCase = true) },
+        { line -> line.contains("connect to server error", ignoreCase = true) },
+        { line -> line.contains("frpc service", ignoreCase = true) },
+    )
+    return matchers.firstNotNullOfOrNull { matcher -> normalizedLines.lastOrNull(matcher) }
+}
+
+fun frpcExitMessage(exitCode: Int, lastLogLine: String?): String {
+    val normalizedLine = lastLogLine?.trim().orEmpty()
+    return when {
+        normalizedLine.contains("token in login doesn't match token from configuration", ignoreCase = true) -> {
+            "FRP token 不匹配，请检查隧道配置中的 token 是否与服务端一致"
+        }
+        normalizedLine.isNotBlank() -> "FRP 退出码 $exitCode；$normalizedLine"
+        else -> "FRP 退出码 $exitCode；公网入口已断开"
+    }
 }
 
 internal fun decodeServerCardStateExtrasForTest(extras: Map<String, Any?>): ServerCardState = decodeServerCardStateExtras(extras)

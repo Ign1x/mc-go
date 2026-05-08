@@ -160,7 +160,7 @@ class MCGoEditPageDesignContractTest {
         assertThat(source).contains("import androidx.compose.ui.focus.onFocusEvent")
         assertThat(scaffold).contains("imePadding()")
         assertThat(scaffold).doesNotContain("safeDrawingPadding()")
-        assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome")
+        assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.ScrollableChrome")
         assertThat(propertiesDialog).contains("rememberImeBringIntoViewRequester()")
         assertThat(propertiesDialog).contains("bringIntoViewRequester(propertiesBringIntoViewRequester)")
         assertThat(propertiesDialog).contains("onFocusEvent")
@@ -262,7 +262,7 @@ class MCGoEditPageDesignContractTest {
 
 
     @Test
-    fun editPaperServerDialog_usesInlineChromeAndNonStickyConfigActions() {
+    fun editPaperServerDialog_usesScrollableChromeAndNonStickyConfigActions() {
         val editDialog = source.substringBetween(
             start = "private fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
@@ -277,7 +277,7 @@ class MCGoEditPageDesignContractTest {
         )
 
         assertThat(source).contains("private enum class EditFullScreenScaffoldLayoutMode")
-        assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome")
+        assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.ScrollableChrome")
         assertThat(propertiesDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome")
         assertThat(editDialog).contains("Text(\"编辑 server.properties\")")
         assertThat(editDialog).doesNotContain("Text(\"进阶：直接编辑 server.properties\")")
@@ -289,9 +289,11 @@ class MCGoEditPageDesignContractTest {
         assertThat(propertiesDialog).contains("AnnotatedString")
         assertThat(propertiesDialog).contains("SpanStyle")
         assertThat(editDialog).doesNotContain(".verticalScroll(rememberScrollState())")
-        assertThat(scaffold).contains("if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome)")
+        assertThat(scaffold).contains("EditFullScreenScaffoldLayoutMode.ScrollableChrome ->")
+        assertThat(scaffold).contains("headerInline()")
+        assertThat(scaffold).contains("footerInline()")
+        assertThat(scaffold).doesNotContain("if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome)")
         assertThat(scaffold).contains("verticalScroll(rememberScrollState())")
-        assertThat(scaffold).contains("footerOverlay()")
         assertThat(scaffold).contains("navigationBarsPadding()")
         assertThat(scaffold).contains("imePadding()")
     }

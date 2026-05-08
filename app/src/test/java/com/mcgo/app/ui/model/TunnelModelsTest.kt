@@ -61,6 +61,19 @@ class TunnelModelsTest {
     }
 
     @Test
+    fun manualServerTunnel_trimsCredentialWhitespace() {
+        val profile = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "  secret-token\n",
+            portRange = "38000-38100",
+        )
+
+        assertThat(profile.credentialValue).isEqualTo("secret-token")
+    }
+
+    @Test
     fun allocateManualTunnelRemotePort_picksFirstUnusedPortAndSkipsReservedOnes() {
         val tunnel = TunnelProfile.manualServer(
             name = "家庭 FRP",

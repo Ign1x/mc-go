@@ -35,6 +35,9 @@ fun managedPaperServerDirectory(filesDir: Path, serverId: String): Path =
 fun managedPaperServerLogFile(filesDir: Path, serverId: String): Path =
     managedPaperServerDirectory(filesDir, serverId).resolve("logs/mcgo-latest.log")
 
+fun managedPaperServerFrpcLogFile(filesDir: Path, serverId: String): Path =
+    managedPaperServerDirectory(filesDir, serverId).resolve("logs/frpc.log")
+
 fun buildManagedPaperLaunchConfig(
     server: ServerCardState,
     filesDir: Path,

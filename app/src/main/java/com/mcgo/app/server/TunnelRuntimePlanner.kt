@@ -36,12 +36,13 @@ fun allocateRuntimeSlot(
 
 fun buildFrpcConfigForTunnel(server: ServerCardState, tunnel: TunnelProfile): String {
     require(tunnel.kind == TunnelKind.Frp) { "当前仅支持 FRP 隧道配置" }
-    require(!tunnel.credentialValue.isNullOrBlank()) { "FRP token 不能为空" }
+    val trimmedToken = tunnel.credentialValue?.trim()
+    require(!trimmedToken.isNullOrBlank()) { "FRP token 不能为空" }
     val endpoint = URI("tcp://${tunnel.serverAddress}")
     val host = endpoint.host ?: error("FRP 服务端地址无效")
     val serverPort = endpoint.port.takeIf { it > 0 } ?: error("FRP 服务端端口无效")
     val remotePort = tunnel.remotePort ?: server.tunnelRemotePort ?: server.port
-    val escapedToken = tunnel.credentialValue
+    val escapedToken = trimmedToken
         .replace("\\", "\\\\")
         .replace("\n", "")
         .replace("\r", "")

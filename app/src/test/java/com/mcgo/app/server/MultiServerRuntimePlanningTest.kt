@@ -71,6 +71,56 @@ class MultiServerRuntimePlanningTest {
     }
 
     @Test
+    fun buildFrpcConfigForManualTunnel_trimsCredentialBeforeWritingToml() {
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 38001,
+            javaSelectionMode = JavaSelectionMode.Recommended,
+        )
+        val tunnel = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.example.com:7000",
+            credentialValue = "  my-secret-token\n",
+            portRange = "38000-38100",
+        )
+
+        val toml = buildFrpcConfigForTunnel(server, tunnel)
+
+        assertThat(toml).contains("auth.token = \"my-secret-token\"")
+        assertThat(toml).doesNotContain("auth.token = \"  my-secret-token")
+    }
+
+    @Test
+    fun buildFrpcConfigForLoadedTunnel_trimsCredentialBeforeWritingToml() {
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 38001,
+            javaSelectionMode = JavaSelectionMode.Recommended,
+        )
+        val tunnel = TunnelProfile(
+            id = "frp-home",
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            source = com.mcgo.app.ui.model.TunnelSource.ManualServer,
+            serverAddress = "frp.example.com:7000",
+            credentialValue = "  my-secret-token\n",
+            portRange = "38000-38100",
+        )
+
+        val toml = buildFrpcConfigForTunnel(server, tunnel)
+
+        assertThat(toml).contains("auth.token = \"my-secret-token\"")
+        assertThat(toml).doesNotContain("auth.token = \"  my-secret-token")
+    }
+
+    @Test
     fun extractBundledFrpcBinaryName_returnsArm64AssetPath() {
         assertThat(defaultBundledFrpcAssetRelativePath("arm64-v8a")).isEqualTo("frp/android_arm64/frpc")
     }

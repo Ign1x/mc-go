@@ -549,8 +549,9 @@ private fun MCGoAppScaffold(
         directoryPickerLauncher.launch(serverDirectoryUriText?.let(Uri::parse))
     }
     fun startServerNow(request: PendingStartRequest) {
+        val currentServers = latestServers
         val tunnel = tunnels.firstOrNull { it.id == request.tunnelId }
-        val targetServer = servers.firstOrNull { it.id == request.serverId }
+        val targetServer = currentServers.firstOrNull { it.id == request.serverId }
         if (targetServer == null) {
             scope.launch { snackbarHostState.showSnackbar("未找到服务器") }
             return
@@ -566,7 +567,7 @@ private fun MCGoAppScaffold(
                     server = if (targetServer.selectedTunnelId == it.id) targetServer else targetServer.copy(tunnelRemotePort = null),
                     tunnel = it,
                     requestedRemotePort = request.remotePort,
-                    servers = servers,
+                    servers = currentServers,
                 )
             }.getOrElse { error ->
                 scope.launch { snackbarHostState.showSnackbar(error.message ?: "隧道远端端口分配失败") }
@@ -582,12 +583,12 @@ private fun MCGoAppScaffold(
             scope.launch { snackbarHostState.showSnackbar("当前设备 ABI 为 $runtimeAbi，暂不支持内置 FRP 客户端") }
             return
         }
-        if (servers.any { it.id != request.serverId && it.isRuntimeBusy() && it.port == resolvedPort }) {
+        if (currentServers.any { it.id != request.serverId && it.isRuntimeBusy() && it.port == resolvedPort }) {
             scope.launch { snackbarHostState.showSnackbar("端口 $resolvedPort 已被其他运行中的服务器占用") }
             return
         }
         val allocatedSlot = allocateRuntimeSlot(
-            servers = servers,
+            servers = currentServers,
             targetServerId = request.serverId,
             maxSlots = MaxPaperRuntimeSlots,
         ) ?: run {
@@ -600,7 +601,7 @@ private fun MCGoAppScaffold(
             } else {
                 "当前版本暂不提供 Java ${targetServer.javaMajorVersion} 托管运行时；该 Minecraft 版本暂不支持一键开服"
             }
-            val failedServers = servers.map { server ->
+            val failedServers = currentServers.map { server ->
                 if (server.id == request.serverId) {
                     server.markLaunchFailed(guidance)
                 } else {
@@ -621,7 +622,7 @@ private fun MCGoAppScaffold(
             return
         }
         val runtimeLogPath = managedPaperServerLogFile(appContext.filesDir.toPath(), request.serverId).toString()
-        val updatedServers = servers.map { server ->
+        val updatedServers = currentServers.map { server ->
             if (server.id != request.serverId) {
                 server
             } else {
@@ -1663,7 +1664,7 @@ private fun EditPaperServerDialog(
                 subtitle = "",
                 leadingIcon = Icons.Outlined.Tune,
                 dynamicBackground = dynamicBackground,
-                layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome,
+                layoutMode = EditFullScreenScaffoldLayoutMode.ScrollableChrome,
                 onDismiss = onDismiss,
                 footer = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1823,7 +1824,7 @@ private fun EditPaperServerDialog(
 
 private enum class EditFullScreenScaffoldLayoutMode {
     PinnedChrome,
-    InlineChrome,
+    ScrollableChrome,
 }
 
 private enum class EditServerOverlayDestination {
@@ -1989,13 +1990,9 @@ private fun EditFullScreenScaffold(
             var footerOverlayHeightPx by remember { mutableIntStateOf(0) }
             val contentTopPadding = with(density) { headerOverlayHeightPx.toDp() }
             val footerBottomPadding = with(density) { footerOverlayHeightPx.toDp() }
-            val headerOverlay: @Composable () -> Unit = {
+            val headerCard: @Composable (Modifier) -> Unit = { modifier ->
                 Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .onSizeChanged { headerOverlayHeightPx = it.height },
+                    modifier = modifier,
                     color = colors.cardContainerColor,
                     contentColor = colors.primaryText,
                     shape = RoundedCornerShape(28.dp),
@@ -2037,13 +2034,18 @@ private fun EditFullScreenScaffold(
                     }
                 }
             }
-            val footerOverlay: @Composable () -> Unit = {
-                Surface(
-                    modifier = Modifier
+            val headerOverlay: @Composable () -> Unit = {
+                headerCard(
+                    Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding()
+                        .statusBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .onSizeChanged { footerOverlayHeightPx = it.height },
+                        .onSizeChanged { headerOverlayHeightPx = it.height },
+                )
+            }
+            val footerCard: @Composable (Modifier) -> Unit = { modifier ->
+                Surface(
+                    modifier = modifier,
                     color = colors.cardContainerColor,
                     contentColor = colors.primaryText,
                     shape = RoundedCornerShape(26.dp),
@@ -2054,51 +2056,79 @@ private fun EditFullScreenScaffold(
                     }
                 }
             }
-
-            if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .imePadding()
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = contentTopPadding, start = 16.dp, end = 16.dp, bottom = footerBottomPadding),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    content()
-                }
-                headerOverlay()
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
+            val footerOverlay: @Composable () -> Unit = {
+                footerCard(
+                    Modifier
                         .fillMaxWidth()
-                        .imePadding(),
-                ) {
-                    footerOverlay()
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .onSizeChanged { footerOverlayHeightPx = it.height },
+                )
+            }
+
+            val headerInline: @Composable () -> Unit = {
+                headerCard(
+                    Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+            val footerInline: @Composable () -> Unit = {
+                footerCard(
+                    Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
                         .imePadding()
-                        .padding(top = contentTopPadding, start = 16.dp, end = 16.dp, bottom = footerBottomPadding),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Box(
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+
+            when (layoutMode) {
+                EditFullScreenScaffoldLayoutMode.ScrollableChrome -> {
+                    Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxSize()
+                            .imePadding()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        content()
+                        headerInline()
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            content()
+                        }
+                        footerInline()
                     }
                 }
-                headerOverlay()
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .imePadding(),
-                ) {
-                    footerOverlay()
+
+                EditFullScreenScaffoldLayoutMode.PinnedChrome -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .imePadding()
+                            .padding(top = contentTopPadding, start = 16.dp, end = 16.dp, bottom = footerBottomPadding),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                        ) {
+                            content()
+                        }
+                    }
+                    headerOverlay()
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .imePadding(),
+                    ) {
+                        footerOverlay()
+                    }
                 }
             }
         }

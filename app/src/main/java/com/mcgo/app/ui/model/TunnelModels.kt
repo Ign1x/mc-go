@@ -156,6 +156,7 @@ data class TunnelProfile(
             portRange: String,
             baseLatencyMs: Int = PendingLatencyMs,
         ): TunnelProfile {
+            val trimmedCredentialValue = credentialValue.trim()
             val spec = manualTunnelFieldSpec(kind)
             val resolvedAddress = serverAddress.ifBlank { "未填写地址" }
             return TunnelProfile(
@@ -166,14 +167,14 @@ data class TunnelProfile(
                 serverAddress = resolvedAddress,
                 remotePort = null,
                 localPort = null,
-                credentialValue = credentialValue,
+                credentialValue = trimmedCredentialValue,
                 portRange = portRange,
                 baseLatencyMs = baseLatencyMs,
                 currentLatencyMs = PendingLatencyMs,
                 healthLabel = latencyHealthLabel(PendingLatencyMs),
                 detail = buildList {
                     add("${kind.label} 服务器参数")
-                    if (credentialValue.isNotBlank()) add("${spec.credentialLabel} 已保存")
+                    if (trimmedCredentialValue.isNotBlank()) add("${spec.credentialLabel} 已保存")
                     if (portRange.isNotBlank()) add("端口范围 $portRange")
                     add("启动时可改端口")
                 }.joinToString(" · "),

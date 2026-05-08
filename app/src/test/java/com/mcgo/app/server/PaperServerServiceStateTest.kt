@@ -142,6 +142,27 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun selectFrpcExitLogLine_prefersTokenMismatchOverTrailingGenericStoppedLine() {
+        val line = selectFrpcExitLogLine(
+            listOf(
+                "[I] try to connect to server...",
+                "login to the server failed: token in login doesn't match token from configuration",
+                "frpc service for config file [/tmp/frpc.toml] stopped",
+            ),
+        )
+
+        assertThat(line).contains("token in login doesn't match")
+    }
+
+    @Test
+    fun frpcExitMessage_surfacesTokenMismatchAsActionableHint() {
+        assertThat(frpcExitMessage(1, "login to the server failed: token in login doesn't match token from configuration"))
+            .contains("FRP token 不匹配")
+        assertThat(frpcExitMessage(1, "login to the server failed: token in login doesn't match token from configuration"))
+            .contains("token")
+    }
+
+    @Test
     fun javaRuntimeMayRequireFreshProcess_restartsWhenJavaMajorChanges() {
         assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = null, nextJavaMajorVersion = 8)).isEqualTo(false)
         assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = 17, nextJavaMajorVersion = 17)).isEqualTo(false)
