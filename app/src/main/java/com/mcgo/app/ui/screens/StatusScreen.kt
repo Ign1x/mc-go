@@ -36,6 +36,7 @@ import com.mcgo.app.R
 import com.mcgo.app.status.buildMetricChartAxis
 import com.mcgo.app.status.clampMetricChartAxisYBounds
 import com.mcgo.app.status.formatElapsedAxisLabel
+import com.mcgo.app.status.DevicePerformanceMonitor
 import com.mcgo.app.status.rememberStatusDashboardState
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.DashboardMetric
@@ -49,9 +50,13 @@ import java.util.Locale
 fun StatusScreen(
     modifier: Modifier = Modifier,
     appEntryElapsedRealtimeMillis: Long,
+    statusMonitor: DevicePerformanceMonitor,
     bottomContentPadding: Dp = 0.dp,
 ) {
-    val dashboardState = rememberStatusDashboardState(appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis)
+    val dashboardState = rememberStatusDashboardState(
+        appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
+        statusMonitor = statusMonitor,
+    )
 
     LazyColumn(
         modifier = modifier,
@@ -241,45 +246,63 @@ private fun MetricSparkline(
         }
 
         val visiblePoints = points.filter { it.elapsedMillis in axis.windowStartMillis..axis.windowEndMillis }
-        if (visiblePoints.isEmpty()) return@Canvas
-        val linePath = Path()
-        val fillPath = Path()
-        var lastPoint = Offset.Zero
-
-        visiblePoints.forEachIndexed { index, point ->
-            val x = xForTick(point.elapsedMillis)
-            val y = yForValue(point.value)
-            lastPoint = Offset(x, y)
-            if (index == 0) {
-                linePath.moveTo(x, y)
-                fillPath.moveTo(x, chartBottom)
-                fillPath.lineTo(x, y)
+        if (visiblePoints.none { it.value != null }) return@Canvas
+        val segments = mutableListOf<List<Offset>>()
+        var currentSegment = mutableListOf<Offset>()
+        visiblePoints.forEach { point ->
+            val pointValue = point.value
+            if (pointValue == null) {
+                if (currentSegment.isNotEmpty()) {
+                    segments += currentSegment.toList()
+                    currentSegment = mutableListOf()
+                }
             } else {
-                linePath.lineTo(x, y)
-                fillPath.lineTo(x, y)
+                currentSegment += Offset(xForTick(point.elapsedMillis), yForValue(pointValue))
             }
         }
+        if (currentSegment.isNotEmpty()) {
+            segments += currentSegment.toList()
+        }
+        if (segments.isEmpty()) return@Canvas
+        val lastPoint = segments.last().last()
 
-        fillPath.lineTo(lastPoint.x, chartBottom)
-        fillPath.close()
+        segments.forEach { segment ->
+            if (segment.isEmpty()) return@forEach
+            val linePath = Path()
+            val fillPath = Path()
+            segment.forEachIndexed { index, point ->
+                if (index == 0) {
+                    linePath.moveTo(point.x, point.y)
+                    fillPath.moveTo(point.x, chartBottom)
+                    fillPath.lineTo(point.x, point.y)
+                } else {
+                    linePath.lineTo(point.x, point.y)
+                    fillPath.lineTo(point.x, point.y)
+                }
+            }
+            val segmentLastPoint = segment.last()
+            fillPath.lineTo(segmentLastPoint.x, chartBottom)
+            fillPath.close()
 
-        drawPath(
-            path = fillPath,
-            brush = Brush.verticalGradient(
-                colors = listOf(accent.copy(alpha = 0.24f), Color.Transparent),
-                startY = chartTop,
-                endY = chartBottom,
-            ),
-        )
-        drawPath(
-            path = linePath,
-            color = accent,
-            style = Stroke(
-                width = 4f,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            ),
-        )
+            drawPath(
+                path = fillPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(accent.copy(alpha = 0.24f), Color.Transparent),
+                    startY = chartTop,
+                    endY = chartBottom,
+                ),
+            )
+            drawPath(
+                path = linePath,
+                color = accent,
+                style = Stroke(
+                    width = 4f,
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round,
+                ),
+            )
+        }
+
         drawCircle(
             color = accent,
             radius = 5.5f,

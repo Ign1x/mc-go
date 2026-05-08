@@ -676,6 +676,17 @@ class ServerModelsTest {
     }
 
     @Test
+    fun pickAvailableManagedServerPort_skipsConflictingPortsAndFindsNextFreeOne() {
+        val servers = listOf(
+            createPaperServer("A", "1.21.4", 20, 2048, port = 25565),
+            createPaperServer("B", "1.21.4", 20, 2048, port = 25566),
+            createPaperServer("C", "1.21.4", 20, 2048, port = 25568),
+        )
+
+        assertThat(pickAvailableManagedServerPort(servers)).isEqualTo(25567)
+    }
+
+    @Test
     fun resolveServerConsoleText_prefersRuntimeLogFileAndFallsBackToInMemoryLogs() {
         val logFile = java.nio.file.Files.createTempFile("mcgo-console", ".log")
         java.nio.file.Files.write(logFile, "line-a\nline-b\n".toByteArray())

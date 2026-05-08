@@ -19,6 +19,8 @@ class McGoPageChromeTest {
 
     @Test
     fun pagesExposeOnlyHeaderCopyWithoutLeadCardFlags() {
+        assertThat(McGoPageChrome.forPage(McGoPage.Status).titleRes).isEqualTo(R.string.app_name)
+        assertThat(McGoPageChrome.forPage(McGoPage.Status).subtitleRes).isEqualTo(R.string.nav_status_subtitle)
         assertThat(McGoPageChrome.forPage(McGoPage.Servers).subtitleRes).isEqualTo(R.string.nav_servers_subtitle)
         assertThat(McGoPageChrome.forPage(McGoPage.Tunnels).subtitleRes).isEqualTo(R.string.nav_tunnels_subtitle)
         assertThat(McGoPageChrome.forPage(McGoPage.Settings).subtitleRes).isEqualTo(R.string.nav_settings_subtitle)

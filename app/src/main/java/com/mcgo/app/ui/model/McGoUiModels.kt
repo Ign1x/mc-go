@@ -63,7 +63,7 @@ data class PaperLaunchPlan(
 
 data class MetricTrendSample(
     val elapsedMillis: Long,
-    val value: Float,
+    val value: Float?,
 )
 
 data class DashboardMetric(
@@ -256,6 +256,22 @@ fun createPurpurServer(
     pvpEnabled = pvpEnabled,
     serverPropertiesOverride = serverPropertiesOverride,
 )
+
+fun pickAvailableManagedServerPort(
+    servers: List<ServerCardState>,
+    preferredPort: Int = 25565,
+    maxPort: Int = 65535,
+): Int {
+    val occupiedPorts = servers.map { it.defaultPort }.toSet()
+    val startPort = preferredPort.coerceIn(1, maxPort)
+    for (candidate in startPort..maxPort) {
+        if (candidate !in occupiedPorts) return candidate
+    }
+    for (candidate in 1 until startPort) {
+        if (candidate !in occupiedPorts) return candidate
+    }
+    return startPort
+}
 
 private fun createManagedServer(
     serverType: MinecraftServerType,

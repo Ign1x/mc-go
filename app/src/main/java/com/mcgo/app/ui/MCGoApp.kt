@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.selection.selectable
@@ -62,6 +64,7 @@ import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.WbSunny
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -110,6 +113,8 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -167,6 +172,7 @@ import com.mcgo.app.server.syncServerProfilesToAuthorizedDirectory
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.trustedRuntimeArchivesForVersion
 import com.mcgo.app.server.validateRuntimeArchiveTrust
+import com.mcgo.app.status.DevicePerformanceMonitor
 
 import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
@@ -267,7 +273,11 @@ private enum class McGoDestination(
 @Composable
 fun MCGoApp() {
     val context = LocalContext.current
+    val appContext = context.applicationContext
     val appEntryElapsedRealtimeMillis = remember { SystemClock.elapsedRealtime() }
+    val statusMonitor = remember(appContext, appEntryElapsedRealtimeMillis) {
+        DevicePerformanceMonitor(appContext, appEntryElapsedRealtimeMillis)
+    }
     val tunnelStore = remember(context) {
         TunnelProfileStore(context.filesDir.toPath().resolve("tunnel_profiles.properties"))
     }
@@ -358,6 +368,7 @@ fun MCGoApp() {
             purpurVersions = purpurVersions,
             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
             appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
+            statusMonitor = statusMonitor,
             onAppearancePreferencesChange = {
                 appearancePreferences = it
                 appearanceStore.save(it)
@@ -385,6 +396,7 @@ private fun MCGoAppScaffold(
     purpurVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
     appEntryElapsedRealtimeMillis: Long,
+    statusMonitor: DevicePerformanceMonitor,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
     onServersChange: (List<ServerCardState>) -> Unit,
     onTunnelsChange: (List<TunnelProfile>) -> Unit,
@@ -858,6 +870,7 @@ private fun MCGoAppScaffold(
                     McGoDestination.Status -> StatusScreen(
                         modifier = Modifier.fillMaxSize(),
                         appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
+                        statusMonitor = statusMonitor,
                         bottomContentPadding = bottomContentPadding,
                     )
                     McGoDestination.Servers -> ServersScreen(
@@ -994,9 +1007,7 @@ private fun MCGoAppScaffold(
 }
 
 @Composable
-private fun RequestRuntimePermissions() {
-    // 当前版本不需要预先申请危险权限；目录访问会在具体操作时通过 SAF 触发授权。
-}
+private fun RequestRuntimePermissions() = Unit
 
 @Composable
 private fun FloatingGlassBottomMenu(
@@ -1648,7 +1659,7 @@ private fun EditPaperServerDialog(
     ) {
         EditFullScreenScaffold(
             title = "编辑 ${server.name}",
-            subtitle = "与主页面一致的卡片式配置页，可直接保存常用参数或编辑 server.properties",
+            subtitle = "",
             leadingIcon = Icons.Outlined.Tune,
             dynamicBackground = dynamicBackground,
             layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome,
@@ -1683,7 +1694,7 @@ private fun EditPaperServerDialog(
             ) {
                 if (server.isRuntimeBusy()) {
                     EditSettingsInfoCard(
-                        icon = Icons.Outlined.Tune,
+                        icon = Icons.Outlined.Warning,
                         title = "当前运行中，只更新配置资料",
                         body = "服务器当前正在启动或运行；本次保存仅更新配置资料，不会强制改动当前运行中的端口与日志状态。",
                     )
@@ -1834,7 +1845,7 @@ private fun PaperServerPropertiesEditorDialog(
         val colors = editPageColors()
         EditFullScreenScaffold(
             title = "编辑 server.properties",
-            subtitle = "受管理字段会同步回表单，其余未知项保留为 override",
+            subtitle = "",
             leadingIcon = Icons.Outlined.Edit,
             dynamicBackground = dynamicBackground,
             layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome,
@@ -1865,12 +1876,6 @@ private fun PaperServerPropertiesEditorDialog(
                     .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text(
-                    text = "受管理字段会同步回表单：motd、level-name、max-players、server-port、gamemode、difficulty、online-mode、pvp；其他未知项会保留为 override。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.secondaryText,
-                )
-
                 Surface(
                     modifier = Modifier.weight(1f),
                     color = colors.editorContainerColor,
@@ -1888,16 +1893,28 @@ private fun PaperServerPropertiesEditorDialog(
                             .padding(18.dp)
                             .verticalScroll(rememberScrollState()),
                         textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = colors.primaryText,
+                            color = Color.Transparent,
                             fontFamily = FontFamily.Monospace,
                         ),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.primaryText),
                         decorationBox = { innerTextField ->
                             Box(modifier = Modifier.fillMaxSize()) {
                                 if (editorText.isBlank()) {
                                     Text(
-                                        text = "# 在这里直接编辑 server.properties",
+                                        text = "server.properties",
                                         style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                                         color = colors.secondaryText,
+                                    )
+                                } else {
+                                    BasicText(
+                                        text = buildServerPropertiesAnnotatedText(
+                                            editorText,
+                                            colors.primaryText,
+                                            colors.secondaryText,
+                                            MaterialTheme.colorScheme.primary,
+                                            MaterialTheme.colorScheme.tertiary,
+                                        ),
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                                     )
                                 }
                                 innerTextField()
@@ -2028,9 +2045,8 @@ private fun EditFullScreenScaffold(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
+                    .safeDrawingPadding()
                     .imePadding()
-                    .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -2117,6 +2133,45 @@ private fun EditFullScreenScaffold(
             }
         }
     }
+}
+
+private fun buildServerPropertiesAnnotatedText(
+    rawText: String,
+    baseColor: Color,
+    secondaryColor: Color,
+    keyColor: Color,
+    separatorColor: Color,
+): AnnotatedString {
+    val builder = AnnotatedString.Builder(rawText)
+    builder.addStyle(
+        SpanStyle(
+            color = baseColor,
+            fontFamily = FontFamily.Monospace,
+        ),
+        start = 0,
+        end = rawText.length,
+    )
+    rawText.lineSequence().fold(0) { offset, line ->
+        val lineEnd = offset + line.length
+        val trimmed = line.trimStart()
+        when {
+            trimmed.startsWith("#") -> {
+                builder.addStyle(SpanStyle(color = secondaryColor), offset, lineEnd)
+            }
+            '=' in line -> {
+                val separatorIndex = line.indexOf('=')
+                if (separatorIndex > 0) {
+                    builder.addStyle(SpanStyle(color = keyColor), offset, offset + separatorIndex)
+                    builder.addStyle(SpanStyle(color = separatorColor), offset + separatorIndex, offset + separatorIndex + 1)
+                    if (separatorIndex + 1 < line.length) {
+                        builder.addStyle(SpanStyle(color = baseColor.copy(alpha = 0.92f)), offset + separatorIndex + 1, lineEnd)
+                    }
+                }
+            }
+        }
+        lineEnd + 1
+    }
+    return builder.toAnnotatedString()
 }
 
 @Composable

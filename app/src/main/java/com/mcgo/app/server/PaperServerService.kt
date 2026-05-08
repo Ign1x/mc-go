@@ -2,12 +2,14 @@ package com.mcgo.app.server
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.mcgo.app.MainActivity
 import com.mcgo.app.R
 import com.mcgo.app.network.TcpEndpoint
 import com.mcgo.app.network.measureTcpLatency
@@ -456,12 +458,24 @@ open class PaperServerService : Service() {
         }
     }
 
-    private fun notification(text: String) = NotificationCompat.Builder(this, ChannelId)
-        .setSmallIcon(R.drawable.ic_mcgo)
-        .setContentTitle("MC-GO")
-        .setContentText(text)
-        .setOngoing(true)
-        .build()
+    private fun notification(text: String): android.app.Notification {
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            notificationId(),
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(this, ChannelId)
+            .setSmallIcon(R.drawable.ic_mcgo)
+            .setContentTitle("MC-GO")
+            .setContentText(text)
+            .setContentIntent(contentIntent)
+            .setAutoCancel(false)
+            .setOngoing(true)
+            .build()
+    }
 
     private fun notificationId(): Int = paperRuntimeNotificationId(serviceRuntimeSlot())
 

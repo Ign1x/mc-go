@@ -7,7 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -18,34 +17,44 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @Composable
-fun rememberStatusDashboardState(appEntryElapsedRealtimeMillis: Long): StatusDashboardState {
-    val appContext = LocalContext.current.applicationContext
+fun rememberStatusDashboardState(
+    appEntryElapsedRealtimeMillis: Long,
+    statusMonitor: DevicePerformanceMonitor,
+): StatusDashboardState {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val monitor = remember(appContext, appEntryElapsedRealtimeMillis) {
-        DevicePerformanceMonitor(appContext, appEntryElapsedRealtimeMillis)
-    }
     var isStarted by remember(lifecycleOwner) {
         mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
     }
 
-    DisposableEffect(lifecycleOwner, monitor) {
+    DisposableEffect(lifecycleOwner, statusMonitor) {
+        var gapMarkedForCurrentInactivity = false
         val observer = LifecycleEventObserver { source, _ ->
             isStarted = source.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             if (!isStarted) {
-                monitor.resetSamplingBaselines()
+                if (!gapMarkedForCurrentInactivity) {
+                    statusMonitor.markSamplingGap()
+                    gapMarkedForCurrentInactivity = true
+                }
+                statusMonitor.resetSamplingBaselines()
+            } else {
+                gapMarkedForCurrentInactivity = false
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            if (!gapMarkedForCurrentInactivity) {
+                statusMonitor.markSamplingGap()
+                statusMonitor.resetSamplingBaselines()
+            }
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
     val initialState = remember { placeholderDashboardState() }
-    return produceState(initialValue = initialState, monitor, isStarted) {
+    return produceState(initialValue = initialState, statusMonitor, isStarted) {
         while (true) {
             if (isStarted) {
-                value = withContext(Dispatchers.IO) { monitor.readDashboardState() }
+                value = withContext(Dispatchers.IO) { statusMonitor.readDashboardState() }
             }
             delay(2_000L)
         }
@@ -66,7 +75,7 @@ private fun placeholderDashboardState() = StatusDashboardState(
 private fun placeholderMetric(title: String, accent: MetricAccent) = DashboardMetric(
     title = title,
     valueLabel = "采集中",
-    detailLabel = "准备首次实时采样",
+    detailLabel = "采集中",
     trendValues = emptyList(),
     accent = accent,
 )

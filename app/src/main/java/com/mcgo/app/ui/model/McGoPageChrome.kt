@@ -17,7 +17,7 @@ data class PageChrome(
 object McGoPageChrome {
     fun forPage(page: McGoPage): PageChrome = when (page) {
         McGoPage.Status -> PageChrome(
-            titleRes = R.string.nav_status,
+            titleRes = R.string.app_name,
             subtitleRes = R.string.nav_status_subtitle,
         )
         McGoPage.Servers -> PageChrome(

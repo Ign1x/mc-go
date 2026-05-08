@@ -51,7 +51,7 @@ data class MetricChartAxis(
 
 fun appendTimedHistorySample(
     history: List<MetricTrendSample>,
-    nextValue: Float,
+    nextValue: Float?,
     elapsedMillis: Long,
     maxWindowMillis: Long = MetricHistoryMaxWindowMillis,
 ): List<MetricTrendSample> {
@@ -67,7 +67,7 @@ fun buildMetricChartAxis(samples: List<MetricTrendSample>): MetricChartAxis {
     val windowStart = (windowEnd - MetricHistoryMaxWindowMillis).coerceAtLeast(0L)
     val visibleValues = samples
         .filter { it.elapsedMillis in windowStart..windowEnd }
-        .map { it.value }
+        .mapNotNull { it.value }
     val minValue = visibleValues.minOrNull() ?: 0f
     val maxValue = visibleValues.maxOrNull() ?: 1f
     val paddedRange = ((maxValue - minValue).takeIf { it > 0f } ?: 1f) * 0.12f

@@ -85,6 +85,16 @@ class DevicePerformanceMonitor(
         previousNetworkSnapshot = readNetworkSnapshot()
     }
 
+    fun markSamplingGap() {
+        val elapsedSinceAppEntry = SystemClock.elapsedRealtime() - appEntryElapsedRealtimeMillis
+        ramHistory = appendTimedHistorySample(ramHistory, null, elapsedSinceAppEntry)
+        networkHistory = appendTimedHistorySample(networkHistory, null, elapsedSinceAppEntry)
+        cpuTemperatureHistory = appendTimedHistorySample(cpuTemperatureHistory, null, elapsedSinceAppEntry)
+        gpuTemperatureHistory = appendTimedHistorySample(gpuTemperatureHistory, null, elapsedSinceAppEntry)
+        batteryTemperatureHistory = appendTimedHistorySample(batteryTemperatureHistory, null, elapsedSinceAppEntry)
+        batteryCurrentHistory = appendTimedHistorySample(batteryCurrentHistory, null, elapsedSinceAppEntry)
+    }
+
     fun readDashboardState(): StatusDashboardState {
         val cpuReading = readCpuReading()
         val ramStats = readRamStats()
@@ -95,19 +105,15 @@ class DevicePerformanceMonitor(
 
         val elapsedSinceAppEntry = SystemClock.elapsedRealtime() - appEntryElapsedRealtimeMillis
         ramHistory = appendTimedHistorySample(ramHistory, usedMemoryPercent(ramStats.usedBytes, ramStats.totalBytes).toFloat(), elapsedSinceAppEntry)
-        networkReading.stats?.let {
-            val combinedMbps = (it.uploadBytesPerSecond + it.downloadBytesPerSecond) / 125_000f
-            networkHistory = appendTimedHistorySample(networkHistory, combinedMbps, elapsedSinceAppEntry)
-        }
-        cpuTemperature?.let { cpuTemperatureHistory = appendTimedHistorySample(cpuTemperatureHistory, it, elapsedSinceAppEntry) }
-        gpuTemperature?.let { gpuTemperatureHistory = appendTimedHistorySample(gpuTemperatureHistory, it, elapsedSinceAppEntry) }
-        batteryStats.batteryTemperatureCelsius?.let {
-            batteryTemperatureHistory = appendTimedHistorySample(batteryTemperatureHistory, it, elapsedSinceAppEntry)
-        }
-        batteryStats.currentMilliAmps?.let {
-            val normalizedCurrent = if (batteryStats.isCharging) abs(it) else -abs(it)
-            batteryCurrentHistory = appendTimedHistorySample(batteryCurrentHistory, normalizedCurrent.toFloat() / 1000f, elapsedSinceAppEntry)
-        }
+        val combinedMbps = networkReading.stats?.let { (it.uploadBytesPerSecond + it.downloadBytesPerSecond) / 125_000f }
+        networkHistory = appendTimedHistorySample(networkHistory, combinedMbps, elapsedSinceAppEntry)
+        cpuTemperatureHistory = appendTimedHistorySample(cpuTemperatureHistory, cpuTemperature, elapsedSinceAppEntry)
+        gpuTemperatureHistory = appendTimedHistorySample(gpuTemperatureHistory, gpuTemperature, elapsedSinceAppEntry)
+        batteryTemperatureHistory = appendTimedHistorySample(batteryTemperatureHistory, batteryStats.batteryTemperatureCelsius, elapsedSinceAppEntry)
+        val normalizedBatteryCurrent = batteryStats.currentMilliAmps?.let {
+            if (batteryStats.isCharging) abs(it) else -abs(it)
+        }?.toFloat()?.div(1000f)
+        batteryCurrentHistory = appendTimedHistorySample(batteryCurrentHistory, normalizedBatteryCurrent, elapsedSinceAppEntry)
 
         val ramMetric = buildRamMetric(ramStats)
         val networkMetric = buildNetworkMetric(networkReading)
@@ -134,7 +140,7 @@ class DevicePerformanceMonitor(
             detailLabel = when (cpuReading.state) {
                 SampleState.Ready -> "CPU 负载 ${cpuReading.usagePercent?.roundToInt() ?: 0}% · 最近 2 秒"
                 SampleState.WarmingUp -> "CPU 负载采集中 · 等待下一次采样"
-                SampleState.Unavailable -> "仅显示热区温度，CPU 占用暂不可用"
+                SampleState.Unavailable -> "仅显示热区温度"
             },
             unavailableDetailLabel = "当前设备未公开 CPU 温度传感器",
         )
@@ -142,7 +148,7 @@ class DevicePerformanceMonitor(
             title = "CPU 温度",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = cpuTemperatureHistory.map { it.value },
+            trendValues = cpuTemperatureHistory.mapNotNull { it.value },
             accent = MetricAccent.Coral,
             trendSamples = cpuTemperatureHistory,
         )
@@ -158,7 +164,7 @@ class DevicePerformanceMonitor(
             title = "GPU 温度",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = gpuTemperatureHistory.map { it.value },
+            trendValues = gpuTemperatureHistory.mapNotNull { it.value },
             accent = MetricAccent.Violet,
             trendSamples = gpuTemperatureHistory,
         )
@@ -174,7 +180,7 @@ class DevicePerformanceMonitor(
             title = "电池温度",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = batteryTemperatureHistory.map { it.value },
+            trendValues = batteryTemperatureHistory.mapNotNull { it.value },
             accent = MetricAccent.Gold,
             trendSamples = batteryTemperatureHistory,
         )
@@ -190,7 +196,7 @@ class DevicePerformanceMonitor(
             title = "电池电流",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = batteryCurrentHistory.map { it.value },
+            trendValues = batteryCurrentHistory.mapNotNull { it.value },
             accent = MetricAccent.Teal,
             trendSamples = batteryCurrentHistory,
         )
@@ -202,7 +208,7 @@ class DevicePerformanceMonitor(
             title = "RAM",
             valueLabel = formatted.valueLabel,
             detailLabel = formatted.detailLabel,
-            trendValues = ramHistory.map { it.value },
+            trendValues = ramHistory.mapNotNull { it.value },
             accent = MetricAccent.Green,
             trendSamples = ramHistory,
         )
@@ -221,11 +227,11 @@ class DevicePerformanceMonitor(
             title = "Network I/O",
             valueLabel = when (networkReading.state) {
                 SampleState.Ready -> formatted?.valueLabel ?: "0.0 Mbps"
-                SampleState.WarmingUp -> if (networkHistory.isEmpty()) "采集中" else "${networkHistory.last().value.roundToInt()} Mbps"
+                SampleState.WarmingUp -> networkHistory.lastOrNull()?.value?.roundToInt()?.let { "$it Mbps" } ?: "采集中"
                 SampleState.Unavailable -> "不可用"
             },
             detailLabel = detailLabel,
-            trendValues = networkHistory.map { it.value },
+            trendValues = networkHistory.mapNotNull { it.value },
             accent = MetricAccent.Blue,
             trendSamples = networkHistory,
         )

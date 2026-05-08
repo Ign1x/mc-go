@@ -38,7 +38,8 @@ class MCGoEditPageDesignContractTest {
 
         assertThat(editSupportSource).contains("editPageColors()")
         assertThat(editSupportSource).contains("MaterialTheme.colorScheme")
-        assertThat(editSupportSource).contains("navigationBarsPadding()")
+        assertThat(editSupportSource).doesNotContain("navigationBarsPadding()")
+        assertThat(editSupportSource).doesNotContain("statusBarsPadding()")
         assertThat(editSupportSource).contains("border = BorderStroke")
         listOf(
             "Color.White",
@@ -226,6 +227,13 @@ class MCGoEditPageDesignContractTest {
         assertThat(propertiesDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome")
         assertThat(editDialog).contains("Text(\"编辑 server.properties\")")
         assertThat(editDialog).doesNotContain("Text(\"进阶：直接编辑 server.properties\")")
+        assertThat(editDialog).contains("title = \"当前运行中，只更新配置资料\"")
+        assertThat(editDialog).contains("Icons.Outlined.Warning")
+        assertThat(propertiesDialog).doesNotContain("受管理字段会同步回表单")
+        assertThat(propertiesDialog).doesNotContain("其他未知项会保留为 override")
+        assertThat(propertiesDialog).doesNotContain("# 在这里直接编辑 server.properties")
+        assertThat(propertiesDialog).contains("AnnotatedString")
+        assertThat(propertiesDialog).contains("SpanStyle")
         assertThat(editDialog).doesNotContain(".verticalScroll(rememberScrollState())")
         assertThat(scaffold).contains("if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome)")
         assertThat(scaffold).contains("verticalScroll(rememberScrollState())")

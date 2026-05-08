@@ -14,6 +14,15 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun foregroundNotification_opensMainActivityWhenTapped() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+        assertThat(source).contains("PendingIntent.getActivity(")
+        assertThat(source).contains("Intent(this, MainActivity::class.java)")
+        assertThat(source).contains("setContentIntent(")
+        assertThat(source).contains("setAutoCancel(false)")
+    }
+
+    @Test
     fun readLastAppendedNonBlankLine_returnsOnlyNewlyAppendedContent() {
         val logFile = Files.createTempFile("mcgo-log-tail", ".log")
         Files.write(logFile, "\n".toByteArray())
@@ -139,4 +148,9 @@ class PaperServerServiceStateTest {
         assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = 17, nextJavaMajorVersion = 8)).isEqualTo(true)
         assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = 21, nextJavaMajorVersion = 11)).isEqualTo(true)
     }
+
+    private fun projectRoot(): java.nio.file.Path =
+        generateSequence(java.nio.file.Path.of(".").toAbsolutePath().normalize()) { it.parent }
+            .firstOrNull { Files.exists(it.resolve("app/build.gradle.kts")) }
+            ?: error("project root not found")
 }

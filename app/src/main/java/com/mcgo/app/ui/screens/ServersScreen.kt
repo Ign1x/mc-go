@@ -81,6 +81,7 @@ import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
+import com.mcgo.app.ui.model.pickAvailableManagedServerPort
 import com.mcgo.app.ui.model.formatPlayerCapacity
 import com.mcgo.app.ui.model.isRuntimeBusy
 import java.io.File
@@ -109,6 +110,7 @@ fun ServersScreen(
 
     if (showCreateServer) {
         CreateServerDialog(
+            servers = servers,
             vanillaVersions = vanillaVersions,
             paperVersions = paperVersions,
             purpurVersions = purpurVersions,
@@ -396,6 +398,7 @@ private fun DeleteServerDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreateServerDialog(
+    servers: List<ServerCardState>,
     vanillaVersions: List<String>,
     paperVersions: List<String>,
     purpurVersions: List<String>,
@@ -423,10 +426,9 @@ private fun CreateServerDialog(
     var selectedJavaMajorVersion by remember { mutableStateOf(recommendedJavaMajorVersion(minecraftVersion)) }
     var maxPlayers by remember { mutableStateOf("20") }
     var memoryMb by remember { mutableStateOf("2048") }
-    var port by remember { mutableStateOf("25565") }
     val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: 20
     val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: 2048
-    val resolvedPort = port.toIntOrNull()?.coerceIn(1, 65535) ?: 25565
+    val resolvedPort = remember(servers) { pickAvailableManagedServerPort(servers) }
     val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
     val javaVersionOptions = remember(
         supportedProvisionableJavaVersions,
@@ -641,13 +643,6 @@ private fun CreateServerDialog(
                     onValueChange = { memoryMb = it.filter(Char::isDigit) },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("内存 MB") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = port,
-                    onValueChange = { port = it.filter(Char::isDigit) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("默认端口") },
                     singleLine = true,
                 )
             }
