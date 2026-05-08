@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
@@ -113,6 +114,7 @@ private val MetricCardMinHeight = 176.dp
 private val ChartAxisLabelTextSize = 7.sp
 private val ChartElapsedLabelTextSize = 7.sp
 private val ChartLeftInset = 18.dp
+private val MetricSparklineStartShift = (-6).dp
 private val ChartLabelGap = 3.dp
 
 @Composable
@@ -153,6 +155,7 @@ private fun MetricCard(metric: DashboardMetric, modifier: Modifier = Modifier) {
             valueLabel = metric.valueLabel,
             modifier = Modifier
                 .fillMaxWidth()
+                .offset(x = MetricSparklineStartShift)
                 .height(72.dp),
         )
     }
