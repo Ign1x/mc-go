@@ -32,12 +32,14 @@ class TunnelModelsTest {
         assertThat(imported.remotePort).isEqualTo(37001)
         assertThat(imported.rawConfigText).isEqualTo(rawConfig)
         assertThat(imported.currentLatencyMs).isEqualTo(0)
-        assertThat(imported.healthLabel).isEqualTo("检测中")
+        assertThat(imported.healthLabel).isEqualTo("--")
+        assertThat(imported.latencyLabel()).isEqualTo("--")
+        assertThat(imported.latencyBadgeLines()).containsExactly("--")
         assertThat(imported.supportsCustomPortOnStart()).isFalse()
     }
 
     @Test
-    fun manualServerTunnel_usesEndpointWithPortAndStartsWithPendingRealLatency() {
+    fun manualServerTunnel_usesEndpointWithPortAndStartsWithPlaceholderLatency() {
         val profile = TunnelProfile.manualServer(
             name = "家庭 FRP",
             kind = TunnelKind.Frp,
@@ -50,7 +52,9 @@ class TunnelModelsTest {
         assertThat(profile.portRange).isEqualTo("38000-38100")
         assertThat(profile.connectionSummary()).isEqualTo("frp.home:7000 · 端口范围 38000-38100")
         assertThat(profile.currentLatencyMs).isEqualTo(0)
-        assertThat(profile.healthLabel).isEqualTo("检测中")
+        assertThat(profile.healthLabel).isEqualTo("--")
+        assertThat(profile.latencyLabel()).isEqualTo("--")
+        assertThat(profile.latencyBadgeLines()).containsExactly("--")
         assertThat(profile.detailSummary()).contains("Token")
         assertThat(profile.supportsCustomPortOnStart()).isTrue()
         assertThat(profile.resolveStartupPort(serverPort = 25565, customPort = 25577)).isEqualTo(25577)
@@ -252,7 +256,7 @@ class TunnelModelsTest {
             localPort = 25590,
             baseLatencyMs = 0,
             currentLatencyMs = 0,
-            healthLabel = "检测中",
+            healthLabel = "--",
             rawConfigPreview = "{...}",
             rawConfigText = "{...}",
             detail = "来自粘贴配置",

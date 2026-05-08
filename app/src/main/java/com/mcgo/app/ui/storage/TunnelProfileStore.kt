@@ -38,7 +38,7 @@ class TunnelProfileStore(
                 portRange = properties.getProperty(prefix + "portRange"),
                 baseLatencyMs = properties.getProperty(prefix + "baseLatencyMs")?.toIntOrNull() ?: 0,
                 currentLatencyMs = 0,
-                healthLabel = "检测中",
+                healthLabel = "--",
                 rawConfigPreview = properties.getProperty(prefix + "rawConfigPreview"),
                 rawConfigText = properties.getProperty(prefix + "rawConfigText"),
                 detail = properties.getProperty(prefix + "detail"),

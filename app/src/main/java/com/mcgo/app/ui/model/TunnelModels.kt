@@ -105,7 +105,7 @@ data class TunnelProfile(
 
     fun latencyLabel(): String = when {
         currentLatencyMs > 0 -> "${currentLatencyMs} ms"
-        currentLatencyMs == PendingLatencyMs -> "检测中"
+        currentLatencyMs == PendingLatencyMs -> "--"
         else -> "不可达"
     }
 
@@ -472,7 +472,7 @@ private fun extractPortRange(rawConfig: String): String? {
 
 private fun latencyHealthLabel(latencyMs: Int): String = when {
     latencyMs < 0 -> "不可达"
-    latencyMs == PendingLatencyMs -> "检测中"
+    latencyMs == PendingLatencyMs -> "--"
     latencyMs <= 35 -> "超快"
     latencyMs <= 70 -> "稳定"
     latencyMs <= 110 -> "可用"

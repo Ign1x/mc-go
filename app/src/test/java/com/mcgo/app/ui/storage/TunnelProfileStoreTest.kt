@@ -57,6 +57,6 @@ class TunnelProfileStoreTest {
         assertThat(loaded.single().portRange).isEqualTo("39000-39100")
         assertThat(loaded.single().rawConfigText).isEqualTo("serverAddr = \"frp.home\"\nserverPort = 7000")
         assertThat(loaded.single().currentLatencyMs).isEqualTo(0)
-        assertThat(loaded.single().healthLabel).isEqualTo("检测中")
+        assertThat(loaded.single().healthLabel).isEqualTo("--")
     }
 }

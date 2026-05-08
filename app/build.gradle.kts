@@ -15,8 +15,8 @@ android {
         applicationId = "com.mcgo.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 56
-        versionName = "0.2.46"
+        versionCode = 57
+        versionName = "0.2.47"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
