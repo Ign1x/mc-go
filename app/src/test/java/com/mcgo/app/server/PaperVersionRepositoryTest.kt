@@ -46,6 +46,25 @@ class PaperVersionRepositoryTest {
     }
 
     @Test
+    fun fetchVanillaFallbackVersions_includeCurrentModernRelease() {
+        assertThat(fallbackVanillaVersions()).containsAtLeast("1.12.2", "1.16.5", "1.20.1", "1.21.11", "26.1.2")
+    }
+
+    @Test
+    fun fetchPurpurFallbackVersions_neverOfferUnsupportedLegacyVersions() {
+        assertThat(fallbackPurpurVersions()).containsAtLeast("1.14.4", "1.16.5", "1.20.1", "1.21.11", "26.1.2")
+        assertThat(fallbackPurpurVersions()).doesNotContain("1.12.2")
+        assertThat(fallbackPurpurVersions()).doesNotContain("1.13.2")
+    }
+
+    @Test
+    fun filterProvisionablePurpurVersions_usesPurpurSpecificFallbackWhenSourceIsEmpty() {
+        assertThat(filterProvisionablePurpurVersions(emptyList()))
+            .containsAtLeast("1.14.4", "1.16.5", "1.20.1", "1.21.11", "26.1.2")
+        assertThat(filterProvisionablePurpurVersions(emptyList())).doesNotContain("1.12.2")
+    }
+
+    @Test
     fun parseLatestPaperDownloadsPageArtifact_extractsLatestStableFillDataDownload() {
         val html = """
             <astro-island props="{&quot;data&quot;:[0,{&quot;projectResult&quot;:[0,{&quot;value&quot;:[0,{&quot;latestStableVersion&quot;:[0,&quot;26.1.2&quot;],&quot;latestExperimentalVersion&quot;:[0,null],&quot;latestVersionGroup&quot;:[0,&quot;26.1&quot;]}]}],&quot;stableBuildsResult&quot;:[0,{&quot;value&quot;:[0,{&quot;latest&quot;:[0,{&quot;id&quot;:[0,53],&quot;downloads&quot;:[0,{&quot;server:default&quot;:[0,{&quot;name&quot;:[0,&quot;paper-26.1.2-53.jar&quot;],&quot;checksums&quot;:[0,{&quot;sha256&quot;:[0,&quot;6934188878fc351e1be5bfba5f2b8c4591224886e4b34e3de09dbec68a351caf&quot;]}],&quot;url&quot;:[0,&quot;https://fill-data.papermc.io/v1/objects/6934188878fc351e1be5bfba5f2b8c4591224886e4b34e3de09dbec68a351caf/paper-26.1.2-53.jar&quot;]}]}]}]}]}]}]}]}"></astro-island>

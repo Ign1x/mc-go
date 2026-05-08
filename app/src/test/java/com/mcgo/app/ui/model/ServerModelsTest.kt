@@ -21,6 +21,20 @@ class ServerModelsTest {
         assertThat(server.name).isEqualTo("生存服")
         assertThat(server.serverType).isEqualTo(MinecraftServerType.Paper)
         assertThat(server.edition).isEqualTo("Paper 1.21.4")
+    }
+
+    @Test
+    fun createVanillaServer_buildsOfficialVanillaInstanceWithRecommendedJava() {
+        val server = createVanillaServer(
+            name = "原版服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+
+        assertThat(server.name).isEqualTo("原版服")
+        assertThat(server.serverType).isEqualTo(MinecraftServerType.Vanilla)
+        assertThat(server.edition).isEqualTo("Vanilla 1.21.4")
         assertThat(server.minecraftVersion).isEqualTo("1.21.4")
         assertThat(server.javaMajorVersion).isEqualTo(21)
         assertThat(server.gameMode).isEqualTo(PaperGameMode.Survival)
@@ -36,6 +50,21 @@ class ServerModelsTest {
         assertThat(server.id).startsWith("server-")
         assertThat(server.isOnline).isFalse()
         assertThat(server.launchStatus).isEqualTo(ServerLaunchStatus.Ready)
+    }
+
+    @Test
+    fun createPurpurServer_buildsPurpurInstanceWithRecommendedJava() {
+        val server = createPurpurServer(
+            name = "Purpur服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+
+        assertThat(server.name).isEqualTo("Purpur服")
+        assertThat(server.serverType).isEqualTo(MinecraftServerType.Purpur)
+        assertThat(server.edition).isEqualTo("Purpur 1.21.4")
+        assertThat(server.minecraftVersion).isEqualTo("1.21.4")
     }
 
     @Test
@@ -493,6 +522,29 @@ class ServerModelsTest {
         assertThat(pending.pendingDeletion).isTrue()
         assertThat(canStartServerFromUi(pending)).isFalse()
         assertThat(finalized).isEmpty()
+    }
+
+    @Test
+    fun applyPaperServerEdits_preservesVanillaServerTypeAndEditionFamily() {
+        val original = createVanillaServer(
+            name = "原版服",
+            minecraftVersion = "1.20.1",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+
+        val edited = applyPaperServerEdits(
+            server = original,
+            name = "原版新服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 12,
+            memoryMb = 3072,
+            port = 25570,
+            worldName = "world_vanilla",
+        )
+
+        assertThat(edited.serverType).isEqualTo(MinecraftServerType.Vanilla)
+        assertThat(edited.edition).isEqualTo("Vanilla 1.21.4")
     }
 
     @Test

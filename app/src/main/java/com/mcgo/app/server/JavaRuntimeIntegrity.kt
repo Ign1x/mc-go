@@ -16,8 +16,34 @@ const val OfficialPojavLauncherCertSha256 = "d0d0886a0d7e3486e6627f9b8011027fe3c
 
 fun sha256Hex(path: Path): String = Files.newInputStream(path).use(::sha256Hex)
 
+fun sha1Hex(path: Path): String = Files.newInputStream(path).use(::sha1Hex)
+
+fun md5Hex(path: Path): String = Files.newInputStream(path).use(::md5Hex)
+
 fun sha256Hex(input: InputStream): String {
     val digest = MessageDigest.getInstance("SHA-256")
+    DigestInputStream(input, digest).use { stream ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (stream.read(buffer) >= 0) {
+            // consume
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+fun sha1Hex(input: InputStream): String {
+    val digest = MessageDigest.getInstance("SHA-1")
+    DigestInputStream(input, digest).use { stream ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (stream.read(buffer) >= 0) {
+            // consume
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+fun md5Hex(input: InputStream): String {
+    val digest = MessageDigest.getInstance("MD5")
     DigestInputStream(input, digest).use { stream ->
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         while (stream.read(buffer) >= 0) {

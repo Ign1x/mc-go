@@ -14,6 +14,8 @@ import java.nio.file.StandardCopyOption
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
 private const val PaperDownloadsPageUrl = "https://papermc.io/downloads/paper"
+private const val PurpurApiBase = "https://api.purpurmc.org/v2/purpur"
+private const val VanillaVersionManifestUrl = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 private const val DefaultProvisionablePaperVersion = "1.21.11"
 val PaperDownloadUserAgent: String = McGoUserAgent
 
@@ -99,13 +101,17 @@ fun validatePaperVersion(version: String): String {
 
 fun validatePaperVersionOrNull(version: String): String? = runCatching { validatePaperVersion(version) }.getOrNull()
 
-fun paperJarFileName(version: String): String = "paper-${validatePaperVersion(version)}.jar"
+fun paperServerJarFileName(version: String): String = "paper-${validatePaperVersion(version)}.jar"
+
+fun vanillaServerJarFileName(version: String): String = "vanilla-${validatePaperVersion(version)}.jar"
+
+fun purpurServerJarFileName(version: String): String = "purpur-${validatePaperVersion(version)}.jar"
 
 fun paperJarSha256File(targetJar: Path): Path = targetJar.resolveSibling("${targetJar.fileName}.sha256")
 
 fun filterProvisionablePaperVersions(versions: List<String>): List<String> = versions.filter { version ->
     validatePaperVersionOrNull(version) != null && recommendedJavaMajorVersion(version) in setOf(8, 11, 17, 21, 25)
-}
+}.distinct().sortedWith(::compareMinecraftVersions)
 
 fun resolveProvisionablePaperVersionOptions(
     versions: List<String>,
@@ -132,12 +138,85 @@ fun fetchPaperVersions(): List<String> = runCatching {
     filterProvisionablePaperVersions(merged)
 }.getOrElse { filterProvisionablePaperVersions(fallbackPaperVersions()) }
 
+fun fallbackVanillaVersions(): List<String> = listOf(
+    "1.8.8",
+    "1.9.4",
+    "1.10.2",
+    "1.11.2",
+    "1.12.2",
+    "1.13.2",
+    "1.14.4",
+    "1.15.2",
+    "1.16.5",
+    "1.17.1",
+    "1.18.2",
+    "1.19.4",
+    "1.20.1",
+    "1.20.4",
+    "1.20.6",
+    "1.21.1",
+    "1.21.4",
+    "1.21.11",
+    "26.1.2",
+)
+
+fun fetchVanillaVersions(): List<String> = runCatching {
+    val manifest = httpGet(VanillaVersionManifestUrl)
+    Regex("\\\"id\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"\\s*,\\s*\\\"type\\\"\\s*:\\s*\\\"release\\\"")
+        .findAll(manifest)
+        .map { it.groupValues[1] }
+        .toList()
+        .let(::filterProvisionablePaperVersions)
+        .ifEmpty { fallbackVanillaVersions() }
+}.getOrElse { fallbackVanillaVersions() }
+
+fun fallbackPurpurVersions(): List<String> = listOf(
+    "1.14.4",
+    "1.15.2",
+    "1.16.5",
+    "1.17.1",
+    "1.18.2",
+    "1.19.4",
+    "1.20.1",
+    "1.20.4",
+    "1.20.6",
+    "1.21.1",
+    "1.21.4",
+    "1.21.11",
+    "26.1.2",
+)
+
+fun filterProvisionablePurpurVersions(versions: List<String>): List<String> =
+    filterProvisionablePaperVersions(versions).ifEmpty { fallbackPurpurVersions() }
+
+fun fetchPurpurVersions(): List<String> = runCatching {
+    val body = httpGet(PurpurApiBase)
+    Regex("\\\"versions\\\"\\s*:\\s*\\[(.*?)]", RegexOption.DOT_MATCHES_ALL)
+        .find(body)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.let { payload -> Regex("\\\"([^\\\"]+)\\\"").findAll(payload).map { it.groupValues[1] }.toList() }
+        .orEmpty()
+        .let(::filterProvisionablePurpurVersions)
+}.getOrElse { fallbackPurpurVersions() }
+
+fun fetchProvisionableMinecraftVersions(): List<String> =
+    (fetchVanillaVersions() + fetchPaperVersions() + fetchPurpurVersions() + fallbackPaperVersions())
+        .distinct()
+        .let(::filterProvisionablePaperVersions)
+
 fun preparePaperServerFiles(server: ServerCardState, rootDir: Path): PreparedPaperServerFiles {
     val workDir = rootDir.resolve(sanitizeManagedServerId(server.id))
     Files.createDirectories(workDir)
     val eulaPath = workDir.resolve("eula.txt")
     val propertiesPath = workDir.resolve("server.properties")
-    val jarPath = workDir.resolve(paperJarFileName(server.minecraftVersion))
+    val jarPath = workDir.resolve(
+        when (server.serverType) {
+            com.mcgo.app.ui.model.MinecraftServerType.Vanilla -> vanillaServerJarFileName(server.minecraftVersion)
+            com.mcgo.app.ui.model.MinecraftServerType.Paper -> paperServerJarFileName(server.minecraftVersion)
+            com.mcgo.app.ui.model.MinecraftServerType.Purpur -> purpurServerJarFileName(server.minecraftVersion)
+        },
+    )
 
     Files.write(eulaPath, buildPaperEula().toByteArray())
     Files.write(propertiesPath, buildServerProperties(server).toByteArray())
@@ -324,6 +403,101 @@ fun resolveLatestPaperDownload(version: String): PaperDownloadArtifact {
     )
 }
 
+fun resolveLatestVanillaServerDownload(version: String): Pair<String, String> {
+    val safeVersion = validatePaperVersion(version)
+    val manifest = httpGet(VanillaVersionManifestUrl)
+    val versionMetadataUrl = Regex("\\\"id\\\"\\s*:\\s*\\\"${Regex.escape(safeVersion)}\\\"[^}]*\\\"url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"", RegexOption.DOT_MATCHES_ALL)
+        .find(manifest)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: error("Vanilla 版本元数据缺失：$safeVersion")
+    val versionMetadata = httpGet(versionMetadataUrl)
+    val serverUrl = Regex("\\\"server\\\"\\s*:\\s*\\{[^}]*\\\"url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"", RegexOption.DOT_MATCHES_ALL)
+        .find(versionMetadata)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: error("Vanilla 服务端下载地址缺失：$safeVersion")
+    val serverSha1 = Regex("\\\"server\\\"\\s*:\\s*\\{[^}]*\\\"sha1\\\"\\s*:\\s*\\\"([A-Fa-f0-9]{40})\\\"", RegexOption.DOT_MATCHES_ALL)
+        .find(versionMetadata)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.lowercase()
+        ?: error("Vanilla 服务端 SHA-1 缺失：$safeVersion")
+    return serverUrl to serverSha1
+}
+
+fun resolveLatestPurpurServerDownload(version: String): Pair<String, String> {
+    val safeVersion = validatePaperVersion(version)
+    val buildsBody = httpGet("$PurpurApiBase/$safeVersion")
+    val latestBuild = Regex("\\\"latest\\\"\\s*:\\s*\\\"?(\\d+)\\\"?")
+        .find(buildsBody)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: error("Purpur build 缺失：$safeVersion")
+    val buildDetail = httpGet("$PurpurApiBase/$safeVersion/$latestBuild")
+    val md5 = Regex("\\\"md5\\\"\\s*:\\s*\\\"([A-Fa-f0-9]{32})\\\"")
+        .find(buildDetail)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.lowercase()
+        ?: error("Purpur MD5 缺失：$safeVersion#$latestBuild")
+    return "$PurpurApiBase/$safeVersion/$latestBuild/download" to md5
+}
+
+fun downloadVanillaServerJar(
+    version: String,
+    targetJar: Path,
+    onProgress: (Int) -> Unit = {},
+) {
+    onProgress(2)
+    val (downloadUrl, expectedSha1) = resolveLatestVanillaServerDownload(version)
+    onProgress(8)
+    Files.createDirectories(targetJar.parent)
+    val tempJar = targetJar.resolveSibling("${targetJar.fileName}.part")
+    Files.deleteIfExists(tempJar)
+    try {
+        downloadFile(downloadUrl, tempJar, scaledPaperDownloadProgressReporter(12, 74, onProgress), flavorLabel = "Vanilla")
+        if (!Files.isRegularFile(tempJar) || Files.size(tempJar) <= 0L) error("Vanilla 下载失败：文件为空")
+        val actualSha1 = sha1Hex(tempJar)
+        if (actualSha1 != expectedSha1.lowercase()) {
+            error("Vanilla 下载校验失败：SHA-1 不匹配")
+        }
+        moveDownloadedPaperJar(tempJar, targetJar)
+        Files.write(paperJarSha256File(targetJar), (sha256Hex(targetJar) + "\n").toByteArray())
+        onProgress(76)
+    } catch (error: Throwable) {
+        Files.deleteIfExists(tempJar)
+        throw error
+    }
+}
+
+fun downloadPurpurServerJar(
+    version: String,
+    targetJar: Path,
+    onProgress: (Int) -> Unit = {},
+) {
+    onProgress(2)
+    val (downloadUrl, expectedMd5) = resolveLatestPurpurServerDownload(version)
+    onProgress(8)
+    Files.createDirectories(targetJar.parent)
+    val tempJar = targetJar.resolveSibling("${targetJar.fileName}.part")
+    Files.deleteIfExists(tempJar)
+    try {
+        downloadFile(downloadUrl, tempJar, scaledPaperDownloadProgressReporter(12, 74, onProgress), flavorLabel = "Purpur")
+        if (!Files.isRegularFile(tempJar) || Files.size(tempJar) <= 0L) error("Purpur 下载失败：文件为空")
+        val actualMd5 = md5Hex(tempJar)
+        if (actualMd5 != expectedMd5.lowercase()) {
+            error("Purpur 下载校验失败：MD5 不匹配")
+        }
+        moveDownloadedPaperJar(tempJar, targetJar)
+        Files.write(paperJarSha256File(targetJar), (sha256Hex(targetJar) + "\n").toByteArray())
+        onProgress(76)
+    } catch (error: Throwable) {
+        Files.deleteIfExists(tempJar)
+        throw error
+    }
+}
+
 fun downloadLatestPaperJar(
     version: String,
     targetJar: Path,
@@ -336,7 +510,7 @@ fun downloadLatestPaperJar(
     val tempJar = targetJar.resolveSibling("${targetJar.fileName}.part")
     Files.deleteIfExists(tempJar)
     try {
-        downloadFile(artifact.downloadUrl, tempJar, scaledPaperDownloadProgressReporter(12, 74, onProgress))
+        downloadFile(artifact.downloadUrl, tempJar, scaledPaperDownloadProgressReporter(12, 74, onProgress), flavorLabel = "Paper")
         if (!Files.isRegularFile(tempJar) || Files.size(tempJar) <= 0L) error("Paper 下载失败：文件为空")
         val actualSha256 = sha256Hex(tempJar)
         if (actualSha256 != artifact.sha256.lowercase()) {
@@ -369,7 +543,7 @@ private fun moveDownloadedPaperJar(tempJar: Path, targetJar: Path) {
     }
 }
 
-private fun downloadFile(url: String, target: Path, onProgress: (Int) -> Unit) {
+private fun downloadFile(url: String, target: Path, onProgress: (Int) -> Unit, flavorLabel: String = "Paper") {
     val connection = URL(url).openConnection() as HttpURLConnection
     connection.connectTimeout = 15_000
     connection.readTimeout = 60_000
@@ -377,7 +551,7 @@ private fun downloadFile(url: String, target: Path, onProgress: (Int) -> Unit) {
     connection.setRequestProperty("User-Agent", PaperDownloadUserAgent)
     try {
         val statusCode = connection.responseCode
-        if (statusCode !in 200..299) error("Paper 下载失败：HTTP $statusCode")
+        if (statusCode !in 200..299) error("${flavorLabel} 下载失败：HTTP $statusCode")
         val contentLength = connection.contentLengthLong.takeIf { it > 0L }
         connection.inputStream.use { input ->
             Files.newOutputStream(target).use { output ->
@@ -409,4 +583,16 @@ private fun httpGet(url: String): String {
     } finally {
         connection.disconnect()
     }
+}
+
+private fun compareMinecraftVersions(left: String, right: String): Int {
+    val leftParts = left.split('.').map { it.toIntOrNull() ?: Int.MIN_VALUE }
+    val rightParts = right.split('.').map { it.toIntOrNull() ?: Int.MIN_VALUE }
+    val maxSize = maxOf(leftParts.size, rightParts.size)
+    for (index in 0 until maxSize) {
+        val leftPart = leftParts.getOrElse(index) { -1 }
+        val rightPart = rightParts.getOrElse(index) { -1 }
+        if (leftPart != rightPart) return leftPart.compareTo(rightPart)
+    }
+    return left.compareTo(right)
 }

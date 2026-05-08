@@ -141,7 +141,12 @@ import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromPrivateDirectory
 import com.mcgo.app.server.extractTarXzSafely
 import com.mcgo.app.server.fallbackPaperVersions
+import com.mcgo.app.server.fallbackPurpurVersions
+import com.mcgo.app.server.fallbackVanillaVersions
 import com.mcgo.app.server.fetchPaperVersions
+import com.mcgo.app.server.fetchProvisionableMinecraftVersions
+import com.mcgo.app.server.fetchPurpurVersions
+import com.mcgo.app.server.fetchVanillaVersions
 import com.mcgo.app.server.filterProvisionablePaperVersions
 import com.mcgo.app.server.installPojavRuntimeFromApk
 import com.mcgo.app.server.installRuntimeFromTarXz
@@ -184,6 +189,9 @@ import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.assignTunnelRemotePort
 import com.mcgo.app.ui.model.applyPaperServerEdits
 import com.mcgo.app.ui.model.applyTunnelLatencyResults
+import com.mcgo.app.ui.model.MinecraftServerType
+import com.mcgo.app.ui.model.MinecraftServerType.Paper
+
 import com.mcgo.app.ui.model.buildConsoleAnnotatedLog
 import com.mcgo.app.ui.model.buildPaperServerPropertiesEditorText
 import com.mcgo.app.ui.model.canStartServerFromUi
@@ -330,8 +338,14 @@ fun MCGoApp() {
             )
         }
     }
+    val vanillaVersions by produceState(initialValue = fallbackVanillaVersions()) {
+        value = withContext(Dispatchers.IO) { fetchVanillaVersions() }
+    }
     val paperVersions by produceState(initialValue = filterProvisionablePaperVersions(fallbackPaperVersions())) {
         value = withContext(Dispatchers.IO) { fetchPaperVersions() }
+    }
+    val purpurVersions by produceState(initialValue = fallbackPurpurVersions()) {
+        value = withContext(Dispatchers.IO) { fetchPurpurVersions() }
     }
 
     McGoTheme(appearancePreferences = appearancePreferences) {
@@ -339,7 +353,9 @@ fun MCGoApp() {
             appearancePreferences = appearancePreferences,
             servers = servers,
             tunnels = tunnels,
+            vanillaVersions = vanillaVersions,
             paperVersions = paperVersions,
+            purpurVersions = purpurVersions,
             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
             appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
             onAppearancePreferencesChange = {
@@ -364,7 +380,9 @@ private fun MCGoAppScaffold(
     appearancePreferences: AppearancePreferences,
     servers: List<ServerCardState>,
     tunnels: List<TunnelProfile>,
+    vanillaVersions: List<String>,
     paperVersions: List<String>,
+    purpurVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
     appEntryElapsedRealtimeMillis: Long,
     onAppearancePreferencesChange: (AppearancePreferences) -> Unit,
@@ -765,7 +783,7 @@ private fun MCGoAppScaffold(
                     McGoDestination.Servers -> ExtendedFloatingActionButton(
                         onClick = { showServerComposer = true },
                         icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                        text = { Text("创建 Paper") },
+                        text = { Text("创建服务器") },
                     )
                     McGoDestination.Tunnels -> Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -820,7 +838,9 @@ private fun MCGoAppScaffold(
                     servers.firstOrNull { it.id == serverId }?.let { server ->
                         EditPaperServerDialog(
                             server = server,
+                            vanillaVersions = vanillaVersions,
                             paperVersions = paperVersions,
+                            purpurVersions = purpurVersions,
                             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                             dynamicBackground = appearancePreferences.dynamicBackground,
                             onDismiss = { editingServerId = null },
@@ -843,7 +863,9 @@ private fun MCGoAppScaffold(
                     McGoDestination.Servers -> ServersScreen(
                         servers = servers,
                         availableTunnels = tunnels,
+                        vanillaVersions = vanillaVersions,
                         paperVersions = paperVersions,
+                        purpurVersions = purpurVersions,
                         supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                         modifier = Modifier.fillMaxSize(),
                         bottomContentPadding = bottomContentPadding,
@@ -1508,20 +1530,26 @@ private fun ServerConsoleDialog(
 @Composable
 private fun EditPaperServerDialog(
     server: ServerCardState,
+    vanillaVersions: List<String>,
     paperVersions: List<String>,
+    purpurVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
     dynamicBackground: Boolean,
     onDismiss: () -> Unit,
     onSave: (ServerCardState) -> Unit,
 ) {
-    val baseVersionOptions = remember(paperVersions, supportedProvisionableJavaVersions) {
-        com.mcgo.app.server.resolveProvisionablePaperVersionOptions(
-            versions = paperVersions,
-            supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
-        )
+    val baseVersionOptions: List<String> = remember(server.serverType, vanillaVersions, paperVersions, purpurVersions, supportedProvisionableJavaVersions) {
+        when (server.serverType) {
+            MinecraftServerType.Vanilla -> vanillaVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+            MinecraftServerType.Paper -> com.mcgo.app.server.resolveProvisionablePaperVersionOptions(
+                versions = paperVersions,
+                supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
+            )
+            MinecraftServerType.Purpur -> purpurVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+        }
     }
-    val versionOptions = remember(baseVersionOptions, server.minecraftVersion) {
-        if (server.minecraftVersion in baseVersionOptions) baseVersionOptions else baseVersionOptions + server.minecraftVersion
+    val versionOptions: List<String> = remember(baseVersionOptions, server.minecraftVersion) {
+        if (baseVersionOptions.contains(server.minecraftVersion)) baseVersionOptions else baseVersionOptions + server.minecraftVersion
     }
     var name by remember(server.id) { mutableStateOf(server.name) }
     var minecraftVersion by remember(server.id) { mutableStateOf(server.minecraftVersion) }

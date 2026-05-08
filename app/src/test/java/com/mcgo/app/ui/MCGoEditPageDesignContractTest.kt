@@ -89,6 +89,22 @@ class MCGoEditPageDesignContractTest {
     }
 
     @Test
+    fun editDialogs_chooseVersionOptionsByCurrentServerType() {
+        val editDialog = source.substringBetween(
+            start = "private fun EditPaperServerDialog(",
+            end = "private fun PaperServerPropertiesEditorDialog(",
+        )
+
+        assertThat(editDialog).contains("when (server.serverType)")
+        assertThat(editDialog).contains("MinecraftServerType.Vanilla")
+        assertThat(editDialog).contains("MinecraftServerType.Paper")
+        assertThat(editDialog).contains("MinecraftServerType.Purpur")
+        assertThat(editDialog).contains("vanillaVersions")
+        assertThat(editDialog).contains("paperVersions")
+        assertThat(editDialog).contains("purpurVersions")
+    }
+
+    @Test
     fun editPagesAvoidImeAndBringFocusedInputsIntoView() {
         val editDialog = source.substringBetween(
             start = "private fun EditPaperServerDialog(",

@@ -6,6 +6,8 @@ import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.ui.model.PaperDifficulty
 import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.createPaperServer
+import com.mcgo.app.ui.model.createPurpurServer
+import com.mcgo.app.ui.model.createVanillaServer
 import java.nio.file.Files
 import kotlin.test.Test
 
@@ -64,6 +66,28 @@ class PaperServerRuntimeTest {
         assertThat(properties).contains("online-mode=false")
         assertThat(properties).contains("pvp=false")
         assertThat(prepared.jarPath.fileName.toString()).isEqualTo("paper-1.21.4.jar")
+    }
+
+    @Test
+    fun preparePaperServerFiles_usesVanillaJarNameForVanillaServerType() {
+        val workDir = Files.createTempDirectory("mcgo-vanilla-runtime")
+        val server = createVanillaServer("原版服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25566)
+
+        val prepared = preparePaperServerFiles(server, workDir)
+
+        assertThat(prepared.jarPath.fileName.toString()).isEqualTo("vanilla-1.21.4.jar")
+        assertThat(String(Files.readAllBytes(prepared.serverPropertiesPath))).contains("server-port=25566")
+    }
+
+    @Test
+    fun preparePaperServerFiles_usesPurpurJarNameForPurpurServerType() {
+        val workDir = Files.createTempDirectory("mcgo-purpur-runtime")
+        val server = createPurpurServer("Purpur服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25567)
+
+        val prepared = preparePaperServerFiles(server, workDir)
+
+        assertThat(prepared.jarPath.fileName.toString()).isEqualTo("purpur-1.21.4.jar")
+        assertThat(String(Files.readAllBytes(prepared.serverPropertiesPath))).contains("server-port=25567")
     }
 
     @Test

@@ -20,6 +20,8 @@ import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.TunnelSource
 import com.mcgo.app.ui.model.createPaperServer
+import com.mcgo.app.ui.model.createPurpurServer
+import com.mcgo.app.ui.model.createVanillaServer
 import com.mcgo.app.ui.storage.ServerProfileStore
 import java.nio.file.Files
 import java.nio.file.Path
@@ -149,21 +151,46 @@ open class PaperServerService : Service() {
                         is64BitProcess = android.os.Process.is64Bit(),
                     )
                     ensureLaunchNotCancelled()
-                    publish(server.id, PaperServerEventStatus.Launching, 26, "正在解析 Paper ${server.minecraftVersion} 下载信息")
+                    val serverFlavorLabel = when (server.serverType) {
+                        com.mcgo.app.ui.model.MinecraftServerType.Vanilla -> "Vanilla"
+                        com.mcgo.app.ui.model.MinecraftServerType.Paper -> "Paper"
+                        com.mcgo.app.ui.model.MinecraftServerType.Purpur -> "Purpur"
+                    }
+                    publish(server.id, PaperServerEventStatus.Launching, 26, "正在解析 ${serverFlavorLabel} ${server.minecraftVersion} 下载信息")
                     if (!shouldReusePaperJar(config.jarPath)) {
-                        publish(server.id, PaperServerEventStatus.Launching, 42, "正在下载 Paper ${server.minecraftVersion}")
-                        downloadLatestPaperJar(server.minecraftVersion, config.jarPath) { progress ->
-                            ensureLaunchNotCancelled()
-                            publish(
-                                server.id,
-                                PaperServerEventStatus.Launching,
-                                42 + ((progress.coerceIn(0, 100) * 34) / 100),
-                                "正在下载 Paper ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
-                            )
+                        publish(server.id, PaperServerEventStatus.Launching, 42, "正在下载 ${serverFlavorLabel} ${server.minecraftVersion}")
+                        when (server.serverType) {
+                            com.mcgo.app.ui.model.MinecraftServerType.Vanilla -> downloadVanillaServerJar(server.minecraftVersion, config.jarPath) { progress ->
+                                ensureLaunchNotCancelled()
+                                publish(
+                                    server.id,
+                                    PaperServerEventStatus.Launching,
+                                    42 + ((progress.coerceIn(0, 100) * 34) / 100),
+                                    "正在下载 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
+                                )
+                            }
+                            com.mcgo.app.ui.model.MinecraftServerType.Paper -> downloadLatestPaperJar(server.minecraftVersion, config.jarPath) { progress ->
+                                ensureLaunchNotCancelled()
+                                publish(
+                                    server.id,
+                                    PaperServerEventStatus.Launching,
+                                    42 + ((progress.coerceIn(0, 100) * 34) / 100),
+                                    "正在下载 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
+                                )
+                            }
+                            com.mcgo.app.ui.model.MinecraftServerType.Purpur -> downloadPurpurServerJar(server.minecraftVersion, config.jarPath) { progress ->
+                                ensureLaunchNotCancelled()
+                                publish(
+                                    server.id,
+                                    PaperServerEventStatus.Launching,
+                                    42 + ((progress.coerceIn(0, 100) * 34) / 100),
+                                    "正在下载 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
+                                )
+                            }
                         }
                         ensureLaunchNotCancelled()
                     } else {
-                        publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 Paper 包：${config.jarPath.fileName}")
+                        publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 ${serverFlavorLabel} 包：${config.jarPath.fileName}")
                     }
                     ensureLaunchNotCancelled()
                     val tunnelPlan = tunnelRuntimePlanForStart(
@@ -186,7 +213,7 @@ open class PaperServerService : Service() {
                                 serverId = server.id,
                                 status = PaperServerEventStatus.Launching,
                                 progress = 72,
-                                message = "FRP 隧道已启动，等待 Paper 绑定端口",
+                                message = "FRP 隧道已启动，等待服务器绑定端口",
                                 activeTunnelLabel = plan.displayLabel,
                                 runtimeAddress = plan.runtimeAddress,
                             ),
@@ -196,7 +223,7 @@ open class PaperServerService : Service() {
                     if (stopRequested) {
                         PaperJvmLauncher.queueStopRequest()
                     }
-                    publish(server.id, PaperServerEventStatus.Launching, 78, "正在通过内置 HotSpot 启动 Paper")
+                    publish(server.id, PaperServerEventStatus.Launching, 78, "正在通过内置 HotSpot 启动 ${serverFlavorLabel}")
                     startRuntimeMonitors(server, config.logFile)
                     val exitCode = PaperJvmLauncher.launch(config)
                     lastLaunchedJavaMajorVersion = server.javaMajorVersion
@@ -293,7 +320,7 @@ open class PaperServerService : Service() {
         when (resolveCommandTargetAction(currentServerId = currentServerId, requestedServerId = requestedServerId)) {
             CommandTargetAction.NoActiveRuntime -> {
                 requestedServerId?.let {
-                    publishEvent(PaperServerEvent(it, null, null, "当前没有运行中的 Paper 进程，无法发送控制台指令"))
+                    publishEvent(PaperServerEvent(it, null, null, "当前没有运行中的服务器进程，无法发送控制台指令"))
                 }
                 return
             }
@@ -313,7 +340,7 @@ open class PaperServerService : Service() {
         if (PaperJvmLauncher.submitCommand(rawCommand + "\n")) {
             publish(serverId, runtimeMonitorEventStatus(runtimeRunning = runtimeRunning, stopRequested = stopRequested), if (runtimeRunning && !stopRequested) 100 else null, runtimeCommandMessage(rawCommand))
         } else {
-            publishEvent(PaperServerEvent(serverId, null, null, "当前 Paper 进程尚未接收标准输入，请稍后再试"))
+            publishEvent(PaperServerEvent(serverId, null, null, "当前服务器进程尚未接收标准输入，请稍后再试"))
         }
     }
 
@@ -323,7 +350,7 @@ open class PaperServerService : Service() {
             while (isActive && shouldRetryQueuedStopSignal(currentServerId, serverId, stopRequested, stopSignalDelivered)) {
                 if (PaperJvmLauncher.requestStop()) {
                     stopSignalDelivered = true
-                    publish(serverId, PaperServerEventStatus.Stopping, 0, "已将 stop 指令送达内置 Paper 进程，等待安全退出")
+                    publish(serverId, PaperServerEventStatus.Stopping, 0, "已将 stop 指令送达内置服务器进程，等待安全退出")
                     break
                 }
                 delay(150)
@@ -522,6 +549,7 @@ open class PaperServerService : Service() {
                 action = ActionStart
                 putExtra("id", server.id)
                 putExtra("name", server.name)
+                putExtra("serverType", server.serverType.name)
                 putExtra("minecraftVersion", server.minecraftVersion)
                 putExtra("maxPlayers", server.maxPlayers)
                 putExtra("memoryMb", server.memoryMb)
@@ -702,6 +730,7 @@ private fun Intent.toServerCardState(): ServerCardState = decodeServerCardStateE
     mapOf(
         "id" to getStringExtra("id"),
         "name" to getStringExtra("name"),
+        "serverType" to getStringExtra("serverType"),
         "minecraftVersion" to getStringExtra("minecraftVersion"),
         "maxPlayers" to getIntExtra("maxPlayers", 20),
         "memoryMb" to getIntExtra("memoryMb", 2048),
@@ -721,28 +750,64 @@ private fun Intent.toServerCardState(): ServerCardState = decodeServerCardStateE
     ),
 )
 
-private fun decodeServerCardStateExtras(extras: Map<String, Any?>): ServerCardState = createPaperServer(
-    name = extras["name"] as? String ?: "",
-    minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
-    maxPlayers = extras["maxPlayers"] as? Int ?: 20,
-    memoryMb = extras["memoryMb"] as? Int ?: 2048,
-    port = extras["port"] as? Int ?: 25565,
-    worldName = extras["worldName"] as? String ?: "world",
-    tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
-    gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
-    difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
-    onlineMode = extras["onlineMode"] as? Boolean ?: true,
-    pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
-    serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
-).let { server ->
-    server.copy(
-        id = extras["id"] as? String ?: "paper-server",
-        javaMajorVersion = (extras["javaMajorVersion"] as? Int)?.takeIf { it > 0 } ?: server.javaMajorVersion,
-        selectedTunnelId = extras["selectedTunnelId"] as? String,
-        activeTunnelLabel = extras["activeTunnelLabel"] as? String,
-        runtimeAddress = extras["runtimeAddress"] as? String,
-        runtimeSlot = (extras["runtimeSlot"] as? Int)?.takeIf { it > 0 },
-    )
+private fun decodeServerCardStateExtras(extras: Map<String, Any?>): ServerCardState {
+    val serverType = (extras["serverType"] as? String)
+        ?.let { runCatching { enumValueOf<com.mcgo.app.ui.model.MinecraftServerType>(it) }.getOrNull() }
+        ?: com.mcgo.app.ui.model.MinecraftServerType.Paper
+    val baseServer = when (serverType) {
+        com.mcgo.app.ui.model.MinecraftServerType.Vanilla -> createVanillaServer(
+            name = extras["name"] as? String ?: "",
+            minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
+            maxPlayers = extras["maxPlayers"] as? Int ?: 20,
+            memoryMb = extras["memoryMb"] as? Int ?: 2048,
+            port = extras["port"] as? Int ?: 25565,
+            worldName = extras["worldName"] as? String ?: "world",
+            tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
+            gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
+            difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
+            onlineMode = extras["onlineMode"] as? Boolean ?: true,
+            pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
+            serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
+        )
+        com.mcgo.app.ui.model.MinecraftServerType.Paper -> createPaperServer(
+            name = extras["name"] as? String ?: "",
+            minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
+            maxPlayers = extras["maxPlayers"] as? Int ?: 20,
+            memoryMb = extras["memoryMb"] as? Int ?: 2048,
+            port = extras["port"] as? Int ?: 25565,
+            worldName = extras["worldName"] as? String ?: "world",
+            tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
+            gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
+            difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
+            onlineMode = extras["onlineMode"] as? Boolean ?: true,
+            pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
+            serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
+        )
+        com.mcgo.app.ui.model.MinecraftServerType.Purpur -> createPurpurServer(
+            name = extras["name"] as? String ?: "",
+            minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
+            maxPlayers = extras["maxPlayers"] as? Int ?: 20,
+            memoryMb = extras["memoryMb"] as? Int ?: 2048,
+            port = extras["port"] as? Int ?: 25565,
+            worldName = extras["worldName"] as? String ?: "world",
+            tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
+            gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
+            difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
+            onlineMode = extras["onlineMode"] as? Boolean ?: true,
+            pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
+            serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
+        )
+    }
+    return baseServer.let { server ->
+        server.copy(
+            id = extras["id"] as? String ?: "paper-server",
+            javaMajorVersion = (extras["javaMajorVersion"] as? Int)?.takeIf { it > 0 } ?: server.javaMajorVersion,
+            selectedTunnelId = extras["selectedTunnelId"] as? String,
+            activeTunnelLabel = extras["activeTunnelLabel"] as? String,
+            runtimeAddress = extras["runtimeAddress"] as? String,
+            runtimeSlot = (extras["runtimeSlot"] as? Int)?.takeIf { it > 0 },
+        )
+    }
 }
 
 private fun Intent.toTunnelProfile(): TunnelProfile? = decodeTunnelProfileExtras(

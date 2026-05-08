@@ -198,15 +198,25 @@ fun ServerCardState.startPaperServer(
             else -> tunnelRemotePort ?: it.remotePort
         }
     }
+    val serverJarName = when (serverType) {
+        MinecraftServerType.Vanilla -> "vanilla-$minecraftVersion.jar"
+        MinecraftServerType.Paper -> "paper-$minecraftVersion.jar"
+        MinecraftServerType.Purpur -> "purpur-$minecraftVersion.jar"
+    }
+    val serverFlavorLabel = when (serverType) {
+        MinecraftServerType.Vanilla -> "Vanilla"
+        MinecraftServerType.Paper -> "Paper"
+        MinecraftServerType.Purpur -> "Purpur"
+    }
     val plan = PaperLaunchPlan(
-        serverJarName = "paper-$minecraftVersion.jar",
+        serverJarName = serverJarName,
         javaMajorVersion = javaMajorVersion,
         arguments = listOf(
             "java-$javaMajorVersion",
             "-Xms${(memoryMb / 2).coerceAtLeast(512)}M",
             "-Xmx${memoryMb}M",
             "-jar",
-            "paper-$minecraftVersion.jar",
+            serverJarName,
             "nogui",
         ),
     )
@@ -222,7 +232,7 @@ fun ServerCardState.startPaperServer(
         launchPlan = plan,
         launchProgress = 12,
         runtimeLogs = listOf(
-            "已生成 Paper 启动计划：${plan.serverJarName}",
+            "已生成 ${serverFlavorLabel} 启动计划：${plan.serverJarName}",
             "准备使用 Java ${plan.javaMajorVersion} 与 ${memoryMb}M 内存启动",
             tunnel?.let {
                 if (resolvedRemotePort != null) {

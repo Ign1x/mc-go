@@ -7,6 +7,8 @@ import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.createPaperServer
+import com.mcgo.app.ui.model.createPurpurServer
+import com.mcgo.app.ui.model.createVanillaServer
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import java.nio.file.Files
 import java.nio.file.Path
@@ -63,7 +65,77 @@ class ServerProfileStore(
             }
 
             when (serverType) {
+                MinecraftServerType.Vanilla -> createVanillaServer(
+                    name = name,
+                    minecraftVersion = minecraftVersion,
+                    maxPlayers = maxPlayers,
+                    memoryMb = memoryMb,
+                    port = defaultPort,
+                    worldName = worldName,
+                    tunnelRemotePort = tunnelRemotePort,
+                    gameMode = gameMode,
+                    difficulty = difficulty,
+                    onlineMode = onlineMode,
+                    pvpEnabled = pvpEnabled,
+                    serverPropertiesOverride = serverPropertiesOverride,
+                ).copy(
+                    id = id,
+                    javaMajorVersion = migrateManagedJavaMajorVersion(
+                        minecraftVersion = minecraftVersion,
+                        requestedJavaMajorVersion = requestedJavaMajorVersion,
+                        javaSelectionMode = javaSelectionMode,
+                    ),
+                    javaSelectionMode = javaSelectionMode,
+                    port = port,
+                    tunnelRemotePort = tunnelRemotePort,
+                    isOnline = isOnline,
+                    selectedTunnelId = selectedTunnelId,
+                    activeTunnelLabel = activeTunnelLabel,
+                    runtimeAddress = runtimeAddress,
+                    launchStatus = launchStatus,
+                    launchPlan = null,
+                    launchProgress = launchProgress,
+                    runtimeLogs = runtimeLogs,
+                    runtimeLogPath = runtimeLogPath,
+                    runtimeSlot = runtimeSlot,
+                    pendingDeletion = pendingDeletion,
+                )
                 MinecraftServerType.Paper -> createPaperServer(
+                    name = name,
+                    minecraftVersion = minecraftVersion,
+                    maxPlayers = maxPlayers,
+                    memoryMb = memoryMb,
+                    port = defaultPort,
+                    worldName = worldName,
+                    tunnelRemotePort = tunnelRemotePort,
+                    gameMode = gameMode,
+                    difficulty = difficulty,
+                    onlineMode = onlineMode,
+                    pvpEnabled = pvpEnabled,
+                    serverPropertiesOverride = serverPropertiesOverride,
+                ).copy(
+                    id = id,
+                    javaMajorVersion = migrateManagedJavaMajorVersion(
+                        minecraftVersion = minecraftVersion,
+                        requestedJavaMajorVersion = requestedJavaMajorVersion,
+                        javaSelectionMode = javaSelectionMode,
+                    ),
+                    javaSelectionMode = javaSelectionMode,
+                    port = port,
+                    tunnelRemotePort = tunnelRemotePort,
+                    isOnline = isOnline,
+                    selectedTunnelId = selectedTunnelId,
+                    activeTunnelLabel = activeTunnelLabel,
+                    runtimeAddress = runtimeAddress,
+                    launchStatus = launchStatus,
+                    launchPlan = null,
+                    launchProgress = launchProgress,
+                    runtimeLogs = runtimeLogs,
+                    runtimeLogPath = runtimeLogPath,
+                    runtimeSlot = runtimeSlot,
+                    pendingDeletion = pendingDeletion,
+                )
+                MinecraftServerType.Purpur -> createPurpurServer(
                     name = name,
                     minecraftVersion = minecraftVersion,
                     maxPlayers = maxPlayers,
