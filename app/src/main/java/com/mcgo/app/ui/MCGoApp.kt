@@ -4,12 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -90,7 +90,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -119,11 +118,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
-import android.view.WindowManager
 import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.R
 import com.mcgo.app.network.measureTcpLatency
@@ -429,6 +423,14 @@ private fun MCGoAppScaffold(
     val visuals = LocalMcGoVisualTokens.current
     val fluidBackgroundSpec = visuals.fluidBackgroundSpec
     val layoutDirection = LocalLayoutDirection.current
+    val activeEditingServer = editingServerId?.let { serverId ->
+        servers.firstOrNull { it.id == serverId }
+    }
+    LaunchedEffect(editingServerId, servers) {
+        if (editingServerId != null && activeEditingServer == null) {
+            editingServerId = null
+        }
+    }
     val bottomBarAlpha = if (appearancePreferences.transparentCards) {
         appearancePreferences.cardContainerAlpha().coerceIn(0.78f, 0.96f)
     } else {
@@ -781,7 +783,7 @@ private fun MCGoAppScaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             bottomBar = {
-                if (!(destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview)) {
+                if (activeEditingServer == null && !(destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview)) {
                     FloatingGlassBottomMenu(
                         destination = destination,
                         bottomBarAlpha = bottomBarAlpha,
@@ -792,11 +794,13 @@ private fun MCGoAppScaffold(
             },
             floatingActionButton = {
                 when (destination) {
-                    McGoDestination.Servers -> ExtendedFloatingActionButton(
-                        onClick = { showServerComposer = true },
-                        icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                        text = { Text("创建服务器") },
-                    )
+                    McGoDestination.Servers -> if (activeEditingServer == null) {
+                        ExtendedFloatingActionButton(
+                            onClick = { showServerComposer = true },
+                            icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                            text = { Text("创建服务器") },
+                        )
+                    }
                     McGoDestination.Tunnels -> Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -842,26 +846,6 @@ private fun MCGoAppScaffold(
                                     snackbarHostState.showSnackbar("已发送指令：${normalized.trim()}")
                                 }
                                 true
-                            },
-                        )
-                    }
-                }
-                editingServerId?.let { serverId ->
-                    servers.firstOrNull { it.id == serverId }?.let { server ->
-                        EditPaperServerDialog(
-                            server = server,
-                            vanillaVersions = vanillaVersions,
-                            paperVersions = paperVersions,
-                            purpurVersions = purpurVersions,
-                            supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
-                            dynamicBackground = appearancePreferences.dynamicBackground,
-                            onDismiss = { editingServerId = null },
-                            onSave = { edited ->
-                                val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
-                                onServersChange(updatedServers)
-                                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-                                editingServerId = null
-                                scope.launch { snackbarHostState.showSnackbar("已更新 ${edited.name}") }
                             },
                         )
                     }
@@ -1002,6 +986,24 @@ private fun MCGoAppScaffold(
                     )
                 }
             }
+        }
+        activeEditingServer?.let { server ->
+            EditPaperServerDialog(
+                server = server,
+                vanillaVersions = vanillaVersions,
+                paperVersions = paperVersions,
+                purpurVersions = purpurVersions,
+                supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
+                dynamicBackground = appearancePreferences.dynamicBackground,
+                onDismiss = { editingServerId = null },
+                onSave = { edited ->
+                    val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
+                    onServersChange(updatedServers)
+                    syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+                    editingServerId = null
+                    scope.launch { snackbarHostState.showSnackbar("已更新 ${edited.name}") }
+                },
+            )
         }
     }
 }
@@ -1575,7 +1577,7 @@ private fun EditPaperServerDialog(
     var onlineMode by remember(server.id) { mutableStateOf(server.onlineMode) }
     var pvpEnabled by remember(server.id) { mutableStateOf(server.pvpEnabled) }
     var serverPropertiesOverride by remember(server.id) { mutableStateOf(server.serverPropertiesOverride) }
-    var showPropertiesEditor by remember(server.id) { mutableStateOf(false) }
+    var overlayDestination by remember(server.id) { mutableStateOf(EditServerOverlayDestination.Form) }
 
     val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
     LaunchedEffect(minecraftVersion, javaSelectionMode) {
@@ -1636,183 +1638,181 @@ private fun EditPaperServerDialog(
         serverPropertiesOverride = editedServer.serverPropertiesOverride
     }
 
-    if (showPropertiesEditor) {
-        val draftServer = buildDraftServer()
-        PaperServerPropertiesEditorDialog(
-            server = draftServer,
-            initialText = buildPaperServerPropertiesEditorText(draftServer),
-            dynamicBackground = dynamicBackground,
-            onDismiss = { showPropertiesEditor = false },
-            onApply = { editedText ->
-                applyDraftToForm(parsePaperServerPropertiesEditorText(draftServer, editedText))
-                showPropertiesEditor = false
-            },
-        )
-    }
+    BackHandler(enabled = true, onBack = onDismiss)
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-        ),
-    ) {
-        EditFullScreenScaffold(
-            title = "编辑 ${server.name}",
-            subtitle = "",
-            leadingIcon = Icons.Outlined.Tune,
-            dynamicBackground = dynamicBackground,
-            layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome,
-            onDismiss = onDismiss,
-            footer = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
-                        onClick = { showPropertiesEditor = true },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Edit,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("编辑 server.properties")
+    when (overlayDestination) {
+        EditServerOverlayDestination.Properties -> {
+            val draftServer = buildDraftServer()
+            PaperServerPropertiesEditorDialog(
+                server = draftServer,
+                initialText = buildPaperServerPropertiesEditorText(draftServer),
+                dynamicBackground = dynamicBackground,
+                onDismiss = { overlayDestination = EditServerOverlayDestination.Form },
+                onApply = { editedText ->
+                    applyDraftToForm(parsePaperServerPropertiesEditorText(draftServer, editedText))
+                    overlayDestination = EditServerOverlayDestination.Form
+                },
+            )
+        }
+
+        EditServerOverlayDestination.Form -> {
+            EditFullScreenScaffold(
+                title = "编辑 ${server.name}",
+                subtitle = "",
+                leadingIcon = Icons.Outlined.Tune,
+                dynamicBackground = dynamicBackground,
+                layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome,
+                onDismiss = onDismiss,
+                footer = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(
+                            onClick = { overlayDestination = EditServerOverlayDestination.Properties },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("编辑 server.properties")
+                        }
+                        Button(
+                            onClick = { onSave(buildDraftServer()) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = canSave,
+                        ) {
+                            Text("保存配置")
+                        }
                     }
-                    Button(
-                        onClick = { onSave(buildDraftServer()) },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = canSave,
-                    ) {
-                        Text("保存配置")
-                    }
-                }
-            },
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                },
             ) {
-                if (server.isRuntimeBusy()) {
-                    EditSettingsInfoCard(
-                        icon = Icons.Outlined.Warning,
-                        title = "当前运行中，只更新配置资料",
-                        body = "服务器当前正在启动或运行；本次保存仅更新配置资料，不会强制改动当前运行中的端口与日志状态。",
-                    )
-                }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    if (server.isRuntimeBusy()) {
+                        EditSettingsInfoCard(
+                            icon = Icons.Outlined.Warning,
+                            title = "当前运行中，只更新配置资料",
+                            body = "服务器当前正在启动或运行；本次保存仅更新配置资料，不会强制改动当前运行中的端口与日志状态。",
+                        )
+                    }
 
-                EditSettingsSectionCard(title = "基础设置") {
-                    EditTextSettingRow(
-                        icon = Icons.Outlined.Edit,
-                        label = "服务器名称",
-                        value = name,
-                        placeholder = "请输入名称",
-                        onValueChange = { name = it },
-                    )
-                    EditSettingsDivider()
-                    EditMenuSettingRow(
-                        icon = Icons.Outlined.Dns,
-                        label = "Minecraft 版本",
-                        valueLabel = minecraftVersion,
-                        options = versionOptions.asReversed(),
-                        optionLabel = { it },
-                        onSelect = { minecraftVersion = it },
-                    )
-                }
+                    EditSettingsSectionCard(title = "基础设置") {
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.Edit,
+                            label = "服务器名称",
+                            value = name,
+                            placeholder = "请输入名称",
+                            onValueChange = { name = it },
+                        )
+                        EditSettingsDivider()
+                        EditMenuSettingRow(
+                            icon = Icons.Outlined.Dns,
+                            label = "Minecraft 版本",
+                            valueLabel = minecraftVersion,
+                            options = versionOptions.asReversed(),
+                            optionLabel = { it },
+                            onSelect = { minecraftVersion = it },
+                        )
+                    }
 
-                EditSettingsSectionCard(title = "核心与性能") {
-                    EditMenuSettingRow(
-                        icon = Icons.Outlined.Settings,
-                        label = "Java",
-                        valueLabel = if (javaSelectionMode == JavaSelectionMode.Recommended) {
-                            "自动"
-                        } else {
-                            "Java $manualJavaMajorVersion"
-                        },
-                        options = listOf<String>("自动") + javaVersionOptions.map { "Java $it" },
-                        optionLabel = { it },
-                        onSelect = { selected ->
-                            if (selected == "自动") {
-                                javaSelectionMode = JavaSelectionMode.Recommended
-                                manualJavaMajorVersion = recommendedJava
+                    EditSettingsSectionCard(title = "核心与性能") {
+                        EditMenuSettingRow(
+                            icon = Icons.Outlined.Settings,
+                            label = "Java",
+                            valueLabel = if (javaSelectionMode == JavaSelectionMode.Recommended) {
+                                "自动"
                             } else {
-                                javaSelectionMode = JavaSelectionMode.Manual
-                                manualJavaMajorVersion = selected.removePrefix("Java ").toIntOrNull() ?: manualJavaMajorVersion
-                            }
-                        },
-                    )
-                    EditSettingsDivider()
-                    EditTextSettingRow(
-                        icon = Icons.Outlined.Speed,
-                        label = "分配内存 MB",
-                        value = memoryMb,
-                        placeholder = server.memoryMb.toString(),
-                        keyboardType = KeyboardType.Number,
-                        onValueChange = { memoryMb = it.filter(Char::isDigit) },
-                    )
-                }
+                                "Java $manualJavaMajorVersion"
+                            },
+                            options = listOf<String>("自动") + javaVersionOptions.map { "Java $it" },
+                            optionLabel = { it },
+                            onSelect = { selected ->
+                                if (selected == "自动") {
+                                    javaSelectionMode = JavaSelectionMode.Recommended
+                                    manualJavaMajorVersion = recommendedJava
+                                } else {
+                                    javaSelectionMode = JavaSelectionMode.Manual
+                                    manualJavaMajorVersion = selected.removePrefix("Java ").toIntOrNull() ?: manualJavaMajorVersion
+                                }
+                            },
+                        )
+                        EditSettingsDivider()
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.Speed,
+                            label = "分配内存 MB",
+                            value = memoryMb,
+                            placeholder = server.memoryMb.toString(),
+                            keyboardType = KeyboardType.Number,
+                            onValueChange = { memoryMb = it.filter(Char::isDigit) },
+                        )
+                    }
 
-                EditSettingsSectionCard(title = "常用游戏规则") {
-                    EditTextSettingRow(
-                        icon = Icons.Outlined.Public,
-                        label = "世界名称",
-                        value = worldName,
-                        placeholder = "world",
-                        onValueChange = { worldName = it },
-                    )
-                    EditSettingsDivider()
-                    EditMenuSettingRow(
-                        icon = Icons.Outlined.Tune,
-                        label = "游戏模式",
-                        valueLabel = gameMode.displayLabel(),
-                        options = PaperGameMode.entries,
-                        optionLabel = { it.displayLabel() },
-                        onSelect = { gameMode = it },
-                    )
-                    EditSettingsDivider()
-                    EditMenuSettingRow(
-                        icon = Icons.Outlined.Tune,
-                        label = "难度",
-                        valueLabel = difficulty.displayLabel(),
-                        options = PaperDifficulty.entries,
-                        optionLabel = { it.displayLabel() },
-                        onSelect = { difficulty = it },
-                    )
-                    EditSettingsDivider()
-                    EditSwitchSettingRow(
-                        icon = Icons.Outlined.Public,
-                        label = "正版验证",
-                        supportingText = "关闭后可允许离线/外网玩家，安全风险更高，请谨慎使用",
-                        supportingTextColor = MaterialTheme.colorScheme.error,
-                        checked = onlineMode,
-                        onCheckedChange = { onlineMode = it },
-                    )
-                    EditSettingsDivider()
-                    EditSwitchSettingRow(
-                        icon = Icons.Outlined.Tune,
-                        label = "PvP",
-                        checked = pvpEnabled,
-                        onCheckedChange = { pvpEnabled = it },
-                    )
-                }
+                    EditSettingsSectionCard(title = "常用游戏规则") {
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.Public,
+                            label = "世界名称",
+                            value = worldName,
+                            placeholder = "world",
+                            onValueChange = { worldName = it },
+                        )
+                        EditSettingsDivider()
+                        EditMenuSettingRow(
+                            icon = Icons.Outlined.Tune,
+                            label = "游戏模式",
+                            valueLabel = gameMode.displayLabel(),
+                            options = PaperGameMode.entries,
+                            optionLabel = { it.displayLabel() },
+                            onSelect = { gameMode = it },
+                        )
+                        EditSettingsDivider()
+                        EditMenuSettingRow(
+                            icon = Icons.Outlined.Tune,
+                            label = "难度",
+                            valueLabel = difficulty.displayLabel(),
+                            options = PaperDifficulty.entries,
+                            optionLabel = { it.displayLabel() },
+                            onSelect = { difficulty = it },
+                        )
+                        EditSettingsDivider()
+                        EditSwitchSettingRow(
+                            icon = Icons.Outlined.Public,
+                            label = "正版验证",
+                            supportingText = "关闭后可允许离线/外网玩家，安全风险更高，请谨慎使用",
+                            supportingTextColor = MaterialTheme.colorScheme.error,
+                            checked = onlineMode,
+                            onCheckedChange = { onlineMode = it },
+                        )
+                        EditSettingsDivider()
+                        EditSwitchSettingRow(
+                            icon = Icons.Outlined.Tune,
+                            label = "PvP",
+                            checked = pvpEnabled,
+                            onCheckedChange = { pvpEnabled = it },
+                        )
+                    }
 
-                EditSettingsSectionCard(title = "网络与高级") {
-                    EditTextSettingRow(
-                        icon = Icons.Outlined.Dns,
-                        label = "最大玩家数",
-                        value = maxPlayers,
-                        placeholder = server.maxPlayers.toString(),
-                        keyboardType = KeyboardType.Number,
-                        onValueChange = { maxPlayers = it.filter(Char::isDigit) },
-                    )
-                    EditSettingsDivider()
-                    EditTextSettingRow(
-                        icon = Icons.Outlined.SwapHoriz,
-                        label = "默认端口",
-                        value = port,
-                        placeholder = server.defaultPort.toString(),
-                        keyboardType = KeyboardType.Number,
-                        onValueChange = { port = it.filter(Char::isDigit) },
-                    )
+                    EditSettingsSectionCard(title = "网络与高级") {
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.Dns,
+                            label = "最大玩家数",
+                            value = maxPlayers,
+                            placeholder = server.maxPlayers.toString(),
+                            keyboardType = KeyboardType.Number,
+                            onValueChange = { maxPlayers = it.filter(Char::isDigit) },
+                        )
+                        EditSettingsDivider()
+                        EditTextSettingRow(
+                            icon = Icons.Outlined.SwapHoriz,
+                            label = "默认端口",
+                            value = port,
+                            placeholder = server.defaultPort.toString(),
+                            keyboardType = KeyboardType.Number,
+                            onValueChange = { port = it.filter(Char::isDigit) },
+                        )
+                    }
                 }
             }
         }
@@ -1822,6 +1822,11 @@ private fun EditPaperServerDialog(
 private enum class EditFullScreenScaffoldLayoutMode {
     PinnedChrome,
     InlineChrome,
+}
+
+private enum class EditServerOverlayDestination {
+    Form,
+    Properties,
 }
 
 @Composable
@@ -1835,93 +1840,86 @@ private fun PaperServerPropertiesEditorDialog(
     var editorText by remember(server.id, initialText) { mutableStateOf(initialText) }
     val (propertiesBringIntoViewRequester, onPropertiesFocusChanged) = rememberImeBringIntoViewRequester()
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-        ),
-    ) {
-        val colors = editPageColors()
-        EditFullScreenScaffold(
-            title = "编辑 server.properties",
-            subtitle = "",
-            leadingIcon = Icons.Outlined.Edit,
-            dynamicBackground = dynamicBackground,
-            layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome,
-            onDismiss = onDismiss,
-            footer = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("取消")
-                    }
-                    Button(
-                        onClick = { onApply(editorText) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("应用并返回")
-                    }
-                }
-            },
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .imePadding(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+    BackHandler(enabled = true, onBack = onDismiss)
+    val colors = editPageColors()
+    EditFullScreenScaffold(
+        title = "编辑 server.properties",
+        subtitle = "",
+        leadingIcon = Icons.Outlined.Edit,
+        dynamicBackground = dynamicBackground,
+        layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome,
+        onDismiss = onDismiss,
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Surface(
+                OutlinedButton(
+                    onClick = onDismiss,
                     modifier = Modifier.weight(1f),
-                    color = colors.editorContainerColor,
-                    contentColor = colors.primaryText,
-                    shape = RoundedCornerShape(26.dp),
-                    border = BorderStroke(1.dp, colors.cardStrokeColor),
                 ) {
-                    BasicTextField(
-                        value = editorText,
-                        onValueChange = { editorText = it },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .bringIntoViewRequester(propertiesBringIntoViewRequester)
-                            .onFocusEvent { onPropertiesFocusChanged(it.isFocused) }
-                            .padding(18.dp)
-                            .verticalScroll(rememberScrollState()),
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = Color.Transparent,
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.primaryText),
-                        decorationBox = { innerTextField ->
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                if (editorText.isBlank()) {
-                                    Text(
-                                        text = "server.properties",
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                                        color = colors.secondaryText,
-                                    )
-                                } else {
-                                    BasicText(
-                                        text = buildServerPropertiesAnnotatedText(
-                                            editorText,
-                                            colors.primaryText,
-                                            colors.secondaryText,
-                                            MaterialTheme.colorScheme.primary,
-                                            MaterialTheme.colorScheme.tertiary,
-                                        ),
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        },
-                    )
+                    Text("取消")
                 }
+                Button(
+                    onClick = { onApply(editorText) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("应用并返回")
+                }
+            }
+        },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Surface(
+                modifier = Modifier.weight(1f),
+                color = colors.editorContainerColor,
+                contentColor = colors.primaryText,
+                shape = RoundedCornerShape(26.dp),
+                border = BorderStroke(1.dp, colors.cardStrokeColor),
+            ) {
+                BasicTextField(
+                    value = editorText,
+                    onValueChange = { editorText = it },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .bringIntoViewRequester(propertiesBringIntoViewRequester)
+                        .onFocusEvent { onPropertiesFocusChanged(it.isFocused) }
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState()),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = Color.Transparent,
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.primaryText),
+                    decorationBox = { innerTextField ->
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (editorText.isBlank()) {
+                                Text(
+                                    text = "server.properties",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                    color = colors.secondaryText,
+                                )
+                            } else {
+                                BasicText(
+                                    text = buildServerPropertiesAnnotatedText(
+                                        editorText,
+                                        colors.primaryText,
+                                        colors.secondaryText,
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.tertiary,
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
             }
         }
     }
@@ -1954,64 +1952,6 @@ private fun editPageColors(): EditPageColors {
     )
 }
 
-@Suppress("DEPRECATION")
-@Composable
-private fun EditDialogImmersiveSystemBars() {
-    val view = androidx.compose.ui.platform.LocalView.current
-    val lightSystemBars = MaterialTheme.colorScheme.background.luminance() > 0.5f
-    DisposableEffect(view, lightSystemBars) {
-        val window = (view.parent as? DialogWindowProvider)?.window
-        if (window == null) {
-            onDispose { }
-        } else {
-            val previousStatusBarColor = window.statusBarColor
-            val previousNavigationBarColor = window.navigationBarColor
-            val previousLightStatusBars = WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars
-            val previousLightNavigationBars = WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars
-            val previousNavigationBarContrast = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isNavigationBarContrastEnforced
-            } else {
-                false
-            }
-            val previousStatusBarContrast = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isStatusBarContrastEnforced
-            } else {
-                false
-            }
-
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            window.setLayout(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-            )
-            window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-            window.statusBarColor = android.graphics.Color.TRANSPARENT
-            window.navigationBarColor = android.graphics.Color.TRANSPARENT
-            WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = lightSystemBars
-                isAppearanceLightNavigationBars = lightSystemBars
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isNavigationBarContrastEnforced = false
-                window.isStatusBarContrastEnforced = false
-            }
-
-            onDispose {
-                window.statusBarColor = previousStatusBarColor
-                window.navigationBarColor = previousNavigationBarColor
-                WindowCompat.getInsetsController(window, view).apply {
-                    isAppearanceLightStatusBars = previousLightStatusBars
-                    isAppearanceLightNavigationBars = previousLightNavigationBars
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    window.isNavigationBarContrastEnforced = previousNavigationBarContrast
-                    window.isStatusBarContrastEnforced = previousStatusBarContrast
-                }
-            }
-        }
-    }
-}
-
 @Composable
 private fun EditFullScreenScaffold(
     title: String,
@@ -2023,7 +1963,6 @@ private fun EditFullScreenScaffold(
     footer: @Composable () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    EditDialogImmersiveSystemBars()
     val colors = editPageColors()
     val backgroundSpec = LocalMcGoVisualTokens.current.fluidBackgroundSpec
     Surface(
@@ -2042,6 +1981,7 @@ private fun EditFullScreenScaffold(
                     .fillMaxSize()
                     .background(colors.backgroundOverlayColor),
             )
+            EditOverlayInteractionBlocker()
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2172,6 +2112,19 @@ private fun buildServerPropertiesAnnotatedText(
         lineEnd + 1
     }
     return builder.toAnnotatedString()
+}
+
+@Composable
+private fun EditOverlayInteractionBlocker() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
+    )
 }
 
 @Composable

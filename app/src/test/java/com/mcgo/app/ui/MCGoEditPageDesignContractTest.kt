@@ -7,6 +7,7 @@ import kotlin.test.Test
 
 class MCGoEditPageDesignContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
+    private val mainActivitySource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/MainActivity.kt")))
     private val settingsScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/SettingsScreen.kt")))
 
     @Test
@@ -52,41 +53,35 @@ class MCGoEditPageDesignContractTest {
     }
 
     @Test
-    fun editDialogs_requestEdgeToEdgeSystemBarsForImmersiveBackground() {
-        val dialogPropertiesCalls = Regex("DialogProperties\\([^)]*usePlatformDefaultWidth = false[^)]*\\)")
-            .findAll(source)
-            .map { it.value }
-            .toList()
+    fun editOverlays_stayInsideActivityLayerInsteadOfCreatingSeparateDialogWindows() {
+        val editDialog = source.substringBetween(
+            start = "private fun EditPaperServerDialog(",
+            end = "private fun PaperServerPropertiesEditorDialog(",
+        )
+        val propertiesDialog = source.substringBetween(
+            start = "private fun PaperServerPropertiesEditorDialog(",
+            end = "private fun EditSettingsSectionCard(",
+        )
 
-        assertThat(dialogPropertiesCalls).hasSize(2)
-        dialogPropertiesCalls.forEach { call ->
-            assertThat(call).contains("decorFitsSystemWindows = false")
-        }
+        assertThat(source).contains("import androidx.activity.compose.BackHandler")
+        assertThat(editDialog).contains("BackHandler(enabled = true, onBack = onDismiss)")
+        assertThat(propertiesDialog).contains("BackHandler(enabled = true, onBack = onDismiss)")
+        assertThat(editDialog).doesNotContain("\n    Dialog(")
+        assertThat(editDialog).doesNotContain("DialogProperties(")
+        assertThat(propertiesDialog).doesNotContain("\n    Dialog(")
+        assertThat(propertiesDialog).doesNotContain("DialogProperties(")
     }
 
     @Test
-    fun editDialogs_makeTheirOwnWindowSystemBarsTransparent() {
+    fun editOverlays_reuseActivityEdgeToEdgeWithoutDialogWindowSystemBarHacks() {
         val scaffold = source.substringBetween(
             start = "private fun EditFullScreenScaffold(",
             end = "private fun EditSettingsInfoCard(",
         )
-        val systemBarHelper = source.substringBetween(
-            start = "private fun EditDialogImmersiveSystemBars(",
-            end = "@Composable\nprivate fun EditFullScreenScaffold(",
-        )
 
-        assertThat(scaffold).contains("EditDialogImmersiveSystemBars()")
-        assertThat(systemBarHelper).contains("DialogWindowProvider")
-        assertThat(systemBarHelper).contains("WindowCompat.setDecorFitsSystemWindows(window, false)")
-        assertThat(systemBarHelper).contains("window.setLayout(")
-        assertThat(systemBarHelper).contains("WindowManager.LayoutParams.MATCH_PARENT")
-        assertThat(systemBarHelper).contains("window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))")
-        assertThat(systemBarHelper).contains("statusBarColor = android.graphics.Color.TRANSPARENT")
-        assertThat(systemBarHelper).contains("navigationBarColor = android.graphics.Color.TRANSPARENT")
-        assertThat(systemBarHelper).contains("isNavigationBarContrastEnforced = false")
-        assertThat(systemBarHelper).contains("isStatusBarContrastEnforced = false")
-        assertThat(systemBarHelper).contains("isAppearanceLightStatusBars")
-        assertThat(systemBarHelper).contains("isAppearanceLightNavigationBars")
+        assertThat(scaffold).doesNotContain("EditDialogImmersiveSystemBars()")
+        assertThat(source).doesNotContain("private fun EditDialogImmersiveSystemBars(")
+        assertThat(mainActivitySource).contains("enableEdgeToEdge()")
     }
 
     @Test
@@ -103,6 +98,24 @@ class MCGoEditPageDesignContractTest {
         assertThat(editDialog).contains("vanillaVersions")
         assertThat(editDialog).contains("paperVersions")
         assertThat(editDialog).contains("purpurVersions")
+    }
+
+    @Test
+    fun editOverlays_consumeBackgroundTouchesInsteadOfPassingThrough() {
+        val scaffold = source.substringBetween(
+            start = "private fun EditFullScreenScaffold(",
+            end = "private fun EditSettingsInfoCard(",
+        )
+        val blocker = source.substringBetween(
+            start = "private fun EditOverlayInteractionBlocker(",
+            end = "@Composable\nprivate fun EditSettingsInfoCard(",
+        )
+
+        assertThat(scaffold).contains("EditOverlayInteractionBlocker()")
+        assertThat(blocker).contains("MutableInteractionSource()")
+        assertThat(blocker).contains("clickable(")
+        assertThat(blocker).contains("indication = null")
+        assertThat(blocker).contains("onClick = {}")
     }
 
     @Test
@@ -127,8 +140,10 @@ class MCGoEditPageDesignContractTest {
         assertThat(source).contains("import androidx.compose.foundation.relocation.BringIntoViewRequester")
         assertThat(source).contains("import androidx.compose.foundation.relocation.bringIntoViewRequester")
         assertThat(source).contains("import androidx.compose.foundation.layout.imePadding")
+        assertThat(source).contains("import androidx.compose.foundation.layout.safeDrawingPadding")
         assertThat(source).contains("import androidx.compose.ui.focus.onFocusEvent")
         assertThat(scaffold).contains("imePadding()")
+        assertThat(scaffold).contains("safeDrawingPadding()")
         assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome")
         assertThat(propertiesDialog).contains("rememberImeBringIntoViewRequester()")
         assertThat(propertiesDialog).contains("bringIntoViewRequester(propertiesBringIntoViewRequester)")
@@ -141,9 +156,26 @@ class MCGoEditPageDesignContractTest {
     }
 
     @Test
+    fun editOverlayState_clearsStaleEditingServerSelection() {
+        val scaffold = source.substringBetween(
+            start = "private fun MCGoAppScaffold(",
+            end = "@Composable\nprivate fun RequestRuntimePermissions(",
+        )
+
+        assertThat(scaffold).contains("val activeEditingServer = editingServerId?.let { serverId ->")
+        assertThat(scaffold).contains("LaunchedEffect(editingServerId, servers)")
+        assertThat(scaffold).contains("if (editingServerId != null && activeEditingServer == null)")
+        assertThat(scaffold).contains("editingServerId = null")
+    }
+
+    @Test
     fun bottomNavigationUsesFloatingTranslucentGlassMenu() {
         val scaffold = source.substringBetween(
             start = "private fun MCGoAppScaffold(",
+            end = "@Composable\nprivate fun RequestRuntimePermissions(",
+        )
+        val rootScaffoldSection = source.substringBetween(
+            start = "    Box(modifier = Modifier.fillMaxSize()) {",
             end = "@Composable\nprivate fun RequestRuntimePermissions(",
         )
         val bottomMenu = source.substringBetween(
@@ -156,18 +188,24 @@ class MCGoEditPageDesignContractTest {
         assertThat(settingsScreenSource).contains("onSettingsDestinationChange: (SettingsDestination) -> Unit = {}")
         assertThat(settingsScreenSource).doesNotContain("LaunchedEffect(navigationState.canNavigateBack)")
         assertThat(settingsScreenSource).doesNotContain("onBottomBarVisibilityChange(!navigationState.canNavigateBack)")
-        assertThat(scaffold).contains("FloatingGlassBottomMenu(")
-        assertThat(scaffold).contains("destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview")
-        assertThat(scaffold).contains("if (!(destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview))")
+        assertThat(scaffold).contains("val activeEditingServer = editingServerId?.let { serverId ->")
+        assertThat(scaffold).contains("activeEditingServer == null && !(destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview)")
+        assertThat(scaffold).contains("McGoDestination.Servers -> if (activeEditingServer == null)")
+        assertThat(rootScaffoldSection).contains("FloatingGlassBottomMenu(")
+        assertThat(rootScaffoldSection).contains("Scaffold(")
+        assertThat(rootScaffoldSection).contains("activeEditingServer?.let { server ->")
+        assertThat(rootScaffoldSection).contains("}\n        activeEditingServer?.let { server ->")
+        assertThat(rootScaffoldSection).contains("EditPaperServerDialog(")
+        assertThat(rootScaffoldSection).contains("destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview")
         assertThat(scaffold).contains("settingsDestination = SettingsDestination.Overview")
         assertThat(scaffold).contains("settingsDestination = it")
-        assertThat(scaffold).doesNotContain("NavigationBar(")
-        assertThat(scaffold).doesNotContain("NavigationBarItem(")
-        assertThat(scaffold).contains("containerColor = Color.Transparent")
-        assertThat(scaffold).doesNotContain(".padding(innerPadding)")
-        assertThat(scaffold).contains("innerPadding.calculateTopPadding()")
-        assertThat(scaffold).contains("innerPadding.calculateStartPadding(layoutDirection)")
-        assertThat(scaffold).contains("innerPadding.calculateEndPadding(layoutDirection)")
+        assertThat(rootScaffoldSection).doesNotContain("NavigationBar(")
+        assertThat(rootScaffoldSection).doesNotContain("NavigationBarItem(")
+        assertThat(rootScaffoldSection).contains("containerColor = Color.Transparent")
+        assertThat(rootScaffoldSection).doesNotContain(".padding(innerPadding)")
+        assertThat(rootScaffoldSection).contains("innerPadding.calculateTopPadding()")
+        assertThat(rootScaffoldSection).contains("innerPadding.calculateStartPadding(layoutDirection)")
+        assertThat(rootScaffoldSection).contains("innerPadding.calculateEndPadding(layoutDirection)")
         assertThat(bottomMenu).contains("navigationBarsPadding()")
         assertThat(bottomMenu).contains("Brush.verticalGradient(")
         assertThat(bottomMenu).contains("menuBackdropGradient")
