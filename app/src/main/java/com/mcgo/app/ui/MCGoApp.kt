@@ -36,7 +36,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.selection.selectable
@@ -92,6 +91,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -107,7 +107,9 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusEvent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.res.stringResource
@@ -1982,85 +1984,105 @@ private fun EditFullScreenScaffold(
                     .background(colors.backgroundOverlayColor),
             )
             EditOverlayInteractionBlocker()
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding()
-                    .imePadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                val headerCard: @Composable () -> Unit = {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = colors.cardContainerColor,
-                        contentColor = colors.primaryText,
-                        shape = RoundedCornerShape(28.dp),
-                        border = BorderStroke(1.dp, colors.cardStrokeColor),
+            val density = LocalDensity.current
+            var headerOverlayHeightPx by remember { mutableIntStateOf(0) }
+            var footerOverlayHeightPx by remember { mutableIntStateOf(0) }
+            val contentTopPadding = with(density) { headerOverlayHeightPx.toDp() }
+            val footerBottomPadding = with(density) { footerOverlayHeightPx.toDp() }
+            val headerOverlay: @Composable () -> Unit = {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .onSizeChanged { headerOverlayHeightPx = it.height },
+                    color = colors.cardContainerColor,
+                    contentColor = colors.primaryText,
+                    shape = RoundedCornerShape(28.dp),
+                    border = BorderStroke(1.dp, colors.cardStrokeColor),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        EditSettingsLeadingIcon(icon = leadingIcon)
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            EditSettingsLeadingIcon(icon = leadingIcon)
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    color = colors.primaryText,
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = colors.primaryText,
+                            )
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.secondaryText,
+                            )
+                        }
+                        Surface(
+                            color = colors.iconContainerColor,
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = "关闭",
+                                    tint = MaterialTheme.colorScheme.primary,
                                 )
-                                Text(
-                                    text = subtitle,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colors.secondaryText,
-                                )
-                            }
-                            Surface(
-                                color = colors.iconContainerColor,
-                                shape = RoundedCornerShape(16.dp),
-                            ) {
-                                IconButton(onClick = onDismiss) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Close,
-                                        contentDescription = "关闭",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
                             }
                         }
                     }
                 }
-                val footerCard: @Composable () -> Unit = {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = colors.cardContainerColor,
-                        contentColor = colors.primaryText,
-                        shape = RoundedCornerShape(26.dp),
-                        border = BorderStroke(1.dp, colors.cardStrokeColor),
-                    ) {
-                        Box(modifier = Modifier.padding(14.dp)) {
-                            footer()
-                        }
+            }
+            val footerOverlay: @Composable () -> Unit = {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .onSizeChanged { footerOverlayHeightPx = it.height },
+                    color = colors.cardContainerColor,
+                    contentColor = colors.primaryText,
+                    shape = RoundedCornerShape(26.dp),
+                    border = BorderStroke(1.dp, colors.cardStrokeColor),
+                ) {
+                    Box(modifier = Modifier.padding(14.dp)) {
+                        footer()
                     }
                 }
-                if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        headerCard()
-                        content()
-                        footerCard()
-                    }
-                } else {
-                    headerCard()
+            }
+
+            if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .imePadding()
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = contentTopPadding, start = 16.dp, end = 16.dp, bottom = footerBottomPadding),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    content()
+                }
+                headerOverlay()
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .imePadding(),
+                ) {
+                    footerOverlay()
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .imePadding()
+                        .padding(top = contentTopPadding, start = 16.dp, end = 16.dp, bottom = footerBottomPadding),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -2068,7 +2090,15 @@ private fun EditFullScreenScaffold(
                     ) {
                         content()
                     }
-                    footerCard()
+                }
+                headerOverlay()
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .imePadding(),
+                ) {
+                    footerOverlay()
                 }
             }
         }

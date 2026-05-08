@@ -38,9 +38,9 @@ class MCGoEditPageDesignContractTest {
         )
 
         assertThat(editSupportSource).contains("editPageColors()")
-        assertThat(editSupportSource).contains("MaterialTheme.colorScheme")
-        assertThat(editSupportSource).doesNotContain("navigationBarsPadding()")
-        assertThat(editSupportSource).doesNotContain("statusBarsPadding()")
+        assertThat(source).contains("MaterialTheme.colorScheme")
+        assertThat(editSupportSource).contains("navigationBarsPadding()")
+        assertThat(editSupportSource).contains("statusBarsPadding()")
         assertThat(editSupportSource).contains("border = BorderStroke")
         listOf(
             "Color.White",
@@ -101,6 +101,22 @@ class MCGoEditPageDesignContractTest {
     }
 
     @Test
+    fun editPages_useFloatingTopBarInsteadOfWholePageSafeAreaInset() {
+        val scaffold = source.substringBetween(
+            start = "private fun EditFullScreenScaffold(",
+            end = "private fun buildServerPropertiesAnnotatedText(",
+        )
+
+        assertThat(scaffold).doesNotContain("contentTopPadding = 120.dp")
+        assertThat(scaffold).doesNotContain("footerBottomPadding = 28.dp")
+        assertThat(scaffold).contains("headerOverlayHeightPx")
+        assertThat(scaffold).contains("footerOverlayHeightPx")
+        assertThat(scaffold).contains("onSizeChanged")
+        assertThat(scaffold).contains("LocalDensity.current")
+        assertThat(scaffold).contains("navigationBarsPadding()")
+    }
+
+    @Test
     fun editOverlays_consumeBackgroundTouchesInsteadOfPassingThrough() {
         val scaffold = source.substringBetween(
             start = "private fun EditFullScreenScaffold(",
@@ -140,10 +156,10 @@ class MCGoEditPageDesignContractTest {
         assertThat(source).contains("import androidx.compose.foundation.relocation.BringIntoViewRequester")
         assertThat(source).contains("import androidx.compose.foundation.relocation.bringIntoViewRequester")
         assertThat(source).contains("import androidx.compose.foundation.layout.imePadding")
-        assertThat(source).contains("import androidx.compose.foundation.layout.safeDrawingPadding")
+        assertThat(source).contains("import androidx.compose.foundation.layout.statusBarsPadding")
         assertThat(source).contains("import androidx.compose.ui.focus.onFocusEvent")
         assertThat(scaffold).contains("imePadding()")
-        assertThat(scaffold).contains("safeDrawingPadding()")
+        assertThat(scaffold).doesNotContain("safeDrawingPadding()")
         assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.InlineChrome")
         assertThat(propertiesDialog).contains("rememberImeBringIntoViewRequester()")
         assertThat(propertiesDialog).contains("bringIntoViewRequester(propertiesBringIntoViewRequester)")
@@ -275,8 +291,9 @@ class MCGoEditPageDesignContractTest {
         assertThat(editDialog).doesNotContain(".verticalScroll(rememberScrollState())")
         assertThat(scaffold).contains("if (layoutMode == EditFullScreenScaffoldLayoutMode.InlineChrome)")
         assertThat(scaffold).contains("verticalScroll(rememberScrollState())")
-        assertThat(scaffold).contains("headerCard()")
-        assertThat(scaffold).contains("footerCard()")
+        assertThat(scaffold).contains("footerOverlay()")
+        assertThat(scaffold).contains("navigationBarsPadding()")
+        assertThat(scaffold).contains("imePadding()")
     }
 
     private fun String.substringBetween(start: String, end: String): String {
