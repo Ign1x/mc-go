@@ -20,7 +20,7 @@ class AppIconDesignContractTest {
     }
 
     @Test
-    fun adaptiveIcon_resourcesUseGrassBlockForegroundAndThemedMonochrome() {
+    fun adaptiveIcon_resourcesUseNewDarkGradientCubeForegroundAndThemedMonochrome() {
         val launcher = readTextFromExisting(
             listOf(
                 Path.of("src/main/res/mipmap-anydpi-v26/ic_launcher.xml"),
@@ -60,16 +60,20 @@ class AppIconDesignContractTest {
 
         assertThat(foreground).contains("android:viewportWidth=\"108\"")
         assertThat(foreground).contains("android:viewportHeight=\"108\"")
-        assertThat(foreground).contains("android:fillColor=\"#39A845\"")
-        assertThat(foreground).contains("android:fillColor=\"#6B4528\"")
-        assertThat(foreground).contains("android:fillColor=\"#8A5A34\"")
-        assertThat(foreground).contains("android:pathData=\"M34,36h40")
-        assertThat(foreground).doesNotContain("android:pathData=\"M22,24h64")
-        assertThat(background).contains("android:startColor=\"#C8EEFF\"")
-        assertThat(background).contains("android:endColor=\"#EAF7FF\"")
+        assertThat(foreground).contains("android:fillColor=\"#8be067\"")
+        assertThat(foreground).contains("android:fillColor=\"#64b543\"")
+        assertThat(foreground).contains("android:fillColor=\"#549f3c\"")
+        assertThat(foreground).contains("android:fillColor=\"#7d5938\"")
+        assertThat(foreground).contains("android:fillColor=\"#65432a\"")
+        assertThat(foreground).contains("android:pathData=\"M54,25L78,39L78,69L54,83L30,69L30,39Z\"")
+        assertThat(foreground).contains("android:pathData=\"M54,34L67,41L54,48L41,41Z\"")
+        assertThat(foreground).doesNotContain("android:fillColor=\"#39A845\"")
+        assertThat(background).contains("android:startColor=\"#182019\"")
+        assertThat(background).contains("android:centerColor=\"#1f4024\"")
+        assertThat(background).contains("android:endColor=\"#0f2e42\"")
         assertThat(monochrome).contains("android:fillColor=\"#FFFFFFFF\"")
-        assertThat(monochrome).contains("android:pathData=\"M34,36h40")
-        assertThat(monochrome).doesNotContain("android:pathData=\"M22,24h64")
+        assertThat(monochrome).contains("android:pathData=\"M54,25L78,39L78,69L54,83L30,69L30,39Z M54,34L67,41L54,48L41,41Z\"")
+        assertThat(monochrome).doesNotContain("android:pathData=\"M34,36h40\"")
     }
 
     private fun readTextFromExisting(candidates: List<Path>): String {
