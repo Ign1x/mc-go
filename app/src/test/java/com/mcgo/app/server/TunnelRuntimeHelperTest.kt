@@ -44,7 +44,8 @@ class TunnelRuntimeHelperTest {
         )
 
         assertThat(plan).isNotNull()
-        assertThat(plan!!.displayLabel).isEqualTo("家庭 FRP · frp.example.com:38001")
+        assertThat(plan!!.displayLabel).isEqualTo("家庭 FRP")
+        assertThat(plan.runtimeAddress).isEqualTo("frp.example.com:38001")
         assertThat(plan.binaryPath).isEqualTo(nativeLibraryDir.resolve("libfrpc.so"))
         assertThat(plan.extractedBinaryPath).isEqualTo(filesDir.resolve("servers/${server.id}/frp/bin/frpc"))
         assertThat(plan.configPath).isEqualTo(filesDir.resolve("servers/${server.id}/frp/frpc.toml"))

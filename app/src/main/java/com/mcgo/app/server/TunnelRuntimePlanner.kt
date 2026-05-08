@@ -84,7 +84,7 @@ fun tunnelRuntimePlanForStart(
         extractedBinaryPath = frpDir.resolve("bin").resolve("frpc"),
         configPath = frpDir.resolve("frpc.toml"),
         configText = buildFrpcConfigForTunnel(server, tunnel),
-        displayLabel = "${tunnel.name} · $host:$remotePort",
+        displayLabel = tunnel.name,
         runtimeAddress = "$host:$remotePort",
     )
 }
