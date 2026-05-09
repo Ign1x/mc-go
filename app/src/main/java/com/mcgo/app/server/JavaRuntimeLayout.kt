@@ -64,6 +64,7 @@ fun buildManagedPaperLaunchConfig(
     val arguments = buildList {
         add(runtimeLayout.javaBinary.toString())
         addAll(buildPaperJvmArguments(server, javaHome))
+        addAll(buildAndroidServerCompatibilityJvmArguments(nativeLibraryDir))
         add("-Djava.awt.headless=true")
         add("-Djava.io.tmpdir=$cacheDir")
         add("-Duser.home=${preparedFiles.workDir}")
@@ -161,6 +162,17 @@ fun sanitizeManagedServerId(serverId: String): String = serverId
 private fun defaultProcessPath(): String = System.getenv("PATH")
     ?.takeIf { it.isNotBlank() }
     ?: "/system/bin:/system/xbin"
+
+private fun buildAndroidServerCompatibilityJvmArguments(nativeLibraryDir: String): List<String> = buildList {
+    add("-Dterminal.jline=false")
+    add("-Dorg.jline.terminal.ffm=false")
+    add("-Dorg.jline.terminal.jni=false")
+    add("-Dorg.jline.terminal.jna=false")
+    add("-Dorg.jline.terminal.jansi=false")
+    add("-Doshi.os.linux.allowudev=false")
+    add("-Djna.boot.library.path=$nativeLibraryDir")
+    add("-Djna.noclasspath=true")
+}
 
 internal fun readReleaseProperties(javaHome: Path): Map<String, String> {
     val releaseFile = javaHome.resolve("release")

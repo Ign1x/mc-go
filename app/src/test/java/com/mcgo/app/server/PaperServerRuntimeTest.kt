@@ -9,7 +9,10 @@ import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
 import java.nio.file.Files
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 
 class PaperServerRuntimeTest {
 
@@ -66,6 +69,95 @@ class PaperServerRuntimeTest {
         assertThat(properties).contains("online-mode=false")
         assertThat(properties).contains("pvp=false")
         assertThat(prepared.jarPath.fileName.toString()).isEqualTo("paper-1.21.4.jar")
+    }
+
+    @Test
+    fun preparePaperServerFiles_writesSparkConfigThatDisablesBackgroundNativeProfiler() {
+        val workDir = Files.createTempDirectory("mcgo-paper-runtime-spark")
+        val server = createPaperServer("性能服", "26.1.2", maxPlayers = 20, memoryMb = 2048, port = 25566)
+
+        val prepared = preparePaperServerFiles(server, workDir)
+        val sparkConfigPath = prepared.workDir.resolve("plugins/spark/config.json")
+
+        assertThat(Files.isRegularFile(sparkConfigPath)).isTrue()
+        val sparkConfig = String(Files.readAllBytes(sparkConfigPath))
+        assertThat(sparkConfig).contains("\"backgroundProfiler\": false")
+        assertThat(sparkConfig).contains("\"backgroundProfilerEngine\": \"java\"")
+    }
+
+    @Test
+    fun preparePaperServerFiles_preservesExistingSparkSettingsWhileForcingAndroidSafeProfilerMode() {
+        val workDir = Files.createTempDirectory("mcgo-paper-runtime-spark-merge")
+        val server = createPaperServer("性能服", "26.1.2", maxPlayers = 20, memoryMb = 2048, port = 25566)
+        val serverDir = workDir.resolve(server.id)
+        val sparkConfigPath = serverDir.resolve("plugins/spark/config.json")
+        Files.createDirectories(sparkConfigPath.parent)
+        Files.write(
+            sparkConfigPath,
+            """
+            {
+              "backgroundProfiler": true,
+              "backgroundProfilerEngine": "async",
+              "extraMetric": true
+            }
+            """.trimIndent().toByteArray(),
+        )
+
+        val prepared = preparePaperServerFiles(server, workDir)
+        val sparkConfig = String(Files.readAllBytes(prepared.workDir.resolve("plugins/spark/config.json")))
+
+        assertThat(sparkConfig).contains("\"backgroundProfiler\": false")
+        assertThat(sparkConfig).contains("\"backgroundProfilerEngine\": \"java\"")
+        assertThat(sparkConfig).contains("\"extraMetric\": true")
+    }
+
+    @Test
+    fun preparePaperServerFiles_onlyOverridesTopLevelSparkProfilerKeys_notNestedLookalikes() {
+        val workDir = Files.createTempDirectory("mcgo-paper-runtime-spark-nested")
+        val server = createPaperServer("性能服", "26.1.2", maxPlayers = 20, memoryMb = 2048, port = 25566)
+        val serverDir = workDir.resolve(server.id)
+        val sparkConfigPath = serverDir.resolve("plugins/spark/config.json")
+        Files.createDirectories(sparkConfigPath.parent)
+        Files.write(
+            sparkConfigPath,
+            """
+            {
+              "nested": {
+                "backgroundProfiler": true,
+                "backgroundProfilerEngine": "async"
+              },
+              "backgroundProfiler": true,
+              "backgroundProfilerEngine": "async",
+              "extraMetric": true
+            }
+            """.trimIndent().toByteArray(),
+        )
+
+        val prepared = preparePaperServerFiles(server, workDir)
+        val sparkConfig = String(Files.readAllBytes(prepared.workDir.resolve("plugins/spark/config.json")))
+
+        assertThat(sparkConfig).contains("\"nested\": {")
+        val nestedProfilerTrueIndex = sparkConfig.indexOf("\"backgroundProfiler\": true")
+        val nestedProfilerEngineAsyncIndex = sparkConfig.indexOf("\"backgroundProfilerEngine\": \"async\"")
+        val topLevelProfilerFalseIndex = sparkConfig.lastIndexOf("\"backgroundProfiler\": false")
+        val topLevelProfilerEngineJavaIndex = sparkConfig.lastIndexOf("\"backgroundProfilerEngine\": \"java\"")
+        assertThat(nestedProfilerTrueIndex).isAtLeast(0)
+        assertThat(nestedProfilerEngineAsyncIndex).isAtLeast(0)
+        assertThat(topLevelProfilerFalseIndex).isAtLeast(0)
+        assertThat(topLevelProfilerEngineJavaIndex).isAtLeast(0)
+        assertThat(nestedProfilerTrueIndex).isLessThan(topLevelProfilerFalseIndex)
+        assertThat(nestedProfilerEngineAsyncIndex).isLessThan(topLevelProfilerEngineJavaIndex)
+        assertThat(sparkConfig).contains("\"extraMetric\": true")
+    }
+
+    @Test
+    fun preparePaperServerFiles_doesNotWriteSparkConfigForVanillaServer() {
+        val workDir = Files.createTempDirectory("mcgo-vanilla-runtime-spark")
+        val server = createVanillaServer("原版服", "26.1.2", maxPlayers = 20, memoryMb = 2048, port = 25566)
+
+        val prepared = preparePaperServerFiles(server, workDir)
+
+        assertThat(Files.exists(prepared.workDir.resolve("plugins/spark/config.json"))).isFalse()
     }
 
     @Test
@@ -191,5 +283,69 @@ class PaperServerRuntimeTest {
         assertThat(shouldReusePaperJar(valid)).isFalse()
         Files.write(paperJarSha256File(valid), (sha256Hex(valid) + "\n").toByteArray())
         assertThat(shouldReusePaperJar(valid)).isTrue()
+    }
+
+    @Test
+    fun shouldReusePaperJar_rejectsRecordedJarWhenBundledAndroidJnaIsTooOldForServer() {
+        val jarPath = createServerJarWithLibrariesList(
+            """
+            deadbeef\tnet.java.dev.jna:jna:5.19.0\tnet/java/dev/jna/jna/5.19.0/jna-5.19.0.jar
+            """.trimIndent(),
+        )
+        Files.write(paperJarSha256File(jarPath), (sha256Hex(jarPath) + "\n").toByteArray())
+
+        assertThat(shouldReusePaperJar(jarPath)).isFalse()
+    }
+
+    @Test
+    fun detectServerJnaVersion_readsVersionFromPaperLibrariesList() {
+        val jarPath = createServerJarWithLibrariesList(
+            """
+            deadbeef\tnet.java.dev.jna:jna:5.18.1\tnet/java/dev/jna/jna/5.18.1/jna-5.18.1.jar
+            cafebabe\tcom.github.oshi:oshi-core:6.9.0\tcom/github/oshi/oshi-core/6.9.0/oshi-core-6.9.0.jar
+            """.trimIndent(),
+        )
+
+        assertThat(detectServerJnaVersion(jarPath)).isEqualTo("5.18.1")
+    }
+
+    @Test
+    fun validateBundledAndroidJnaCompatibility_allowsSameOrOlderServerJnaMinor() {
+        val jarPath = createServerJarWithLibrariesList(
+            """
+            deadbeef\tnet.java.dev.jna:jna:5.17.0\tnet/java/dev/jna/jna/5.17.0/jna-5.17.0.jar
+            """.trimIndent(),
+        )
+        val server = createPaperServer("兼容服", "26.1.2", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        validateBundledAndroidJnaCompatibility(server, jarPath)
+    }
+
+    @Test
+    fun validateBundledAndroidJnaCompatibility_rejectsNewerServerJnaMinorWithActionableMessage() {
+        val jarPath = createServerJarWithLibrariesList(
+            """
+            deadbeef\tnet.java.dev.jna:jna:5.19.0\tnet/java/dev/jna/jna/5.19.0/jna-5.19.0.jar
+            """.trimIndent(),
+        )
+        val server = createPaperServer("兼容服", "26.1.2", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            validateBundledAndroidJnaCompatibility(server, jarPath)
+        }
+
+        assertThat(error).hasMessageThat().contains("JNA 5.19.0")
+        assertThat(error).hasMessageThat().contains("5.18.1")
+        assertThat(error).hasMessageThat().contains("更新 MC-GO")
+    }
+
+    private fun createServerJarWithLibrariesList(librariesList: String): java.nio.file.Path {
+        val jarPath = Files.createTempFile("mcgo-paper-libraries", ".jar")
+        ZipOutputStream(Files.newOutputStream(jarPath)).use { zip ->
+            zip.putNextEntry(ZipEntry("META-INF/libraries.list"))
+            zip.write(librariesList.replace("\\t", "\t").toByteArray())
+            zip.closeEntry()
+        }
+        return jarPath
     }
 }

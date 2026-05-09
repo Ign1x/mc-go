@@ -36,6 +36,41 @@ class PaperJvmLaunchConfigTest {
     }
 
     @Test
+    fun buildManagedPaperLaunchConfig_injectsAndroidCompatibilityFlagsBeforeJarLaunch() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-android-compat")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-android-compat")
+        createRuntime(filesDir, majorVersion = 25, javaVersion = "25.0.3")
+        val server = createPaperServer("兼容服", "26.1.2", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        val jarIndex = config.arguments.indexOf("-jar")
+        assertThat(jarIndex).isGreaterThan(0)
+        assertThat(config.arguments).contains("-Dterminal.jline=false")
+        assertThat(config.arguments).contains("-Dorg.jline.terminal.ffm=false")
+        assertThat(config.arguments).contains("-Dorg.jline.terminal.jni=false")
+        assertThat(config.arguments).contains("-Dorg.jline.terminal.jna=false")
+        assertThat(config.arguments).contains("-Dorg.jline.terminal.jansi=false")
+        assertThat(config.arguments).contains("-Doshi.os.linux.allowudev=false")
+        assertThat(config.arguments).contains("-Djna.boot.library.path=/data/app/com.mcgo.app/lib/arm64")
+        assertThat(config.arguments).contains("-Djna.noclasspath=true")
+        assertThat(config.arguments.indexOf("-Dterminal.jline=false")).isLessThan(jarIndex)
+        assertThat(config.arguments.indexOf("-Dorg.jline.terminal.ffm=false")).isLessThan(jarIndex)
+        assertThat(config.arguments.indexOf("-Dorg.jline.terminal.jni=false")).isLessThan(jarIndex)
+        assertThat(config.arguments.indexOf("-Dorg.jline.terminal.jna=false")).isLessThan(jarIndex)
+        assertThat(config.arguments.indexOf("-Dorg.jline.terminal.jansi=false")).isLessThan(jarIndex)
+        assertThat(config.arguments.indexOf("-Doshi.os.linux.allowudev=false")).isLessThan(jarIndex)
+        assertThat(config.arguments.indexOf("-Djna.boot.library.path=/data/app/com.mcgo.app/lib/arm64")).isLessThan(jarIndex)
+        assertThat(config.arguments.indexOf("-Djna.noclasspath=true")).isLessThan(jarIndex)
+    }
+
+    @Test
     fun buildManagedPaperLaunchConfig_prefersJvmLibDirAtFrontOfLdLibraryPathToAvoidAndroidReexecFailures() {
         val filesDir = Files.createTempDirectory("mcgo-launch-files-jvm-first")
         val cacheDir = Files.createTempDirectory("mcgo-launch-cache-jvm-first")

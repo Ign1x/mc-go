@@ -201,6 +201,7 @@ open class PaperServerService : Service() {
                     } else {
                         publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 ${serverFlavorLabel} 包：${config.jarPath.fileName}")
                     }
+                    validateBundledAndroidJnaCompatibility(server, config.jarPath)
                     ensureLaunchNotCancelled()
                     val tunnelPlans = tunnelRuntimePlansForStart(
                         filesDir = filesDir.toPath(),
