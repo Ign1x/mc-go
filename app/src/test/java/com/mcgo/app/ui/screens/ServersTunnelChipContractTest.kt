@@ -19,6 +19,15 @@ class ServersTunnelChipContractTest {
         assertThat(tunnelChipSection).doesNotContain("serverAddress")
     }
 
+    @Test
+    fun serverStatusBadge_reservesSpaceFromTunnelChipsAndBreathingRoomFromRightEdge() {
+        val serverHeaderSection = source.substringAfter("        Row(\n            modifier = Modifier.fillMaxWidth(),")
+            .substringBefore("        Spacer(modifier = Modifier.height(14.dp))")
+
+        assertThat(serverHeaderSection).contains("modifier = Modifier.weight(1f)")
+        assertThat(serverHeaderSection).contains("modifier = Modifier.padding(start = 12.dp, end = 4.dp)")
+    }
+
     private fun projectRoot(): Path =
         generateSequence(Path.of(".").toAbsolutePath().normalize()) { it.parent }
             .firstOrNull { Files.exists(it.resolve("app/build.gradle.kts")) }

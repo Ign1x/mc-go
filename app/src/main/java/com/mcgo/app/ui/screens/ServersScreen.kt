@@ -207,6 +207,7 @@ private fun ServerCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
+                modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -279,6 +280,7 @@ private fun ServerCard(
             StatusDotBadge(
                 text = server.launchStatus.label,
                 color = animatedStatusColor.value,
+                modifier = Modifier.padding(start = 12.dp, end = 4.dp),
             )
         }
         Spacer(modifier = Modifier.height(14.dp))
@@ -905,8 +907,13 @@ private fun TunnelStartupChoice(
 }
 
 @Composable
-private fun StatusDotBadge(text: String, color: Color) {
+private fun StatusDotBadge(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
     Surface(
+        modifier = modifier,
         shape = RoundedCornerShape(999.dp),
         color = color.copy(alpha = 0.12f),
         contentColor = color,
