@@ -77,6 +77,13 @@ data class DashboardMetric(
     },
 )
 
+data class ServerTunnelBinding(
+    val tunnelId: String,
+    val remotePort: Int? = null,
+    val activeLabel: String? = null,
+    val runtimeAddress: String? = null,
+)
+
 data class ServerCardState(
     val name: String,
     val id: String = createServerId(name),
@@ -98,6 +105,7 @@ data class ServerCardState(
     val selectedTunnelId: String? = null,
     val activeTunnelLabel: String? = null,
     val runtimeAddress: String? = null,
+    val tunnelBindings: List<ServerTunnelBinding> = emptyList(),
     val serverType: MinecraftServerType = MinecraftServerType.Paper,
     val minecraftVersion: String = edition.substringAfter(' ', "1.21.4"),
     val javaMajorVersion: Int = recommendedJavaMajorVersion(edition.substringAfter(' ', "1.21.4")),
@@ -328,6 +336,52 @@ fun ServerCardState.withLaunchProgress(
     runtimeLogs = (runtimeLogs + listOfNotNull(logLine)).takeLast(12),
 )
 
+fun ServerCardState.markAwaitingManagedRuntimeInstall(majorVersion: Int): ServerCardState =
+    withLaunchProgress(
+        progress = 2,
+        logLine = "未检测到 Java $majorVersion，正在自动安装托管 JRE",
+    )
+
+fun ServerCardState.effectiveTunnelBindings(): List<ServerTunnelBinding> = when {
+    tunnelBindings.isNotEmpty() -> tunnelBindings
+    selectedTunnelId != null || tunnelRemotePort != null || activeTunnelLabel != null || runtimeAddress != null -> listOf(
+        ServerTunnelBinding(
+            tunnelId = selectedTunnelId ?: "primary",
+            remotePort = tunnelRemotePort,
+            activeLabel = activeTunnelLabel,
+            runtimeAddress = runtimeAddress,
+        ),
+    )
+    else -> emptyList()
+}
+
+fun ServerCardState.withTunnelBindings(bindings: List<ServerTunnelBinding>): ServerCardState {
+    val primary = bindings.firstOrNull()
+    return copy(
+        tunnelBindings = bindings,
+        selectedTunnelId = primary?.tunnelId,
+        tunnelRemotePort = primary?.remotePort,
+        activeTunnelLabel = primary?.activeLabel,
+        runtimeAddress = primary?.runtimeAddress,
+    )
+}
+
+fun ServerCardState.clearTunnelRuntimeBindings(): ServerCardState = withTunnelBindings(
+    effectiveTunnelBindings().map { it.copy(activeLabel = null, runtimeAddress = null) },
+)
+
+fun ServerCardState.usesTunnel(tunnelId: String): Boolean =
+    effectiveTunnelBindings().any { it.tunnelId == tunnelId }
+
+fun ServerCardState.remotePortForTunnel(tunnelId: String): Int? =
+    effectiveTunnelBindings().firstOrNull { it.tunnelId == tunnelId }?.remotePort
+
+fun ServerCardState.connectionAddresses(): List<String> =
+    effectiveTunnelBindings().mapNotNull { it.runtimeAddress }.ifEmpty { listOf(runtimeAddress ?: "127.0.0.1:$port") }
+
+fun ServerCardState.activeTunnelLabels(): List<String> =
+    effectiveTunnelBindings().mapNotNull { it.activeLabel }.ifEmpty { listOfNotNull(activeTunnelLabel) }
+
 fun ServerCardState.markLaunchRunning(logLine: String = "服务端进程已进入运行状态"): ServerCardState = copy(
     isOnline = true,
     launchStatus = ServerLaunchStatus.Running,
@@ -335,7 +389,7 @@ fun ServerCardState.markLaunchRunning(logLine: String = "服务端进程已进�
     runtimeLogs = (runtimeLogs + logLine).takeLast(12),
 )
 
-fun ServerCardState.markLaunchFailed(error: String): ServerCardState = copy(
+fun ServerCardState.markLaunchFailed(error: String): ServerCardState = clearTunnelRuntimeBindings().copy(
     isOnline = false,
     port = defaultPort,
     activeTunnelLabel = null,
@@ -424,6 +478,7 @@ fun applyPaperServerEdits(
         selectedTunnelId = server.selectedTunnelId,
         activeTunnelLabel = server.activeTunnelLabel,
         runtimeAddress = server.runtimeAddress,
+        tunnelBindings = server.tunnelBindings,
         launchStatus = server.launchStatus,
         launchPlan = server.launchPlan,
         launchProgress = server.launchProgress,
@@ -692,7 +747,7 @@ fun unsupportedManagedRuntimeReason(
 
 fun ServerCardState.markUnsupportedManagedRuntime(supportedProvisionableVersions: Set<Int> = setOf(8, 11, 17, 21, 25)): ServerCardState = unsupportedManagedRuntimeReason(javaMajorVersion, supportedProvisionableVersions)
     ?.let { reason ->
-        copy(
+        clearTunnelRuntimeBindings().copy(
             isOnline = false,
             port = defaultPort,
             activeTunnelLabel = null,
@@ -711,12 +766,18 @@ private fun parseMemoryMb(memoryLabel: String): Int {
 }
 
 private fun createServerId(name: String): String {
-    val slug = name.lowercase()
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
+    val slug = readableSlug(name)
         .ifBlank { "paper-server" }
     return "server-$slug-${System.currentTimeMillis()}"
 }
+
+internal fun readableSlug(raw: String): String = raw
+    .trim()
+    .lowercase()
+    .replace(Regex("[\\s_]+"), "-")
+    .replace(Regex("[^\\p{L}\\p{N}.-]+"), "-")
+    .replace(Regex("-+"), "-")
+    .trim('-', '.')
 
 private fun managedEditorPropertyMap(server: ServerCardState): LinkedHashMap<String, String> = linkedMapOf(
     "motd" to server.name,

@@ -6,9 +6,11 @@ import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
+import com.mcgo.app.ui.model.ServerTunnelBinding
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
+import com.mcgo.app.ui.model.effectiveTunnelBindings
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import java.nio.file.Files
 import java.nio.file.Path
@@ -49,6 +51,30 @@ class ServerProfileStore(
             val selectedTunnelId = properties.getProperty(prefix + "selectedTunnelId")
             val activeTunnelLabel = properties.getProperty(prefix + "activeTunnelLabel")
             val runtimeAddress = properties.getProperty(prefix + "runtimeAddress")
+            val tunnelBindingCount = properties.getProperty(prefix + "tunnelBindingCount")?.toIntOrNull() ?: 0
+            val tunnelBindings = if (tunnelBindingCount > 0) {
+                (0 until tunnelBindingCount).mapNotNull { bindingIndex ->
+                    val bindingPrefix = prefix + "tunnelBinding.$bindingIndex."
+                    val tunnelId = properties.getProperty(bindingPrefix + "tunnelId") ?: return@mapNotNull null
+                    ServerTunnelBinding(
+                        tunnelId = tunnelId,
+                        remotePort = properties.getProperty(bindingPrefix + "remotePort")?.toIntOrNull(),
+                        activeLabel = properties.getProperty(bindingPrefix + "activeLabel"),
+                        runtimeAddress = properties.getProperty(bindingPrefix + "runtimeAddress"),
+                    )
+                }
+            } else {
+                listOfNotNull(
+                    selectedTunnelId?.let { tunnelId ->
+                        ServerTunnelBinding(
+                            tunnelId = tunnelId,
+                            remotePort = tunnelRemotePort,
+                            activeLabel = activeTunnelLabel,
+                            runtimeAddress = runtimeAddress,
+                        )
+                    },
+                )
+            }
             val gameMode = enumValueOrNull<PaperGameMode>(properties.getProperty(prefix + "gameMode")) ?: PaperGameMode.Survival
             val difficulty = enumValueOrNull<PaperDifficulty>(properties.getProperty(prefix + "difficulty")) ?: PaperDifficulty.Normal
             val onlineMode = properties.getProperty(prefix + "onlineMode")?.toBooleanStrictOrNull() ?: true
@@ -92,6 +118,7 @@ class ServerProfileStore(
                     selectedTunnelId = selectedTunnelId,
                     activeTunnelLabel = activeTunnelLabel,
                     runtimeAddress = runtimeAddress,
+                    tunnelBindings = tunnelBindings,
                     launchStatus = launchStatus,
                     launchPlan = null,
                     launchProgress = launchProgress,
@@ -127,6 +154,7 @@ class ServerProfileStore(
                     selectedTunnelId = selectedTunnelId,
                     activeTunnelLabel = activeTunnelLabel,
                     runtimeAddress = runtimeAddress,
+                    tunnelBindings = tunnelBindings,
                     launchStatus = launchStatus,
                     launchPlan = null,
                     launchProgress = launchProgress,
@@ -162,6 +190,7 @@ class ServerProfileStore(
                     selectedTunnelId = selectedTunnelId,
                     activeTunnelLabel = activeTunnelLabel,
                     runtimeAddress = runtimeAddress,
+                    tunnelBindings = tunnelBindings,
                     launchStatus = launchStatus,
                     launchPlan = null,
                     launchProgress = launchProgress,
@@ -177,7 +206,7 @@ class ServerProfileStore(
     fun save(servers: List<ServerCardState>) = synchronized(ServerProfileStoreGlobalLock) {
         storePath.parent?.let { parent -> Files.createDirectories(parent) }
         val properties = Properties()
-        properties.setProperty("version", "2")
+        properties.setProperty("version", "3")
         properties.setProperty("count", servers.size.toString())
         servers.forEachIndexed { index, server ->
             val prefix = "server.$index."
@@ -192,6 +221,16 @@ class ServerProfileStore(
             properties.setProperty(prefix + "defaultPort", server.defaultPort.toString())
             properties.setProperty(prefix + "port", server.port.toString())
             server.tunnelRemotePort?.let { properties.setProperty(prefix + "tunnelRemotePort", it.toString()) }
+            server.effectiveTunnelBindings().takeIf { it.isNotEmpty() }?.let { bindings ->
+                properties.setProperty(prefix + "tunnelBindingCount", bindings.size.toString())
+                bindings.forEachIndexed { bindingIndex, binding ->
+                    val bindingPrefix = prefix + "tunnelBinding.$bindingIndex."
+                    properties.setProperty(bindingPrefix + "tunnelId", binding.tunnelId)
+                    binding.remotePort?.let { properties.setProperty(bindingPrefix + "remotePort", it.toString()) }
+                    binding.activeLabel?.let { properties.setProperty(bindingPrefix + "activeLabel", it) }
+                    binding.runtimeAddress?.let { properties.setProperty(bindingPrefix + "runtimeAddress", it) }
+                }
+            }
             properties.setProperty(prefix + "worldName", server.worldName)
             properties.setProperty(prefix + "gameMode", server.gameMode.name)
             properties.setProperty(prefix + "difficulty", server.difficulty.name)

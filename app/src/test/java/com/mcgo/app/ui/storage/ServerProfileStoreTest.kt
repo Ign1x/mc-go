@@ -2,7 +2,10 @@ package com.mcgo.app.ui.storage
 
 import com.google.common.truth.Truth.assertThat
 import com.mcgo.app.ui.model.JavaSelectionMode
+import com.mcgo.app.ui.model.ServerTunnelBinding
 import com.mcgo.app.ui.model.createPaperServer
+import com.mcgo.app.ui.model.effectiveTunnelBindings
+import com.mcgo.app.ui.model.withTunnelBindings
 import java.nio.file.Files
 import kotlin.test.Test
 
@@ -27,6 +30,44 @@ class ServerProfileStoreTest {
 
         assertThat(loaded.javaMajorVersion).isEqualTo(17)
         assertThat(loaded.javaSelectionMode).isEqualTo(JavaSelectionMode.Manual)
+    }
+
+    @Test
+    fun saveAndLoad_preservesMultipleTunnelBindingsAndLegacyPrimaryMirror() {
+        val storeFile = Files.createTempFile("mcgo-server-store-multi-tunnel", ".properties")
+        val store = ServerProfileStore(storeFile)
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).withTunnelBindings(
+            listOf(
+                ServerTunnelBinding(
+                    tunnelId = "frp-home",
+                    remotePort = 39001,
+                    activeLabel = "家庭 FRP · frp.home:39001",
+                    runtimeAddress = "frp.home:39001",
+                ),
+                ServerTunnelBinding(
+                    tunnelId = "frp-aliyun",
+                    remotePort = 39002,
+                    activeLabel = "阿里云 FRP · frp.aliyun:39002",
+                    runtimeAddress = "frp.aliyun:39002",
+                ),
+            ),
+        ).copy(runtimeSlot = 2)
+
+        store.save(listOf(server))
+        val loaded = store.load().single()
+
+        val loadedBindings = loaded.effectiveTunnelBindings()
+        assertThat(loadedBindings).hasSize(2)
+        assertThat(loadedBindings.map { it.tunnelId }).containsExactly("frp-home", "frp-aliyun").inOrder()
+        assertThat(loaded.selectedTunnelId).isEqualTo("frp-home")
+        assertThat(loaded.tunnelRemotePort).isEqualTo(39001)
+        assertThat(loaded.activeTunnelLabel).isEqualTo("家庭 FRP · frp.home:39001")
+        assertThat(loaded.runtimeAddress).isEqualTo("frp.home:39001")
     }
 
     @Test

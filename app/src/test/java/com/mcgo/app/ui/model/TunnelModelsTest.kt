@@ -39,6 +39,20 @@ class TunnelModelsTest {
     }
 
     @Test
+    fun manualServerTunnel_keepsReadableUnicodeInGeneratedId() {
+        val profile = TunnelProfile.manualServer(
+            name = "家庭穿透 1号",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38100",
+        )
+
+        assertThat(profile.id).startsWith("manualserver-")
+        assertThat(profile.id).contains("家庭穿透-1号")
+    }
+
+    @Test
     fun manualServerTunnel_usesEndpointWithPortAndStartsWithPlaceholderLatency() {
         val profile = TunnelProfile.manualServer(
             name = "家庭 FRP",

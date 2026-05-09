@@ -36,8 +36,7 @@ import com.mcgo.app.R
 import com.mcgo.app.status.buildMetricChartAxis
 import com.mcgo.app.status.clampMetricChartAxisYBounds
 import com.mcgo.app.status.formatElapsedAxisLabel
-import com.mcgo.app.status.DevicePerformanceMonitor
-import com.mcgo.app.status.rememberStatusDashboardState
+import com.mcgo.app.status.StatusDashboardState
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.DashboardMetric
 import com.mcgo.app.ui.model.MetricAccent
@@ -48,16 +47,10 @@ import java.util.Locale
 
 @Composable
 fun StatusScreen(
+    dashboardState: StatusDashboardState,
     modifier: Modifier = Modifier,
-    appEntryElapsedRealtimeMillis: Long,
-    statusMonitor: DevicePerformanceMonitor,
     bottomContentPadding: Dp = 0.dp,
 ) {
-    val dashboardState = rememberStatusDashboardState(
-        appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
-        statusMonitor = statusMonitor,
-    )
-
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),

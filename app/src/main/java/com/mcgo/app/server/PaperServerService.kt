@@ -17,6 +17,7 @@ import com.mcgo.app.ui.model.PaperDifficulty
 import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
+import com.mcgo.app.ui.model.ServerTunnelBinding
 import com.mcgo.app.ui.model.TunnelConfigFormat
 import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
@@ -25,6 +26,7 @@ import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
 import com.mcgo.app.ui.storage.ServerProfileStore
+import com.mcgo.app.ui.storage.TunnelProfileStore
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -57,12 +59,15 @@ open class PaperServerService : Service() {
     private var logTailJob: Job? = null
     private var portMonitorJob: Job? = null
     private var workspaceSyncJob: Job? = null
-    private var frpcProcess: Process? = null
-    private var frpcWatchJob: Job? = null
+    private val frpcProcesses = mutableMapOf<String, Process>()
+    private val frpcWatchJobs = mutableMapOf<String, Job>()
+    private val tunnelRuntimeStateLock = Any()
     @Volatile
     private var currentActiveTunnelLabel: String? = null
     @Volatile
     private var currentRuntimeAddress: String? = null
+    @Volatile
+    private var currentTunnelBindings: List<ServerTunnelBinding> = emptyList()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -86,15 +91,17 @@ open class PaperServerService : Service() {
         logTailJob?.cancel()
         portMonitorJob?.cancel()
         workspaceSyncJob?.cancel()
-        frpcWatchJob?.cancel()
-        stopFrpcProcess()
+        stopFrpcProcesses()
         serviceScope.cancel()
         super.onDestroy()
     }
 
     private fun startPaperServer(intent: Intent) {
         val server = intent.toServerCardState()
-        val tunnel = intent.toTunnelProfile()
+        val tunnels = hydrateLaunchTunnelProfiles(
+            storedProfiles = TunnelProfileStore(filesDir.toPath().resolve("tunnel_profiles.properties")).load(),
+            launchProfiles = intent.toTunnelProfiles(),
+        )
         if (currentServerId == server.id) {
             publish(
                 server.id,
@@ -195,31 +202,43 @@ open class PaperServerService : Service() {
                         publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 ${serverFlavorLabel} 包：${config.jarPath.fileName}")
                     }
                     ensureLaunchNotCancelled()
-                    val tunnelPlan = tunnelRuntimePlanForStart(
+                    val tunnelPlans = tunnelRuntimePlansForStart(
                         filesDir = filesDir.toPath(),
                         nativeLibraryDir = java.io.File(applicationInfo.nativeLibraryDir).toPath(),
                         server = server,
-                        tunnel = tunnel,
+                        tunnels = tunnels,
                         supportedAbi = android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
                     )
-                    tunnelPlan?.let { plan ->
+                    if (tunnelPlans.isNotEmpty()) {
+                        currentTunnelBindings = tunnelPlans.map { plan ->
+                            ServerTunnelBinding(
+                                tunnelId = plan.tunnelId,
+                                remotePort = plan.remotePort,
+                                activeLabel = plan.displayLabel,
+                                runtimeAddress = plan.runtimeAddress,
+                            )
+                        }
                         publish(
                             server.id,
                             PaperServerEventStatus.Launching,
                             68,
-                            "正在启动 ${tunnel?.name ?: "FRP"} 隧道",
+                            "正在启动 ${tunnelPlans.joinToString("、") { it.displayLabel }} 隧道",
                         )
-                        startFrpcForPlan(server, plan)
+                        startFrpcForPlans(server, tunnelPlans)
+                        val primaryPlan = tunnelPlans.first()
                         publishEvent(
                             PaperServerEvent(
                                 serverId = server.id,
                                 status = PaperServerEventStatus.Launching,
                                 progress = 72,
                                 message = "FRP 隧道已启动，等待服务器绑定端口",
-                                activeTunnelLabel = plan.displayLabel,
-                                runtimeAddress = plan.runtimeAddress,
+                                activeTunnelLabel = primaryPlan.displayLabel,
+                                runtimeAddress = primaryPlan.runtimeAddress,
+                                tunnelBindings = currentTunnelBindings,
                             ),
                         )
+                    } else {
+                        currentTunnelBindings = emptyList()
                     }
                     runtimeLaunchSubmitted = true
                     if (stopRequested) {
@@ -232,7 +251,7 @@ open class PaperServerService : Service() {
                     publishEvent(runtimeExitEvent(server.id, exitCode, stopRequested && stopSignalDelivered, config.logFile))
                 }
                 stopRuntimeMonitors()
-                stopFrpcProcess()
+                stopFrpcProcesses()
                 result.exceptionOrNull()?.let { error ->
                     when {
                         error is CancellationException && stopRequested -> publishEvent(launchCancelledEvent(server.id))
@@ -266,6 +285,7 @@ open class PaperServerService : Service() {
             stopSignalDelivered = false
             currentActiveTunnelLabel = null
             currentRuntimeAddress = null
+            currentTunnelBindings = emptyList()
             PaperJvmLauncher.clearPendingStopRequest()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -396,6 +416,7 @@ open class PaperServerService : Service() {
                             },
                             activeTunnelLabel = currentActiveTunnelLabel,
                             runtimeAddress = currentRuntimeAddress,
+                            tunnelBindings = currentTunnelBindings,
                         ),
                     )
                     val notificationManager = getSystemService(NotificationManager::class.java)
@@ -486,55 +507,71 @@ open class PaperServerService : Service() {
         else -> 1
     }
 
-    private fun startFrpcForPlan(server: ServerCardState, plan: TunnelRuntimePlan) {
-        Files.createDirectories(plan.configPath.parent)
-        val executablePath = resolveExecutableFrpcPath(plan)
-        Files.write(plan.configPath, plan.configText.toByteArray())
-        val frpcLogFile = managedPaperServerFrpcLogFile(filesDir.toPath(), server.id)
-        val frpcLogStartOffset = frpcLogFile
-            .takeIf { Files.isRegularFile(it) }
-            ?.let(Files::size)
-            ?: 0L
-        val process = ProcessBuilder(executablePath.toString(), "-c", plan.configPath.toString())
-            .directory(plan.configPath.parent.toFile())
-            .redirectErrorStream(true)
-            .redirectOutput(ProcessBuilder.Redirect.appendTo(frpcLogFile.toFile()))
-            .start()
-        currentActiveTunnelLabel = plan.displayLabel
-        currentRuntimeAddress = plan.runtimeAddress
-        frpcProcess = process
-        frpcWatchJob?.cancel()
-        frpcWatchJob = serviceScope.launch {
-            val exitCode = process.waitFor()
-            val frpcLines = readAppendedNonBlankLines(
-                frpcLogFile,
-                frpcLogStartOffset,
-            )
-            val lastFrpcLine = selectFrpcExitLogLine(frpcLines)
-            if (!stopRequested) {
-                currentActiveTunnelLabel = null
-                currentRuntimeAddress = "127.0.0.1:${server.port}"
-                publishEvent(
-                    PaperServerEvent(
-                        serverId = server.id,
-                        message = frpcExitMessage(exitCode, lastFrpcLine),
-                        activeTunnelLabel = null,
-                        runtimeAddress = currentRuntimeAddress,
-                    ),
+    private fun startFrpcForPlans(server: ServerCardState, plans: List<TunnelRuntimePlan>) {
+        currentActiveTunnelLabel = plans.firstOrNull()?.displayLabel
+        currentRuntimeAddress = plans.firstOrNull()?.runtimeAddress
+        plans.forEach { plan ->
+            Files.createDirectories(plan.configPath.parent)
+            val executablePath = resolveExecutableFrpcPath(plan)
+            Files.write(plan.configPath, plan.configText.toByteArray())
+            val frpcLogFile = managedPaperServerFrpcLogFile(filesDir.toPath(), server.id, plan.tunnelId)
+            val frpcLogStartOffset = frpcLogFile
+                .takeIf { Files.isRegularFile(it) }
+                ?.let(Files::size)
+                ?: 0L
+            val process = ProcessBuilder(executablePath.toString(), "-c", plan.configPath.toString())
+                .directory(plan.configPath.parent.toFile())
+                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(frpcLogFile.toFile()))
+                .start()
+            frpcProcesses[plan.tunnelId] = process
+            frpcWatchJobs.remove(plan.tunnelId)?.cancel()
+            frpcWatchJobs[plan.tunnelId] = serviceScope.launch {
+                val exitCode = process.waitFor()
+                if (!isActive) return@launch
+                val frpcLines = readAppendedNonBlankLines(
+                    frpcLogFile,
+                    frpcLogStartOffset,
                 )
+                val lastFrpcLine = selectFrpcExitLogLine(frpcLines)
+                if (!stopRequested) {
+                    synchronized(tunnelRuntimeStateLock) {
+                        currentTunnelBindings = currentTunnelBindings.map { binding ->
+                            if (binding.tunnelId == plan.tunnelId) {
+                                binding.copy(activeLabel = null, runtimeAddress = "127.0.0.1:${server.port}")
+                            } else {
+                                binding
+                            }
+                        }
+                        val primaryBinding = currentTunnelBindings.firstOrNull()
+                        currentActiveTunnelLabel = primaryBinding?.activeLabel
+                        currentRuntimeAddress = primaryBinding?.runtimeAddress ?: "127.0.0.1:${server.port}"
+                    }
+                    publishEvent(
+                        PaperServerEvent(
+                            serverId = server.id,
+                            message = frpcExitMessage(exitCode, lastFrpcLine),
+                            activeTunnelLabel = currentActiveTunnelLabel,
+                            runtimeAddress = currentRuntimeAddress,
+                            tunnelBindings = currentTunnelBindings,
+                        ),
+                    )
+                }
             }
         }
     }
 
-    private fun stopFrpcProcess() {
-        frpcWatchJob?.cancel()
-        frpcWatchJob = null
-        frpcProcess?.destroy()
-        frpcProcess?.waitFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)
-        if (frpcProcess?.isAlive == true) {
-            frpcProcess?.destroyForcibly()
+    private fun stopFrpcProcesses() {
+        frpcWatchJobs.values.forEach { it.cancel() }
+        frpcWatchJobs.clear()
+        frpcProcesses.values.forEach { process ->
+            process.destroy()
+            process.waitFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+            if (process.isAlive) {
+                process.destroyForcibly()
+            }
         }
-        frpcProcess = null
+        frpcProcesses.clear()
     }
 
     private fun resolveExecutableFrpcPath(plan: TunnelRuntimePlan): Path {
@@ -567,7 +604,7 @@ open class PaperServerService : Service() {
         private const val RuntimePrefsName = "mcgo_runtime_permissions"
         private const val ServerDirectoryUriKey = "server_directory_uri"
 
-        fun start(context: Context, server: ServerCardState, tunnel: TunnelProfile? = null) {
+        fun start(context: Context, server: ServerCardState, tunnels: List<TunnelProfile> = emptyList()) {
             val slot = server.runtimeSlot ?: 1
             val intent = Intent(context, paperRuntimeServiceClass(slot)).apply {
                 action = ActionStart
@@ -590,18 +627,18 @@ open class PaperServerService : Service() {
                 putExtra("selectedTunnelId", server.selectedTunnelId)
                 putExtra("activeTunnelLabel", server.activeTunnelLabel)
                 putExtra("runtimeAddress", server.runtimeAddress)
-                tunnel?.let {
-                    putExtra("tunnel.id", it.id)
-                    putExtra("tunnel.name", it.name)
-                    putExtra("tunnel.kind", it.kind.name)
-                    putExtra("tunnel.source", it.source.name)
-                    putExtra("tunnel.format", it.format?.name)
-                    putExtra("tunnel.serverAddress", it.serverAddress)
-                    putExtra("tunnel.remotePort", it.remotePort ?: -1)
-                    putExtra("tunnel.localPort", it.localPort ?: -1)
-                    putExtra("tunnel.credentialValue", it.credentialValue)
-                    putExtra("tunnel.portRange", it.portRange)
-                    putExtra("tunnel.detail", it.detail)
+                putExtra("tunnelCount", tunnels.size)
+                tunnels.forEachIndexed { index, tunnel ->
+                    putExtra("tunnels.$index.id", tunnel.id)
+                    putExtra("tunnels.$index.name", tunnel.name)
+                    putExtra("tunnels.$index.kind", tunnel.kind.name)
+                    putExtra("tunnels.$index.source", tunnel.source.name)
+                    putExtra("tunnels.$index.format", tunnel.format?.name)
+                    putExtra("tunnels.$index.serverAddress", tunnel.serverAddress)
+                    putExtra("tunnels.$index.remotePort", tunnel.remotePort ?: -1)
+                    putExtra("tunnels.$index.localPort", tunnel.localPort ?: -1)
+                    putExtra("tunnels.$index.portRange", tunnel.portRange)
+                    putExtra("tunnels.$index.detail", tunnel.detail)
                 }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -771,6 +808,11 @@ fun frpcExitMessage(exitCode: Int, lastLogLine: String?): String {
 
 internal fun decodeServerCardStateExtrasForTest(extras: Map<String, Any?>): ServerCardState = decodeServerCardStateExtras(extras)
 internal fun decodeTunnelProfileExtrasForTest(extras: Map<String, Any?>): TunnelProfile? = decodeTunnelProfileExtras(extras)
+internal fun decodeTunnelProfilesExtrasForTest(extras: Map<String, Any?>): List<TunnelProfile> = decodeTunnelProfilesExtras(extras)
+internal fun hydrateLaunchTunnelProfilesForTest(
+    storedProfiles: List<TunnelProfile>,
+    launchProfiles: List<TunnelProfile>,
+): List<TunnelProfile> = hydrateLaunchTunnelProfiles(storedProfiles, launchProfiles)
 
 private fun Intent.toServerCardState(): ServerCardState = decodeServerCardStateExtras(
     mapOf(
@@ -852,6 +894,67 @@ private fun decodeServerCardStateExtras(extras: Map<String, Any?>): ServerCardSt
             activeTunnelLabel = extras["activeTunnelLabel"] as? String,
             runtimeAddress = extras["runtimeAddress"] as? String,
             runtimeSlot = (extras["runtimeSlot"] as? Int)?.takeIf { it > 0 },
+        )
+    }
+}
+
+private fun Intent.toTunnelProfiles(): List<TunnelProfile> = decodeTunnelProfilesExtras(
+    buildMap {
+        put("tunnelCount", getIntExtra("tunnelCount", 0))
+        val tunnelCount = getIntExtra("tunnelCount", 0)
+        repeat(tunnelCount) { index ->
+            put("tunnels.$index.id", getStringExtra("tunnels.$index.id"))
+            put("tunnels.$index.name", getStringExtra("tunnels.$index.name"))
+            put("tunnels.$index.kind", getStringExtra("tunnels.$index.kind"))
+            put("tunnels.$index.source", getStringExtra("tunnels.$index.source"))
+            put("tunnels.$index.format", getStringExtra("tunnels.$index.format"))
+            put("tunnels.$index.serverAddress", getStringExtra("tunnels.$index.serverAddress"))
+            put("tunnels.$index.remotePort", getIntExtra("tunnels.$index.remotePort", -1))
+            put("tunnels.$index.localPort", getIntExtra("tunnels.$index.localPort", -1))
+            put("tunnels.$index.portRange", getStringExtra("tunnels.$index.portRange"))
+            put("tunnels.$index.detail", getStringExtra("tunnels.$index.detail"))
+        }
+    },
+)
+
+private fun decodeTunnelProfilesExtras(extras: Map<String, Any?>): List<TunnelProfile> {
+    val tunnelCount = extras["tunnelCount"] as? Int ?: 0
+    return (0 until tunnelCount).mapNotNull { index ->
+        decodeTunnelProfileExtras(
+            mapOf(
+                "tunnel.id" to extras["tunnels.$index.id"],
+                "tunnel.name" to extras["tunnels.$index.name"],
+                "tunnel.kind" to extras["tunnels.$index.kind"],
+                "tunnel.source" to extras["tunnels.$index.source"],
+                "tunnel.format" to extras["tunnels.$index.format"],
+                "tunnel.serverAddress" to extras["tunnels.$index.serverAddress"],
+                "tunnel.remotePort" to extras["tunnels.$index.remotePort"],
+                "tunnel.localPort" to extras["tunnels.$index.localPort"],
+                "tunnel.portRange" to extras["tunnels.$index.portRange"],
+                "tunnel.detail" to extras["tunnels.$index.detail"],
+            ),
+        )
+    }
+}
+
+private fun hydrateLaunchTunnelProfiles(
+    storedProfiles: List<TunnelProfile>,
+    launchProfiles: List<TunnelProfile>,
+): List<TunnelProfile> {
+    val storedById = storedProfiles.associateBy { it.id }
+    return launchProfiles.map { launch ->
+        val stored = storedById[launch.id] ?: return@map launch
+        stored.copy(
+            name = launch.name.ifBlank { stored.name },
+            kind = launch.kind,
+            source = launch.source,
+            format = launch.format ?: stored.format,
+            serverAddress = launch.serverAddress.ifBlank { stored.serverAddress },
+            remotePort = launch.remotePort ?: stored.remotePort,
+            localPort = launch.localPort ?: stored.localPort,
+            credentialValue = launch.credentialValue ?: stored.credentialValue,
+            portRange = launch.portRange ?: stored.portRange,
+            detail = launch.detail ?: stored.detail,
         )
     }
 }

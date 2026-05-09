@@ -5,6 +5,7 @@ import com.mcgo.app.ui.model.PaperDifficulty
 import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.TunnelConfigFormat
 import com.mcgo.app.ui.model.TunnelKind
+import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.TunnelSource
 import kotlin.test.Test
 
@@ -72,5 +73,61 @@ class PaperCommandRoutingTest {
         assertThat(tunnel!!.source).isEqualTo(TunnelSource.PastedConfig)
         assertThat(tunnel.remotePort).isEqualTo(39001)
         assertThat(tunnel.localPort).isEqualTo(25565)
+    }
+
+    @Test
+    fun tunnelIntentRoundTrip_preservesMultipleTunnelProfilesForRuntimeLaunch() {
+        val tunnels = decodeTunnelProfilesExtrasForTest(
+            mapOf(
+                "tunnelCount" to 2,
+                "tunnels.0.id" to "frp-home",
+                "tunnels.0.name" to "家庭 FRP",
+                "tunnels.0.kind" to TunnelKind.Frp.name,
+                "tunnels.0.source" to TunnelSource.ManualServer.name,
+                "tunnels.0.serverAddress" to "frp.home:7000",
+                "tunnels.0.remotePort" to 39001,
+                "tunnels.0.localPort" to 25565,
+                "tunnels.0.credentialValue" to "token-home",
+                "tunnels.0.portRange" to "39001-39099",
+                "tunnels.0.detail" to "家庭映射",
+                "tunnels.1.id" to "frp-ali",
+                "tunnels.1.name" to "阿里云 FRP",
+                "tunnels.1.kind" to TunnelKind.Frp.name,
+                "tunnels.1.source" to TunnelSource.PastedConfig.name,
+                "tunnels.1.format" to TunnelConfigFormat.Toml.name,
+                "tunnels.1.serverAddress" to "frp.ali:7001",
+                "tunnels.1.remotePort" to 40001,
+                "tunnels.1.localPort" to 25565,
+                "tunnels.1.credentialValue" to "token-ali",
+                "tunnels.1.portRange" to "",
+                "tunnels.1.detail" to "固定映射",
+            ),
+        )
+
+        assertThat(tunnels.map(TunnelProfile::id)).containsExactly("frp-home", "frp-ali").inOrder()
+        assertThat(tunnels.map(TunnelProfile::remotePort)).containsExactly(39001, 40001).inOrder()
+        assertThat(tunnels.map(TunnelProfile::source)).containsExactly(TunnelSource.ManualServer, TunnelSource.PastedConfig).inOrder()
+    }
+
+    @Test
+    fun hydrateLaunchTunnelProfiles_recoversStoredCredentialWithoutLosingRuntimePortOverride() {
+        val stored = TunnelProfile.manualServer(
+            name = "家庭 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.home:7000",
+            credentialValue = "secret-token",
+            portRange = "39001-39099",
+        ).copy(id = "frp-home")
+        val launch = stored.copy(remotePort = 39008, credentialValue = null, detail = "运行时覆写")
+
+        val hydrated = hydrateLaunchTunnelProfilesForTest(
+            storedProfiles = listOf(stored),
+            launchProfiles = listOf(launch),
+        ).single()
+
+        assertThat(hydrated.id).isEqualTo("frp-home")
+        assertThat(hydrated.remotePort).isEqualTo(39008)
+        assertThat(hydrated.credentialValue).isEqualTo("secret-token")
+        assertThat(hydrated.detail).isEqualTo("运行时覆写")
     }
 }

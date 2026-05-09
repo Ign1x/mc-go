@@ -23,6 +23,30 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun serviceLaunchFlow_tracksIndependentFrpcProcessesForMultipleTunnels() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+
+        assertThat(source).contains("private val frpcProcesses = mutableMapOf<String, Process>()")
+        assertThat(source).contains("private val frpcWatchJobs = mutableMapOf<String, Job>()")
+        assertThat(source).contains("private val tunnelRuntimeStateLock = Any()")
+        assertThat(source).contains("synchronized(tunnelRuntimeStateLock)")
+        assertThat(source).contains("if (!isActive) return@launch")
+        assertThat(source).contains("private fun Intent.toTunnelProfiles(): List<TunnelProfile>")
+        assertThat(source).contains("val tunnelPlans = tunnelRuntimePlansForStart(")
+        assertThat(source).contains("startFrpcForPlans(server, tunnelPlans)")
+        assertThat(source).contains("frpcProcesses[plan.tunnelId] = process")
+        assertThat(source).contains("frpcWatchJobs[plan.tunnelId] = serviceScope.launch")
+        assertThat(source).contains("tunnelId = plan.tunnelId")
+        assertThat(source).contains("currentTunnelBindings = tunnelPlans.map")
+        assertThat(source).contains("startFrpcForPlans(server, tunnelPlans)")
+        assertThat(source.indexOf("currentTunnelBindings = tunnelPlans.map")).isLessThan(source.indexOf("startFrpcForPlans(server, tunnelPlans)"))
+        assertThat(source).contains("managedPaperServerFrpcLogFile(filesDir.toPath(), server.id, plan.tunnelId)")
+        assertThat(source).contains("putExtra(\"tunnelCount\", tunnels.size)")
+        assertThat(source).doesNotContain("frpcProcesses[plan.displayLabel]")
+        assertThat(source).doesNotContain("putExtra(\"tunnels.\$index.credentialValue\"")
+    }
+
+    @Test
     fun readLastAppendedNonBlankLine_returnsOnlyNewlyAppendedContent() {
         val logFile = Files.createTempFile("mcgo-log-tail", ".log")
         Files.write(logFile, "\n".toByteArray())

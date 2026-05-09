@@ -4,6 +4,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.FlowRow
@@ -51,6 +59,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,10 +84,14 @@ import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
+import com.mcgo.app.ui.model.TunnelLaunchSelection
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.allocateManualTunnelRemotePort
+import com.mcgo.app.ui.model.activeTunnelLabels
 import com.mcgo.app.ui.model.assignTunnelRemotePort
+import com.mcgo.app.ui.model.effectiveTunnelBindings
 import com.mcgo.app.ui.model.canStartServerFromUi
+import com.mcgo.app.ui.model.connectionAddresses
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
@@ -99,7 +113,7 @@ fun ServersScreen(
     showCreateServer: Boolean = false,
     onDismissCreateServer: () -> Unit = {},
     onCreateServer: (ServerCardState) -> Unit = {},
-    onStartServer: (serverId: String, tunnelId: String?, startupPort: Int, remotePort: Int?) -> Unit,
+    onStartServer: (serverId: String, startupPort: Int, tunnelSelections: List<TunnelLaunchSelection>) -> Unit,
     onStopServer: (serverId: String) -> Unit,
     onDeleteServer: (serverId: String) -> Unit,
     onOpenConsole: (serverId: String) -> Unit,
@@ -127,8 +141,8 @@ fun ServersScreen(
             availableTunnels = availableTunnels,
             frpRuntimeSupported = supportedProvisionableJavaVersions.contains(25),
             onDismiss = { pendingStartServer = null },
-            onConfirm = { tunnelId, startupPort, remotePort ->
-                onStartServer(server.id, tunnelId, startupPort, remotePort)
+            onConfirm = { startupPort, tunnelSelections ->
+                onStartServer(server.id, startupPort, tunnelSelections)
                 pendingStartServer = null
             },
         )
@@ -182,7 +196,10 @@ private fun ServerCard(
         ServerLaunchStatus.Failed -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val connectionAddress = server.runtimeAddress ?: server.port.let { "127.0.0.1:$it" }
+    val animatedStatusColor = animateColorAsState(statusColor, label = "serverStatusColor")
+    val connectionAddresses = server.connectionAddresses()
+    val connectionAddress = connectionAddresses.firstOrNull() ?: server.port.let { "127.0.0.1:$it" }
+    val tunnelLabels = server.activeTunnelLabels()
     GlassCard(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -212,35 +229,37 @@ private fun ServerCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Surface(
-                            modifier = Modifier.clickable {
-                                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                                    ClipData.newPlainText("${server.name} address", connectionAddress),
-                                )
-                                Toast.makeText(context, "连接地址已复制", Toast.LENGTH_SHORT).show()
-                            },
-                            shape = RoundedCornerShape(999.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                            contentColor = MaterialTheme.colorScheme.primary,
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                        connectionAddresses.forEach { address: String ->
+                            Surface(
+                                modifier = Modifier.clickable {
+                                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                        ClipData.newPlainText("${server.name} address", address),
+                                    )
+                                    Toast.makeText(context, "连接地址已复制", Toast.LENGTH_SHORT).show()
+                                },
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                contentColor = MaterialTheme.colorScheme.primary,
                             ) {
-                                Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Text(
-                                    text = connectionAddress,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Medium,
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Text(
+                                        text = address,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
                             }
                         }
-                        server.activeTunnelLabel?.let { tunnelLabel ->
+                        tunnelLabels.forEach { tunnelLabel: String ->
                             Surface(
                                 shape = RoundedCornerShape(999.dp),
                                 color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
@@ -259,7 +278,7 @@ private fun ServerCard(
             }
             StatusDotBadge(
                 text = server.launchStatus.label,
-                color = statusColor,
+                color = animatedStatusColor.value,
             )
         }
         Spacer(modifier = Modifier.height(14.dp))
@@ -300,16 +319,34 @@ private fun ServerCard(
                 },
                 enabled = stopEnabled || startEnabled,
             ) {
-                Icon(
-                    imageVector = if (stopEnabled) Icons.Outlined.StopCircle else Icons.Outlined.PlayCircle,
-                    contentDescription = if (stopEnabled) stringResource(R.string.server_action_stop) else stringResource(R.string.server_action_start),
-                )
+                AnimatedContent(
+                    targetState = stopEnabled,
+                    label = "serverActionIcon",
+                ) { stopping ->
+                    Icon(
+                        imageVector = if (stopping) Icons.Outlined.StopCircle else Icons.Outlined.PlayCircle,
+                        contentDescription = if (stopping) stringResource(R.string.server_action_stop) else stringResource(R.string.server_action_start),
+                    )
+                }
             }
             IconButton(onClick = onEditServer) {
                 Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.server_action_edit))
             }
             IconButton(onClick = onDeleteClick) {
                 Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.server_action_delete))
+            }
+        }
+        AnimatedVisibility(
+            visible = server.launchStatus == ServerLaunchStatus.Launching ||
+                server.launchStatus == ServerLaunchStatus.Stopping ||
+                server.launchStatus == ServerLaunchStatus.Failed,
+            enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(140)) + shrinkVertically(animationSpec = tween(140)),
+            label = "runtimeProgressPanel",
+        ) {
+            Column {
+                Spacer(modifier = Modifier.height(12.dp))
+                RuntimeProgressPanel(server)
             }
         }
     }
@@ -657,48 +694,79 @@ private fun StartServerDialog(
     availableTunnels: List<TunnelProfile>,
     frpRuntimeSupported: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (tunnelId: String?, startupPort: Int, remotePort: Int?) -> Unit,
+    onConfirm: (startupPort: Int, tunnelSelections: List<TunnelLaunchSelection>) -> Unit,
 ) {
-    var selectedTunnelId by remember(server.name) { mutableStateOf(server.selectedTunnelId) }
-    val selectedTunnel = remember(selectedTunnelId, availableTunnels) {
-        availableTunnels.firstOrNull { it.id == selectedTunnelId }
+    val selectedTunnelIds = remember(server.name) {
+        mutableStateListOf<String>().apply {
+            addAll(server.effectiveTunnelBindings().map { it.tunnelId })
+        }
     }
-    var portInput by remember(server.name) { mutableStateOf(server.defaultPort.toString()) }
-    var remotePortInput by remember(server.name) { mutableStateOf(server.tunnelRemotePort?.toString().orEmpty()) }
-
-    LaunchedEffect(selectedTunnelId) {
-        portInput = (selectedTunnel?.resolveStartupPort(server.defaultPort, server.defaultPort) ?: server.defaultPort).toString()
-        remotePortInput = selectedTunnel?.let { tunnel ->
-            runCatching {
-                assignTunnelRemotePort(
-                    server = if (server.selectedTunnelId == tunnel.id) server else server.copy(tunnelRemotePort = null),
-                    tunnel = tunnel,
-                    requestedRemotePort = null,
-                    servers = allServers,
-                ).toString()
-            }.getOrDefault("")
-        }.orEmpty()
+    val remotePortInputs = remember(server.name) {
+        mutableStateMapOf<String, String>().apply {
+            server.effectiveTunnelBindings().forEach { binding ->
+                if (binding.remotePort != null) {
+                    put(binding.tunnelId, binding.remotePort.toString())
+                }
+            }
+        }
+    }
+    var portInput by remember(server.name) { mutableStateOf(server.port.toString()) }
+    val selectedTunnels = availableTunnels.filter { selectedTunnelIds.contains(it.id) }
+    val primaryTunnel = selectedTunnels.firstOrNull()
+    val canEditPort = selectedTunnels.any { it.supportsCustomPortOnStart() }
+    val runtimeTunnelSupported = selectedTunnels.all {
+        it.kind == com.mcgo.app.ui.model.TunnelKind.Frp && frpRuntimeSupported
+    }
+    val resolvedPort = if (canEditPort) {
+        portInput.toIntOrNull() ?: server.defaultPort
+    } else {
+        primaryTunnel?.resolveStartupPort(server.defaultPort, portInput.toIntOrNull())
+            ?: server.defaultPort
     }
 
-    val canEditPort = selectedTunnel?.supportsCustomPortOnStart() == true
-    val runtimeTunnelSupported = selectedTunnel == null || (selectedTunnel.kind == com.mcgo.app.ui.model.TunnelKind.Frp && frpRuntimeSupported)
-    val resolvedPort = selectedTunnel?.resolveStartupPort(server.defaultPort, portInput.toIntOrNull()) ?: server.defaultPort
-    val resolvedRemotePort = selectedTunnel?.let { tunnel ->
-        remotePortInput.toIntOrNull()
-            ?: runCatching {
-                assignTunnelRemotePort(
-                    server = if (server.selectedTunnelId == tunnel.id) server else server.copy(tunnelRemotePort = null),
-                    tunnel = tunnel,
-                    requestedRemotePort = null,
-                    servers = allServers,
-                )
-            }.getOrNull()
+    LaunchedEffect(selectedTunnelIds.toList(), availableTunnels) {
+        selectedTunnels.forEach { tunnel ->
+            if (remotePortInputs[tunnel.id].isNullOrBlank()) {
+                val reserved = runCatching {
+                    assignTunnelRemotePort(
+                        server = server,
+                        tunnel = tunnel,
+                        requestedRemotePort = null,
+                        servers = allServers,
+                    )
+                }.getOrNull()
+                if (reserved != null) {
+                    remotePortInputs[tunnel.id] = reserved.toString()
+                }
+            }
+        }
+    }
+
+    val tunnelSelections = selectedTunnels.map { tunnel ->
+        val requestedRemotePort = remotePortInputs[tunnel.id]?.toIntOrNull()
+        val resolvedRemotePort = if (tunnel.supportsCustomPortOnStart()) {
+            requestedRemotePort
+                ?: runCatching {
+                    assignTunnelRemotePort(
+                        server = server,
+                        tunnel = tunnel,
+                        requestedRemotePort = null,
+                        servers = allServers,
+                    )
+                }.getOrNull()
+        } else {
+            tunnel.remotePort
+        }
+        TunnelLaunchSelection(
+            tunnelId = tunnel.id,
+            remotePort = resolvedRemotePort,
+        )
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = { onConfirm(selectedTunnelId, resolvedPort, resolvedRemotePort) }, enabled = runtimeTunnelSupported) {
+            TextButton(onClick = { onConfirm(resolvedPort, tunnelSelections) }, enabled = runtimeTunnelSupported) {
                 Text("启动实例")
             }
         },
@@ -714,7 +782,7 @@ private fun StartServerDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(
-                    text = "选择要绑定的隧道。手动服务器参数可自定义端口；单隧道配置会沿用固定端口。",
+                    text = "选择要绑定的隧道，可多选；手动服务器参数可分别指定远端端口，单隧道配置会沿用固定端口。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -723,30 +791,37 @@ private fun StartServerDialog(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     TunnelStartupChoice(
-                        selected = selectedTunnelId == null,
+                        selected = selectedTunnelIds.isEmpty(),
                         title = "不启用隧道",
                         subtitle = "仅使用实例默认端口 ${server.defaultPort}",
-                        onClick = { selectedTunnelId = null },
+                        onClick = { selectedTunnelIds.clear() },
                     )
                     availableTunnels.forEach { tunnel ->
+                        val reserved = runCatching {
+                            assignTunnelRemotePort(
+                                server = server,
+                                tunnel = tunnel,
+                                requestedRemotePort = null,
+                                servers = allServers,
+                            )
+                        }.getOrNull()
                         TunnelStartupChoice(
-                            selected = selectedTunnelId == tunnel.id,
+                            selected = selectedTunnelIds.contains(tunnel.id),
                             title = tunnel.name,
                             subtitle = if (tunnel.supportsCustomPortOnStart()) {
-                                val reserved = runCatching {
-                                    assignTunnelRemotePort(
-                                        server = if (server.selectedTunnelId == tunnel.id) server else server.copy(tunnelRemotePort = null),
-                                        tunnel = tunnel,
-                                        requestedRemotePort = null,
-                                        servers = allServers,
-                                    )
-                                }.getOrNull()
                                 "${tunnel.kind.label} · 远端 ${reserved ?: "自动分配"}"
                             } else {
                                 "${tunnel.kind.label} · 固定远端 ${tunnel.remotePort ?: "未解析"}"
                             },
                             trailing = tunnel.latencyLabel(),
-                            onClick = { selectedTunnelId = tunnel.id },
+                            onClick = {
+                                if (selectedTunnelIds.contains(tunnel.id)) {
+                                    selectedTunnelIds.remove(tunnel.id)
+                                    remotePortInputs.remove(tunnel.id)
+                                } else {
+                                    selectedTunnelIds.add(tunnel.id)
+                                }
+                            },
                         )
                     }
                 }
@@ -758,42 +833,41 @@ private fun StartServerDialog(
                     label = { Text("本地开服端口") },
                     supportingText = {
                         Text(
-                            if (canEditPort) "本地端口用于 Paper 监听，可与隧道远端端口不同"
+                            if (canEditPort) "本地端口用于 Paper 监听，可与多条隧道的远端端口不同"
                             else "当前模式使用固定本地端口：$resolvedPort",
                         )
                     },
                     singleLine = true,
                 )
-                if (selectedTunnel != null) {
-                    OutlinedTextField(
-                        value = remotePortInput,
-                        onValueChange = { remotePortInput = it.filter(Char::isDigit) },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = selectedTunnel.supportsCustomPortOnStart(),
-                        label = { Text("隧道远端端口") },
-                        supportingText = {
-                            Text("首次默认自动分配未占用端口；之后默认沿用这个端口，也可手动修改")
-                        },
-                        singleLine = true,
-                    )
-                }
-                selectedTunnel?.let { tunnel ->
+                selectedTunnels.forEach { tunnel ->
+                    if (tunnel.supportsCustomPortOnStart()) {
+                        OutlinedTextField(
+                            value = remotePortInputs[tunnel.id].orEmpty(),
+                            onValueChange = { remotePortInputs[tunnel.id] = it.filter(Char::isDigit) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("${tunnel.name} 远端端口") },
+                            supportingText = {
+                                Text("首次默认自动分配未占用端口；之后默认沿用这个端口，也可分别手动修改")
+                            },
+                            singleLine = true,
+                        )
+                    }
                     Text(
                         text = tunnel.connectionSummary(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (!runtimeTunnelSupported) {
-                        Text(
-                            text = if (!frpRuntimeSupported) {
-                                "当前设备暂不支持内置 FRP 客户端，仅 arm64-v8a 设备可真启动隧道。"
-                            } else {
-                                "当前仅支持 FRP 隧道真启动；该隧道类型会导致启动失败。"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
+                }
+                if (!runtimeTunnelSupported && selectedTunnels.isNotEmpty()) {
+                    Text(
+                        text = if (!frpRuntimeSupported) {
+                            "当前设备暂不支持内置 FRP 客户端，仅 arm64-v8a 设备可真启动隧道。"
+                        } else {
+                            "当前仅支持 FRP 隧道真启动；请取消非 FRP 隧道后再启动。"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         },

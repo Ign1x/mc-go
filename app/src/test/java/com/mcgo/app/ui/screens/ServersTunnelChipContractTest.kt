@@ -10,8 +10,8 @@ class ServersTunnelChipContractTest {
 
     @Test
     fun runningServerTunnelChip_rendersStoredLabelWithoutAppendingAddressAgain() {
-        val tunnelChipSection = source.substringAfter("server.activeTunnelLabel?.let { tunnelLabel ->")
-            .substringBefore("            }\n        }")
+        val tunnelChipSection = source.substringAfter("tunnelLabels.forEach { tunnelLabel: String ->")
+            .substringBefore("                        }\n                    }")
 
         assertThat(tunnelChipSection).contains("text = tunnelLabel")
         assertThat(tunnelChipSection).doesNotContain("connectionAddress")

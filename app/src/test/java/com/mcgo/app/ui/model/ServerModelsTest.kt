@@ -53,6 +53,19 @@ class ServerModelsTest {
     }
 
     @Test
+    fun createPaperServer_keepsReadableUnicodeInGeneratedIdForChineseNames() {
+        val server = createPaperServer(
+            name = "生存服 A服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+
+        assertThat(server.id).startsWith("server-")
+        assertThat(server.id).contains("生存服-a服")
+    }
+
+    @Test
     fun createPurpurServer_buildsPurpurInstanceWithRecommendedJava() {
         val server = createPurpurServer(
             name = "Purpur服",
@@ -109,6 +122,23 @@ class ServerModelsTest {
     }
 
     @Test
+    fun markAwaitingManagedRuntimeInstall_keepsServerInLaunchingStateUntilAutoInstallCompletes() {
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+
+        val waiting = server.markAwaitingManagedRuntimeInstall(21)
+
+        assertThat(waiting.launchStatus).isEqualTo(ServerLaunchStatus.Launching)
+        assertThat(waiting.launchProgress).isAtLeast(1)
+        assertThat(waiting.runtimeLogs.last()).contains("未检测到 Java 21，正在自动安装托管 JRE")
+        assertThat(canStartServerFromUi(waiting)).isFalse()
+    }
+
+    @Test
     fun recommendedJavaMajorVersion_matchesPaperCompatibilityTable() {
         assertThat(recommendedJavaMajorVersion("1.11")).isEqualTo(8)
         assertThat(recommendedJavaMajorVersion("1.12.2")).isEqualTo(11)
@@ -143,6 +173,32 @@ class ServerModelsTest {
         assertThat(started.port).isEqualTo(25577)
         assertThat(started.runtimeAddress).isEqualTo("frp.example.com:38009")
         assertThat(started.runtimeLogs.last()).contains("远端端口 38009")
+    }
+
+    @Test
+    fun startPaperServer_withSwitchedSingleManualTunnelPrefersFreshAssignedRemotePortOverLegacyField() {
+        val switchedTunnel = TunnelProfile.manualServer(
+            name = "阿里云 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "frp.aliyun.com:7000",
+            credentialValue = "secret-token-2",
+            portRange = "39000-39100",
+        ).copy(id = "aliyun-frp", remotePort = 39008)
+        val started = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+        ).copy(
+            selectedTunnelId = "old-home-frp",
+            tunnelRemotePort = 38009,
+        ).startPaperServer(tunnel = switchedTunnel, startupPort = 25577)
+
+        assertThat(started.selectedTunnelId).isEqualTo("aliyun-frp")
+        assertThat(started.tunnelRemotePort).isEqualTo(39008)
+        assertThat(started.runtimeAddress).isEqualTo("frp.aliyun.com:39008")
+        assertThat(started.runtimeLogs.last()).contains("远端端口 39008")
     }
 
     @Test

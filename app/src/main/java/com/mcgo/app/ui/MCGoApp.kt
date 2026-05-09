@@ -12,6 +12,12 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,6 +43,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -169,6 +176,7 @@ import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.trustedRuntimeArchivesForVersion
 import com.mcgo.app.server.validateRuntimeArchiveTrust
 import com.mcgo.app.status.DevicePerformanceMonitor
+import com.mcgo.app.status.rememberStatusDashboardState
 
 import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
@@ -187,6 +195,7 @@ import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.TunnelLatencyResult
+import com.mcgo.app.ui.model.TunnelLaunchSelection
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.assignTunnelRemotePort
 import com.mcgo.app.ui.model.applyPaperServerEdits
@@ -202,6 +211,7 @@ import com.mcgo.app.ui.model.detachDeletedTunnel
 import com.mcgo.app.ui.model.finalizePendingServerDeletion
 import com.mcgo.app.ui.model.isManagedRuntimeProvisioningAvailable
 import com.mcgo.app.ui.model.isRuntimeBusy
+import com.mcgo.app.ui.model.markAwaitingManagedRuntimeInstall
 import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markUnsupportedManagedRuntime
 import com.mcgo.app.ui.model.normalizeConsoleCommand
@@ -211,9 +221,10 @@ import com.mcgo.app.ui.model.removeTunnelProfile
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import com.mcgo.app.ui.model.requestServerDeletion
 import com.mcgo.app.ui.model.resolveServerConsoleText
-import com.mcgo.app.ui.model.startWithTunnel
+import com.mcgo.app.ui.model.startWithTunnels
 import com.mcgo.app.ui.model.stopServer
 import com.mcgo.app.ui.model.upsertTunnelProfile
+import com.mcgo.app.ui.model.usesTunnel
 import com.mcgo.app.ui.model.withLaunchProgress
 import com.mcgo.app.ui.sample.McGoSampleRepository
 import com.mcgo.app.ui.screens.ServersScreen
@@ -243,9 +254,13 @@ private const val ServerDirectoryGrantFlags = Intent.FLAG_GRANT_READ_URI_PERMISS
 
 private data class PendingStartRequest(
     val serverId: String,
-    val tunnelId: String?,
     val startupPort: Int,
-    val remotePort: Int?,
+    val tunnelSelections: List<TunnelLaunchSelection>,
+)
+
+private data class PendingManagedRuntimeStart(
+    val request: PendingStartRequest,
+    val javaMajorVersion: Int,
 )
 
 private enum class PendingServerDirectoryAction {
@@ -438,6 +453,10 @@ private fun MCGoAppScaffold(
     } else {
         1f
     }
+    val statusDashboardState = rememberStatusDashboardState(
+        appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
+        statusMonitor = statusMonitor,
+    )
     val latestTunnels by rememberUpdatedState(tunnels)
     var installedJavaVersions by remember(appContext) {
         mutableStateOf(scanInstalledJavaVersions(appContext.filesDir.toPath()))
@@ -465,6 +484,7 @@ private fun MCGoAppScaffold(
     }
     var pendingServerDirectoryAction by remember { mutableStateOf<PendingServerDirectoryAction?>(null) }
     var pendingStartRequest by remember { mutableStateOf<PendingStartRequest?>(null) }
+    var pendingManagedRuntimeStarts by remember { mutableStateOf<List<PendingManagedRuntimeStart>>(emptyList()) }
     val latestServers by rememberUpdatedState(servers)
     fun persistServerDirectoryUri(uri: Uri?) {
         serverDirectoryUriText = uri?.toString()
@@ -480,6 +500,42 @@ private fun MCGoAppScaffold(
                 authorizedDirectoryUri = serverDirectoryUriText,
                 sourceProfilesPath = serverStorePath,
             )
+        }
+    }
+    val onDownloadJava: (Int) -> Unit = remember(appContext, scope, snackbarHostState) {
+        { majorVersion ->
+            if (javaDownloadProgress.containsKey(majorVersion)) return@remember
+            javaDownloadProgress = javaDownloadProgress + (majorVersion to 1)
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        downloadAndInstallPojavRuntime(appContext, majorVersion) { progress ->
+                            javaDownloadProgress = javaDownloadProgress + (majorVersion to progress.coerceIn(1, 99))
+                        }
+                    }
+                }
+                javaDownloadProgress = javaDownloadProgress - majorVersion
+                result.onSuccess {
+                    installedJavaVersions = scanInstalledJavaVersions(appContext.filesDir.toPath())
+                    snackbarHostState.showSnackbar("Java $majorVersion 托管 JRE 已下载安装")
+                }.onFailure { error ->
+                    val failedPendings = pendingManagedRuntimeStarts.filter { it.javaMajorVersion == majorVersion }
+                    if (failedPendings.isNotEmpty()) {
+                        pendingManagedRuntimeStarts = pendingManagedRuntimeStarts.filterNot { it.javaMajorVersion == majorVersion }
+                        val failedServerIds = failedPendings.map { it.request.serverId }.toSet()
+                        val failedServers = latestServers.map { server ->
+                            if (server.id in failedServerIds) {
+                                server.markLaunchFailed(error.userFacingInstallMessage(majorVersion))
+                            } else {
+                                server
+                            }
+                        }
+                        onServersChange(failedServers)
+                        syncServerProfilesToAuthorizedDirectoryNow(failedServers)
+                    }
+                    snackbarHostState.showSnackbar(error.userFacingInstallMessage(majorVersion))
+                }
+            }
         }
     }
     fun hasServerDirectoryGrant(): Boolean = ServerDirectoryPermissionEffect(serverDirectoryUriText, appContext)
@@ -550,7 +606,6 @@ private fun MCGoAppScaffold(
     }
     fun startServerNow(request: PendingStartRequest) {
         val currentServers = latestServers
-        val tunnel = tunnels.firstOrNull { it.id == request.tunnelId }
         val targetServer = currentServers.firstOrNull { it.id == request.serverId }
         if (targetServer == null) {
             scope.launch { snackbarHostState.showSnackbar("未找到服务器") }
@@ -560,26 +615,27 @@ private fun MCGoAppScaffold(
             scope.launch { snackbarHostState.showSnackbar("${targetServer.name} 已在启动或运行中") }
             return
         }
-        val resolvedPort = tunnel?.resolveStartupPort(targetServer.defaultPort, request.startupPort) ?: request.startupPort
-        val reservedTunnelRemotePort = tunnel?.let {
-            runCatching {
-                assignTunnelRemotePort(
-                    server = if (targetServer.selectedTunnelId == it.id) targetServer else targetServer.copy(tunnelRemotePort = null),
-                    tunnel = it,
-                    requestedRemotePort = request.remotePort,
-                    servers = currentServers,
-                )
-            }.getOrElse { error ->
-                scope.launch { snackbarHostState.showSnackbar(error.message ?: "隧道远端端口分配失败") }
-                return
-            }
+        val selectedTunnels = request.tunnelSelections.mapNotNull { selection ->
+            tunnels.firstOrNull { it.id == selection.tunnelId }?.let { tunnel -> selection to tunnel }
         }
-        val runtimeAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
-        if (tunnel != null && tunnel.kind != com.mcgo.app.ui.model.TunnelKind.Frp) {
-            scope.launch { snackbarHostState.showSnackbar("当前仅支持 FRP 隧道真启动；请先取消该隧道或改用 FRP") }
+        if (selectedTunnels.size != request.tunnelSelections.size) {
+            scope.launch { snackbarHostState.showSnackbar("部分隧道已不存在，请重新选择") }
             return
         }
-        if (tunnel != null && runtimeAbi != "arm64-v8a") {
+        val resolvedStartupPorts = selectedTunnels.map { (_, tunnel) ->
+            tunnel.resolveStartupPort(targetServer.defaultPort, request.startupPort)
+        }.distinct()
+        if (resolvedStartupPorts.size > 1) {
+            scope.launch { snackbarHostState.showSnackbar("所选隧道要求的本地端口不一致，请改为兼容的隧道组合") }
+            return
+        }
+        val resolvedPort = resolvedStartupPorts.singleOrNull() ?: request.startupPort
+        val runtimeAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
+        if (selectedTunnels.any { (_, tunnel) -> tunnel.kind != com.mcgo.app.ui.model.TunnelKind.Frp }) {
+            scope.launch { snackbarHostState.showSnackbar("当前仅支持 FRP 隧道真启动；请先取消非 FRP 隧道") }
+            return
+        }
+        if (selectedTunnels.isNotEmpty() && runtimeAbi != "arm64-v8a") {
             scope.launch { snackbarHostState.showSnackbar("当前设备 ABI 为 $runtimeAbi，暂不支持内置 FRP 客户端") }
             return
         }
@@ -596,11 +652,24 @@ private fun MCGoAppScaffold(
             return
         }
         if (targetServer.javaMajorVersion !in installedJavaVersions) {
-            val guidance = if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
-                "缺少 Java ${targetServer.javaMajorVersion} 托管运行时，请先到设置 > Java 管理安装"
-            } else {
-                "当前版本暂不提供 Java ${targetServer.javaMajorVersion} 托管运行时；该 Minecraft 版本暂不支持一键开服"
+            if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
+                pendingManagedRuntimeStarts = pendingManagedRuntimeStarts + PendingManagedRuntimeStart(request, targetServer.javaMajorVersion)
+                val awaitingInstallServers = currentServers.map { server ->
+                    if (server.id == request.serverId) {
+                        server.markAwaitingManagedRuntimeInstall(targetServer.javaMajorVersion)
+                    } else {
+                        server
+                    }
+                }
+                onServersChange(awaitingInstallServers)
+                syncServerProfilesToAuthorizedDirectoryNow(awaitingInstallServers)
+                onDownloadJava(targetServer.javaMajorVersion)
+                scope.launch {
+                    snackbarHostState.showSnackbar("未检测到 Java ${targetServer.javaMajorVersion}，已开始自动安装")
+                }
+                return
             }
+            val guidance = "当前版本暂不提供 Java ${targetServer.javaMajorVersion} 托管运行时；该 Minecraft 版本暂不支持一键开服"
             val failedServers = currentServers.map { server ->
                 if (server.id == request.serverId) {
                     server.markLaunchFailed(guidance)
@@ -611,14 +680,23 @@ private fun MCGoAppScaffold(
             onServersChange(failedServers)
             syncServerProfilesToAuthorizedDirectoryNow(failedServers)
             scope.launch {
-                snackbarHostState.showSnackbar(
-                    if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
-                        "请先安装 Java ${targetServer.javaMajorVersion} 托管 JRE"
-                    } else {
-                        "当前暂不支持该 Minecraft 版本所需的 Java ${targetServer.javaMajorVersion} 运行时"
-                    },
+                snackbarHostState.showSnackbar("当前暂不支持该 Minecraft 版本所需的 Java ${targetServer.javaMajorVersion} 运行时")
+            }
+            return
+        }
+        val selectedTunnelsWithPorts = runCatching {
+            selectedTunnels.map { (selection, tunnel) ->
+                tunnel.copy(
+                    remotePort = assignTunnelRemotePort(
+                        server = targetServer,
+                        tunnel = tunnel,
+                        requestedRemotePort = selection.remotePort,
+                        servers = currentServers,
+                    ),
                 )
             }
+        }.getOrElse { error ->
+            scope.launch { snackbarHostState.showSnackbar(error.message ?: "隧道远端端口分配失败") }
             return
         }
         val runtimeLogPath = managedPaperServerLogFile(appContext.filesDir.toPath(), request.serverId).toString()
@@ -626,8 +704,8 @@ private fun MCGoAppScaffold(
             if (server.id != request.serverId) {
                 server
             } else {
-                server.copy(tunnelRemotePort = reservedTunnelRemotePort ?: server.tunnelRemotePort)
-                    .startWithTunnel(tunnel = tunnel, startupPort = request.startupPort)
+                server
+                    .startWithTunnels(tunnels = selectedTunnelsWithPorts, startupPort = resolvedPort)
                     .copy(
                         runtimeLogPath = runtimeLogPath,
                         runtimeSlot = allocatedSlot,
@@ -637,10 +715,14 @@ private fun MCGoAppScaffold(
         }
         onServersChange(updatedServers)
         syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-        updatedServers.firstOrNull { it.id == request.serverId }?.let { PaperServerService.start(appContext, it, tunnel) }
+        updatedServers.firstOrNull { it.id == request.serverId }?.let { PaperServerService.start(appContext, it, selectedTunnelsWithPorts) }
         scope.launch {
             snackbarHostState.showSnackbar(
-                tunnel?.let { "${targetServer.name} 已通过 ${it.name} 开始启动" } ?: "${targetServer.name} 开始启动",
+                if (selectedTunnelsWithPorts.isNotEmpty()) {
+                    "${targetServer.name} 已通过 ${selectedTunnelsWithPorts.joinToString("、") { it.name }} 开始启动"
+                } else {
+                    "${targetServer.name} 开始启动"
+                },
             )
         }
     }
@@ -648,6 +730,15 @@ private fun MCGoAppScaffold(
     if (queuedStartRequest != null && hasServerDirectoryGrant()) {
         pendingStartRequest = null
         startServerNow(queuedStartRequest)
+    }
+    LaunchedEffect(installedJavaVersions, pendingManagedRuntimeStarts) {
+        val completedPendings = pendingManagedRuntimeStarts.filter { it.javaMajorVersion in installedJavaVersions }
+        if (completedPendings.isNotEmpty()) {
+            pendingManagedRuntimeStarts = pendingManagedRuntimeStarts.filterNot { it.javaMajorVersion in installedJavaVersions }
+            completedPendings.forEach { completedPending ->
+                pendingStartRequest = completedPending.request
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -718,28 +809,6 @@ private fun MCGoAppScaffold(
         }
     }
 
-    val onDownloadJava: (Int) -> Unit = remember(appContext, scope, snackbarHostState) {
-        { majorVersion ->
-            if (javaDownloadProgress.containsKey(majorVersion)) return@remember
-            javaDownloadProgress = javaDownloadProgress + (majorVersion to 1)
-            scope.launch {
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        downloadAndInstallPojavRuntime(appContext, majorVersion) { progress ->
-                            javaDownloadProgress = javaDownloadProgress + (majorVersion to progress.coerceIn(1, 99))
-                        }
-                    }
-                }
-                javaDownloadProgress = javaDownloadProgress - majorVersion
-                result.onSuccess {
-                    installedJavaVersions = scanInstalledJavaVersions(appContext.filesDir.toPath())
-                    snackbarHostState.showSnackbar("Java $majorVersion 托管 JRE 已下载安装")
-                }.onFailure { error ->
-                    snackbarHostState.showSnackbar(error.userFacingInstallMessage(majorVersion))
-                }
-            }
-        }
-    }
     val onInstallJavaArchive: (Int, Uri) -> Unit = remember(appContext, scope, snackbarHostState) {
         { majorVersion, uri ->
             scope.launch {
@@ -853,11 +922,11 @@ private fun MCGoAppScaffold(
                         )
                     }
                 }
-                when (destination) {
+                AnimatedContent(targetState = destination, label = "appDestination") { animatedDestination ->
+                    when (animatedDestination) {
                     McGoDestination.Status -> StatusScreen(
+                        dashboardState = statusDashboardState,
                         modifier = Modifier.fillMaxSize(),
-                        appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
-                        statusMonitor = statusMonitor,
                         bottomContentPadding = bottomContentPadding,
                     )
                     McGoDestination.Servers -> ServersScreen(
@@ -878,15 +947,17 @@ private fun MCGoAppScaffold(
                             showServerComposer = false
                             scope.launch { snackbarHostState.showSnackbar("已创建 ${server.name}") }
                         },
-                        onStartServer = { serverId, tunnelId, startupPort, remotePort ->
+                        onStartServer = { serverId, startupPort, tunnelSelections ->
                             if (!hasServerDirectoryGrant()) {
-                                pendingStartRequest = PendingStartRequest(serverId, tunnelId, startupPort, remotePort)
+                                pendingStartRequest = PendingStartRequest(serverId, startupPort, tunnelSelections)
                                 requestServerDirectory(PendingServerDirectoryAction.StartServer)
                             } else {
-                                startServerNow(PendingStartRequest(serverId, tunnelId, startupPort, remotePort))
+                                startServerNow(PendingStartRequest(serverId, startupPort, tunnelSelections))
                             }
                         },
                         onStopServer = { serverId ->
+                            pendingManagedRuntimeStarts = pendingManagedRuntimeStarts.filterNot { it.request.serverId == serverId }
+                            pendingStartRequest = pendingStartRequest?.takeUnless { it.serverId == serverId }
                             val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen
                             PaperServerService.stop(appContext, serverId, targetServer.runtimeSlot)
                             val updatedServers = servers.map { server ->
@@ -903,6 +974,8 @@ private fun MCGoAppScaffold(
                             syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
                         },
                         onDeleteServer = { serverId ->
+                            pendingManagedRuntimeStarts = pendingManagedRuntimeStarts.filterNot { it.request.serverId == serverId }
+                            pendingStartRequest = pendingStartRequest?.takeUnless { it.serverId == serverId }
                             val targetServer = servers.firstOrNull { it.id == serverId }
                             if (targetServer?.isRuntimeBusy() == true) {
                                 PaperServerService.stop(appContext, serverId, targetServer.runtimeSlot)
@@ -952,7 +1025,7 @@ private fun MCGoAppScaffold(
                             showTunnelComposer = true
                         },
                         onDeleteTunnel = { tunnelId ->
-                            val inUseServers = servers.filter { it.selectedTunnelId == tunnelId && it.isRuntimeBusy() }
+                            val inUseServers = servers.filter { it.usesTunnel(tunnelId) && it.isRuntimeBusy() }
                             if (inUseServers.isNotEmpty()) {
                                 inUseServers.forEach { runningServer ->
                                     PaperServerService.stop(appContext, runningServer.id, runningServer.runtimeSlot)
@@ -988,25 +1061,33 @@ private fun MCGoAppScaffold(
                         },
                     )
                 }
+                }
             }
         }
-        activeEditingServer?.let { server ->
-            EditPaperServerDialog(
-                server = server,
-                vanillaVersions = vanillaVersions,
-                paperVersions = paperVersions,
-                purpurVersions = purpurVersions,
-                supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
-                dynamicBackground = appearancePreferences.dynamicBackground,
-                onDismiss = { editingServerId = null },
-                onSave = { edited ->
-                    val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
-                    onServersChange(updatedServers)
-                    syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-                    editingServerId = null
-                    scope.launch { snackbarHostState.showSnackbar("已更新 ${edited.name}") }
-                },
-            )
+        AnimatedVisibility(
+            visible = activeEditingServer != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+            label = "editServerOverlay",
+        ) {
+            activeEditingServer?.let { server ->
+                EditPaperServerDialog(
+                    server = server,
+                    vanillaVersions = vanillaVersions,
+                    paperVersions = paperVersions,
+                    purpurVersions = purpurVersions,
+                    supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
+                    dynamicBackground = appearancePreferences.dynamicBackground,
+                    onDismiss = { editingServerId = null },
+                    onSave = { edited ->
+                        val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
+                        onServersChange(updatedServers)
+                        syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+                        editingServerId = null
+                        scope.launch { snackbarHostState.showSnackbar("已更新 ${edited.name}") }
+                    },
+                )
+            }
         }
     }
 }
@@ -2376,11 +2457,14 @@ private fun <T> EditMenuSettingRow(
     val colors = editPageColors()
     var expanded by remember(label, valueLabel, options) { mutableStateOf(false) }
 
-    Box {
-        EditSettingRowShell(
-            icon = icon,
-            label = label,
-            onClick = { expanded = true },
+    EditSettingRowShell(
+        icon = icon,
+        label = label,
+        onClick = { expanded = true },
+    ) {
+        Box(
+            modifier = Modifier.wrapContentWidth(align = Alignment.End),
+            contentAlignment = Alignment.CenterEnd,
         ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2398,19 +2482,19 @@ private fun <T> EditMenuSettingRow(
                     tint = colors.secondaryText,
                 )
             }
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(optionLabel(option)) },
-                    onClick = {
-                        onSelect(option)
-                        expanded = false
-                    },
-                )
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(optionLabel(option)) },
+                        onClick = {
+                            onSelect(option)
+                            expanded = false
+                        },
+                    )
+                }
             }
         }
     }

@@ -4,17 +4,20 @@ import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.isRuntimeBusy
+import com.mcgo.app.ui.model.readableSlug
 import java.net.URI
 
 private const val DefaultBundledFrpcAssetArm64 = "frp/android_arm64/frpc"
 
 data class TunnelRuntimePlan(
+    val tunnelId: String,
     val binaryPath: java.nio.file.Path,
     val extractedBinaryPath: java.nio.file.Path,
     val configPath: java.nio.file.Path,
     val configText: String,
     val displayLabel: String,
     val runtimeAddress: String,
+    val remotePort: Int,
 )
 
 fun defaultBundledFrpcAssetRelativePath(abi: String): String = when (abi) {
@@ -47,6 +50,12 @@ fun buildFrpcConfigForTunnel(server: ServerCardState, tunnel: TunnelProfile): St
         .replace("\n", "")
         .replace("\r", "")
         .replace("\"", "\\\"")
+    val proxyName = listOf(
+        "mcgo",
+        readableSlug(server.name),
+        readableSlug(tunnel.name),
+        remotePort.toString(),
+    ).filter { it.isNotBlank() }.joinToString("-")
     return buildString {
         appendLine("serverAddr = \"$host\"")
         appendLine("serverPort = $serverPort")
@@ -55,12 +64,40 @@ fun buildFrpcConfigForTunnel(server: ServerCardState, tunnel: TunnelProfile): St
         appendLine("auth.token = \"$escapedToken\"")
         appendLine()
         appendLine("[[proxies]]")
-        appendLine("name = \"${server.id}\"")
+        appendLine("name = \"$proxyName\"")
         appendLine("type = \"tcp\"")
         appendLine("localIP = \"127.0.0.1\"")
         appendLine("localPort = ${server.port}")
         appendLine("remotePort = $remotePort")
     }
+}
+
+fun tunnelRuntimePlansForStart(
+    filesDir: java.nio.file.Path,
+    nativeLibraryDir: java.nio.file.Path,
+    server: ServerCardState,
+    tunnels: List<TunnelProfile>,
+    supportedAbi: String,
+): List<TunnelRuntimePlan> = tunnels.map { tunnel ->
+    if (tunnel.kind != TunnelKind.Frp) {
+        throw JavaRuntimeInstallException("当前仅支持 FRP 真启动；其他隧道类型暂未接入运行时")
+    }
+    val frpDir = managedPaperServerDirectory(filesDir, server.id).resolve("frp").resolve(sanitizeManagedServerId(tunnel.id))
+    val frpcAssetRelativePath = defaultBundledFrpcAssetRelativePath(supportedAbi)
+    val frpcBinaryName = nativeLibraryExecutableNameForAsset(frpcAssetRelativePath)
+    val endpoint = URI("tcp://${tunnel.serverAddress}")
+    val host = endpoint.host ?: error("FRP 服务端地址无效")
+    val remotePort = tunnel.remotePort ?: server.tunnelRemotePort ?: server.port
+    TunnelRuntimePlan(
+        tunnelId = tunnel.id,
+        binaryPath = nativeLibraryDir.resolve(frpcBinaryName),
+        extractedBinaryPath = frpDir.resolve("bin").resolve("frpc"),
+        configPath = frpDir.resolve("frpc.toml"),
+        configText = buildFrpcConfigForTunnel(server, tunnel),
+        displayLabel = tunnel.name,
+        runtimeAddress = "$host:$remotePort",
+        remotePort = remotePort,
+    )
 }
 
 fun tunnelRuntimePlanForStart(
@@ -69,25 +106,14 @@ fun tunnelRuntimePlanForStart(
     server: ServerCardState,
     tunnel: TunnelProfile?,
     supportedAbi: String,
-): TunnelRuntimePlan? {
-    if (tunnel == null) return null
-    if (tunnel.kind != TunnelKind.Frp) {
-        throw JavaRuntimeInstallException("当前仅支持 FRP 真启动；其他隧道类型暂未接入运行时")
-    }
-    val frpDir = managedPaperServerDirectory(filesDir, server.id).resolve("frp")
-    val frpcAssetRelativePath = defaultBundledFrpcAssetRelativePath(supportedAbi)
-    val frpcBinaryName = nativeLibraryExecutableNameForAsset(frpcAssetRelativePath)
-    val endpoint = URI("tcp://${tunnel.serverAddress}")
-    val host = endpoint.host ?: error("FRP 服务端地址无效")
-    val remotePort = tunnel.remotePort ?: server.tunnelRemotePort ?: server.port
-    return TunnelRuntimePlan(
-        binaryPath = nativeLibraryDir.resolve(frpcBinaryName),
-        extractedBinaryPath = frpDir.resolve("bin").resolve("frpc"),
-        configPath = frpDir.resolve("frpc.toml"),
-        configText = buildFrpcConfigForTunnel(server, tunnel),
-        displayLabel = tunnel.name,
-        runtimeAddress = "$host:$remotePort",
-    )
+): TunnelRuntimePlan? = tunnel?.let {
+    tunnelRuntimePlansForStart(
+        filesDir = filesDir,
+        nativeLibraryDir = nativeLibraryDir,
+        server = server,
+        tunnels = listOf(it),
+        supportedAbi = supportedAbi,
+    ).single()
 }
 
 fun nativeLibraryExecutableNameForAsset(assetRelativePath: String): String {

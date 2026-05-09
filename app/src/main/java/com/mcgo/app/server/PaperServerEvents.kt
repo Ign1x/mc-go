@@ -1,5 +1,6 @@
 package com.mcgo.app.server
 
+import com.mcgo.app.ui.model.ServerTunnelBinding
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
@@ -18,6 +19,7 @@ data class PaperServerEvent(
     val message: String,
     val activeTunnelLabel: String? = null,
     val runtimeAddress: String? = null,
+    val tunnelBindings: List<ServerTunnelBinding> = emptyList(),
 )
 
 object PaperServerEvents {

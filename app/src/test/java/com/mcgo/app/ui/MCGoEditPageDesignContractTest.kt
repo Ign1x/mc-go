@@ -172,6 +172,19 @@ class MCGoEditPageDesignContractTest {
     }
 
     @Test
+    fun editPageMenuRows_anchorDropdownToTrailingValueAreaInsteadOfWholeRow() {
+        val menuRow = source.substringBetween(
+            start = "private fun <T> EditMenuSettingRow(",
+            end = "@Composable\nprivate fun EditSwitchSettingRow(",
+        )
+
+        assertThat(menuRow).contains("modifier = Modifier.wrapContentWidth(align = Alignment.End)")
+        assertThat(menuRow).contains("contentAlignment = Alignment.CenterEnd")
+        assertThat(menuRow).contains("DropdownMenu(")
+        assertThat(menuRow).doesNotContain("Box {\n        EditSettingRowShell")
+    }
+
+    @Test
     fun editOverlayState_clearsStaleEditingServerSelection() {
         val scaffold = source.substringBetween(
             start = "private fun MCGoAppScaffold(",
@@ -209,8 +222,8 @@ class MCGoEditPageDesignContractTest {
         assertThat(scaffold).contains("McGoDestination.Servers -> if (activeEditingServer == null)")
         assertThat(rootScaffoldSection).contains("FloatingGlassBottomMenu(")
         assertThat(rootScaffoldSection).contains("Scaffold(")
-        assertThat(rootScaffoldSection).contains("activeEditingServer?.let { server ->")
-        assertThat(rootScaffoldSection).contains("}\n        activeEditingServer?.let { server ->")
+        assertThat(rootScaffoldSection).contains("AnimatedVisibility(")
+        assertThat(rootScaffoldSection).contains("visible = activeEditingServer != null")
         assertThat(rootScaffoldSection).contains("EditPaperServerDialog(")
         assertThat(rootScaffoldSection).contains("destination == McGoDestination.Settings && settingsDestination != SettingsDestination.Overview")
         assertThat(scaffold).contains("settingsDestination = SettingsDestination.Overview")
@@ -260,6 +273,13 @@ class MCGoEditPageDesignContractTest {
         assertThat(bottomMenu).doesNotContain("Color(0xFF0088CC)")
     }
 
+
+    @Test
+    fun editOverlayImmersion_disablesNavigationBarContrastScrimForTransparentGestureHandle() {
+        assertThat(mainActivitySource).contains("enableEdgeToEdge()")
+        assertThat(mainActivitySource).contains("if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)")
+        assertThat(mainActivitySource).contains("window.isNavigationBarContrastEnforced = false")
+    }
 
     @Test
     fun editPaperServerDialog_usesScrollableChromeAndNonStickyConfigActions() {

@@ -38,6 +38,9 @@ fun managedPaperServerLogFile(filesDir: Path, serverId: String): Path =
 fun managedPaperServerFrpcLogFile(filesDir: Path, serverId: String): Path =
     managedPaperServerDirectory(filesDir, serverId).resolve("logs/frpc.log")
 
+fun managedPaperServerFrpcLogFile(filesDir: Path, serverId: String, tunnelId: String): Path =
+    managedPaperServerDirectory(filesDir, serverId).resolve("logs/frpc-${sanitizeManagedServerId(tunnelId)}.log")
+
 fun buildManagedPaperLaunchConfig(
     server: ServerCardState,
     filesDir: Path,
@@ -150,7 +153,8 @@ fun resolveManagedJavaRuntimeLayout(
 }
 
 fun sanitizeManagedServerId(serverId: String): String = serverId
-    .replace(Regex("[^A-Za-z0-9._-]+"), "-")
+    .replace(Regex("[^\\p{L}\\p{N}._-]+"), "-")
+    .replace(Regex("-+"), "-")
     .trim('-', '.')
     .ifBlank { "paper-server" }
 

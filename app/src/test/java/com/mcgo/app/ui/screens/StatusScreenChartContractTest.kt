@@ -73,6 +73,10 @@ class StatusScreenChartContractTest {
             start = "fun MCGoApp() {",
             end = "@Composable\nprivate fun MCGoAppScaffold(",
         )
+        val scaffoldSource = appSource.substringBetween(
+            start = "private fun MCGoAppScaffold(",
+            end = "@Composable\nprivate fun RequestRuntimePermissions",
+        )
         val statusDestination = appSource.substringBetween(
             start = "McGoDestination.Status ->",
             end = "McGoDestination.Tunnels ->",
@@ -83,13 +87,17 @@ class StatusScreenChartContractTest {
         assertThat(topLevelApp).contains("val statusMonitor = remember(appContext, appEntryElapsedRealtimeMillis)")
         assertThat(topLevelApp).contains("DevicePerformanceMonitor(appContext, appEntryElapsedRealtimeMillis)")
         assertThat(topLevelApp).contains("statusMonitor = statusMonitor")
+        assertThat(scaffoldSource).contains("val statusDashboardState = rememberStatusDashboardState(")
+        assertThat(scaffoldSource).contains("appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis")
+        assertThat(scaffoldSource).contains("statusMonitor = statusMonitor")
         assertThat(statusDestination).contains("StatusScreen(")
-        assertThat(statusDestination).contains("appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis")
-        assertThat(statusDestination).contains("statusMonitor = statusMonitor")
-        assertThat(statusScreenSource).contains("appEntryElapsedRealtimeMillis: Long")
-        assertThat(statusScreenSource).contains("statusMonitor: DevicePerformanceMonitor")
-        assertThat(statusScreenSource).contains("rememberStatusDashboardState(")
-        assertThat(statusScreenSource).contains("statusMonitor = statusMonitor")
+        assertThat(statusDestination).contains("dashboardState = statusDashboardState")
+        assertThat(statusDestination).doesNotContain("appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis")
+        assertThat(statusDestination).doesNotContain("statusMonitor = statusMonitor")
+        assertThat(statusScreenSource).contains("dashboardState: StatusDashboardState")
+        assertThat(statusScreenSource).doesNotContain("appEntryElapsedRealtimeMillis: Long")
+        assertThat(statusScreenSource).doesNotContain("statusMonitor: DevicePerformanceMonitor")
+        assertThat(statusScreenSource).doesNotContain("rememberStatusDashboardState(")
         assertThat(stateSource).contains("fun rememberStatusDashboardState(")
         assertThat(stateSource).contains("statusMonitor: DevicePerformanceMonitor")
         assertThat(stateSource).contains("statusMonitor.markSamplingGap()")

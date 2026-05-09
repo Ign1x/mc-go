@@ -3,40 +3,46 @@ package com.mcgo.app.server
 import android.content.Context
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
+import com.mcgo.app.ui.model.clearTunnelRuntimeBindings
+import com.mcgo.app.ui.model.effectiveTunnelBindings
 import com.mcgo.app.ui.model.finalizePendingServerDeletion
 import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markLaunchRunning
 import com.mcgo.app.ui.model.withLaunchProgress
+import com.mcgo.app.ui.model.withTunnelBindings
 import com.mcgo.app.ui.storage.ServerProfileStore
 import com.mcgo.app.ui.storage.ServerProfileStoreGlobalLock
 import java.nio.file.Path
 
-fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): ServerCardState = when (event.status) {
-    PaperServerEventStatus.Running -> server.markLaunchRunning(event.message).copy(
-        activeTunnelLabel = event.activeTunnelLabel ?: server.activeTunnelLabel,
-        runtimeAddress = event.runtimeAddress ?: server.runtimeAddress,
-    )
-    PaperServerEventStatus.Failed -> server.markLaunchFailed(event.message)
-    PaperServerEventStatus.Stopping -> server.markLaunchStopping(event.message).copy(
-        activeTunnelLabel = event.activeTunnelLabel ?: server.activeTunnelLabel,
-        runtimeAddress = event.runtimeAddress ?: server.runtimeAddress,
-    )
-    PaperServerEventStatus.Stopped -> server.clearRuntimeState(ServerLaunchStatus.Stopped, event.message)
-    PaperServerEventStatus.Launching -> server.withLaunchProgress(
-        progress = event.progress ?: server.launchProgress,
-        logLine = event.message,
-        status = ServerLaunchStatus.Launching,
-        online = false,
-    ).copy(
-        activeTunnelLabel = event.activeTunnelLabel ?: server.activeTunnelLabel,
-        runtimeAddress = event.runtimeAddress ?: server.runtimeAddress,
-    )
-    null -> server.copy(
-        activeTunnelLabel = event.activeTunnelLabel ?: server.activeTunnelLabel,
-        runtimeAddress = event.runtimeAddress ?: server.runtimeAddress,
-        runtimeLogs = (server.runtimeLogs + event.message).takeLast(12),
-    )
+fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): ServerCardState {
+    val mergedTunnelBindings = when {
+        event.tunnelBindings.isNotEmpty() -> event.tunnelBindings
+        else -> server.effectiveTunnelBindings()
+    }
+    val mergedServer = server.withTunnelBindings(mergedTunnelBindings.map { binding ->
+        val primaryFallbackAddress = event.runtimeAddress ?: binding.runtimeAddress
+        val primaryFallbackLabel = event.activeTunnelLabel ?: binding.activeLabel
+        binding.copy(
+            activeLabel = if (event.tunnelBindings.isNotEmpty()) binding.activeLabel else primaryFallbackLabel,
+            runtimeAddress = if (event.tunnelBindings.isNotEmpty()) binding.runtimeAddress else primaryFallbackAddress,
+        )
+    })
+    return when (event.status) {
+        PaperServerEventStatus.Running -> mergedServer.markLaunchRunning(event.message)
+        PaperServerEventStatus.Failed -> mergedServer.markLaunchFailed(event.message)
+        PaperServerEventStatus.Stopping -> mergedServer.markLaunchStopping(event.message)
+        PaperServerEventStatus.Stopped -> mergedServer.clearRuntimeState(ServerLaunchStatus.Stopped, event.message)
+        PaperServerEventStatus.Launching -> mergedServer.withLaunchProgress(
+            progress = event.progress ?: mergedServer.launchProgress,
+            logLine = event.message,
+            status = ServerLaunchStatus.Launching,
+            online = false,
+        )
+        null -> mergedServer.copy(
+            runtimeLogs = (mergedServer.runtimeLogs + event.message).takeLast(12),
+        )
+    }
 }
 
 fun syncPaperRuntimeEvent(filesDir: Path, event: PaperServerEvent) {
@@ -124,7 +130,7 @@ private fun ServerCardState.markLaunchStopping(message: String): ServerCardState
     runtimeLogs = (runtimeLogs + message).takeLast(12),
 )
 
-private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, message: String): ServerCardState = copy(
+private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, message: String): ServerCardState = clearTunnelRuntimeBindings().copy(
     isOnline = false,
     port = defaultPort,
     activeTunnelLabel = null,
