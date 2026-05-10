@@ -18,6 +18,8 @@ class MCGoServerIconContractTest {
             .substringBefore("private enum class EditFullScreenScaffoldLayoutMode")
         val decodeSection = appSource.substringAfter("private fun decodeServerIconPreviewBitmap(")
             .substringBefore("private fun calculateInSampleSize(")
+        val editorCardSection = appSource.substringAfter("internal fun ServerIconEditorCard(")
+            .substringBefore("@Composable\nfun ServerAvatar(")
 
         assertThat(editDialog).contains("rememberLauncherForActivityResult(")
         assertThat(editDialog).contains("ActivityResultContracts.PickVisualMedia()")
@@ -30,6 +32,12 @@ class MCGoServerIconContractTest {
         assertThat(appSource).contains("clampServerIconCropOffset(")
         assertThat(appSource).contains("resolveServerIconCropWindow(")
         assertThat(decodeSection).doesNotContain("readBytes()")
+        assertThat(editorCardSection).contains("BoxWithConstraints")
+        assertThat(editorCardSection).contains("if (maxWidth < 360.dp)")
+        assertThat(editorCardSection).contains("modifier = Modifier.fillMaxWidth()")
+        assertThat(editorCardSection).contains("OutlinedButton(")
+        assertThat(editorCardSection).contains("modifier = Modifier.weight(1f)")
+        assertThat(editorCardSection).contains("modifier = Modifier.fillMaxWidth(),")
     }
 
     @Test

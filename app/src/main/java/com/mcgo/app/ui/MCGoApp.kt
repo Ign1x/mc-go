@@ -33,6 +33,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -2277,35 +2278,99 @@ internal fun ServerIconEditorCard(
     onPickIcon: () -> Unit,
     onRemoveIcon: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ServerAvatar(
-            server = server,
-            pendingServerIconChange = pendingServerIconChange,
-            modifier = Modifier.size(72.dp),
-        )
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = "服务器图标",
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = "使用手机图片，裁剪成 1:1 后自动转为 64×64 PNG",
-                style = MaterialTheme.typography.bodySmall,
-                color = editPageColors().secondaryText,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onPickIcon) {
-                    Text("更换图标")
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val containerModifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+        if (maxWidth < 360.dp) {
+            Column(
+                modifier = containerModifier,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ServerAvatar(
+                        server = server,
+                        pendingServerIconChange = pendingServerIconChange,
+                        modifier = Modifier.size(64.dp),
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "服务器图标",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            text = "使用手机图片，裁剪成 1:1 后自动转为 64×64 PNG",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = editPageColors().secondaryText,
+                        )
+                    }
                 }
-                OutlinedButton(onClick = onRemoveIcon) {
-                    Text("移除图标")
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onPickIcon,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("更换图标")
+                    }
+                    OutlinedButton(
+                        onClick = onRemoveIcon,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("移除图标")
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = containerModifier,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ServerAvatar(
+                    server = server,
+                    pendingServerIconChange = pendingServerIconChange,
+                    modifier = Modifier.size(72.dp),
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "服务器图标",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = "使用手机图片，裁剪成 1:1 后自动转为 64×64 PNG",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = editPageColors().secondaryText,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = onPickIcon,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("更换图标")
+                        }
+                        OutlinedButton(
+                            onClick = onRemoveIcon,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("移除图标")
+                        }
+                    }
                 }
             }
         }

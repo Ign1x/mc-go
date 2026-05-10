@@ -76,6 +76,9 @@ class CreateServerDialogContractTest {
         assertThat(createDialogSource).contains("syncManagedServerIconToAuthorizedDirectory(")
         assertThat(createDialogSource).contains("pendingServerIconChange")
         assertThat(createDialogSource).contains("serverIconVersion = when (pendingServerIconChange)")
+        assertThat(createDialogSource).contains("val activePendingServerIconCrop = pendingServerIconCrop")
+        assertThat(createDialogSource).contains("if (activePendingServerIconCrop != null)")
+        assertThat(createDialogSource).contains("return")
     }
 
     @Test

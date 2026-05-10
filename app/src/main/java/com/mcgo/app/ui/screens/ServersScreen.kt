@@ -578,9 +578,10 @@ private fun CreateServerDialog(
     )
     val canCreate = name.isNotBlank() && minecraftVersion.isNotBlank()
 
-    pendingServerIconCrop?.let { previewBitmap ->
+    val activePendingServerIconCrop = pendingServerIconCrop
+    if (activePendingServerIconCrop != null) {
         ServerIconCropDialog(
-            previewBitmap = previewBitmap,
+            previewBitmap = activePendingServerIconCrop,
             dynamicBackground = dynamicBackground,
             onDismiss = { pendingServerIconCrop = null },
             onApply = { pngBytes ->
@@ -588,6 +589,7 @@ private fun CreateServerDialog(
                 pendingServerIconCrop = null
             },
         )
+        return
     }
 
     AlertDialog(
