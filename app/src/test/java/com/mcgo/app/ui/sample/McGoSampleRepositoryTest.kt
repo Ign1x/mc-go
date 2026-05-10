@@ -25,13 +25,14 @@ class McGoSampleRepositoryTest {
     }
 
     @Test
-    fun settingsSections_topLevelShowsAppearanceJavaManagementAndRuntimePermissions() {
+    fun settingsSections_topLevelShowsAppearanceJavaManagementRuntimePermissionsAndHelp() {
         val sections = McGoSampleRepository.settingsSections()
 
-        assertThat(sections.map { it.title }).containsExactly("界面与外观", "Java 管理", "运行权限").inOrder()
+        assertThat(sections.map { it.title }).containsExactly("界面与外观", "Java 管理", "运行权限", "帮助与调试").inOrder()
         assertThat(sections.first().subtitle).contains("主题")
         assertThat(sections[1].subtitle).contains("JRE")
-        assertThat(sections.last().subtitle).contains("权限")
+        assertThat(sections[2].subtitle).contains("权限")
+        assertThat(sections.last().subtitle).contains("日志")
     }
 
     @Test

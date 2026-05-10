@@ -32,10 +32,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -105,6 +107,7 @@ fun SettingsScreen(
     serverDirectoryUri: String? = null,
     onServerDirectorySelected: (Uri?) -> Unit = {},
     onRequestServerDirectory: () -> Unit = {},
+    onExportLogs: () -> Unit = {},
     modifier: Modifier = Modifier,
     bottomContentPadding: Dp = 0.dp,
     settingsDestination: SettingsDestination = SettingsDestination.Overview,
@@ -125,6 +128,7 @@ fun SettingsScreen(
     val appearanceSection = settingsSections.first { it.icon == SettingsCategoryIcon.Appearance }
     val javaManagementSection = settingsSections.first { it.icon == SettingsCategoryIcon.JavaRuntime }
     val runtimePermissionSection = settingsSections.first { it.icon == SettingsCategoryIcon.RuntimePermissions }
+    val helpAndDebugSection = settingsSections.first { it.icon == SettingsCategoryIcon.Diagnostics }
     val context = LocalContext.current
     var postNotificationsGranted by remember {
         mutableStateOf(
@@ -206,6 +210,7 @@ fun SettingsScreen(
             onOpenAppearance = { onSettingsDestinationChange(navigationState.openAppearance().destination) },
             onOpenJavaManagement = { onSettingsDestinationChange(navigationState.openJavaManagement().destination) },
             onOpenRuntimePermissions = { onSettingsDestinationChange(navigationState.openRuntimePermissions().destination) },
+            onOpenHelpAndDebug = { onSettingsDestinationChange(navigationState.openHelpAndDebug().destination) },
         )
         SettingsDestination.Appearance -> AppearanceDetailScreen(
             modifier = modifier,
@@ -234,6 +239,13 @@ fun SettingsScreen(
             onNavigateBack = { onSettingsDestinationChange(navigationState.navigateBack().destination) },
             onPermissionAction = onRuntimePermissionAction,
         )
+        SettingsDestination.HelpAndDebug -> HelpAndDebugDetailScreen(
+            modifier = modifier,
+            bottomContentPadding = bottomContentPadding,
+            section = helpAndDebugSection,
+            onNavigateBack = { onSettingsDestinationChange(navigationState.navigateBack().destination) },
+            onExportLogs = onExportLogs,
+        )
     }
 }
 
@@ -243,6 +255,7 @@ private fun SettingsOverview(
     onOpenAppearance: () -> Unit,
     onOpenJavaManagement: () -> Unit,
     onOpenRuntimePermissions: () -> Unit,
+    onOpenHelpAndDebug: () -> Unit,
     modifier: Modifier = Modifier,
     bottomContentPadding: Dp = 0.dp,
 ) {
@@ -260,6 +273,7 @@ private fun SettingsOverview(
                         SettingsCategoryIcon.Appearance -> onOpenAppearance
                         SettingsCategoryIcon.JavaRuntime -> onOpenJavaManagement
                         SettingsCategoryIcon.RuntimePermissions -> onOpenRuntimePermissions
+                        SettingsCategoryIcon.Diagnostics -> onOpenHelpAndDebug
                         else -> onOpenAppearance
                     },
                 )
@@ -430,6 +444,108 @@ private fun RuntimePermissionDetailScreen(
             )
         }
         item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
+    }
+}
+
+@Composable
+private fun HelpAndDebugDetailScreen(
+    section: SettingsSectionState,
+    onNavigateBack: () -> Unit,
+    onExportLogs: () -> Unit,
+    modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
+) {
+    val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.HelpAndDebug)
+
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+        item {
+            AppearanceDetailHeader(
+                title = "帮助与调试",
+                subtitle = section.subtitle,
+                chrome = detailChrome,
+                onNavigateBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item {
+            HelpAndDebugCard(
+                onExportLogs = onExportLogs,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
+    }
+}
+
+@Composable
+private fun HelpAndDebugCard(
+    onExportLogs: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
+    GlassCard(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                contentColor = MaterialTheme.colorScheme.primary,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
+                    contentDescription = null,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "帮助与调试",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.primary,
+                )
+                Text(
+                    text = "遇到问题时，可先提取日志；问题反馈时建议附上日志，能更快定位开服、隧道、Java 或目录授权问题。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(14.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "提取内容会包含：服务器列表配置、隧道配置、运行时权限配置、外观配置，以及各实例当前日志文件。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
+                Text(
+                    text = "默认会自动隐藏隧道凭据、原始隧道配置和目录授权 URI；如仍涉及服务器名、连接地址或异常栈，请分享前自行再检查一遍。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(14.dp))
+        TextButton(onClick = onExportLogs) {
+            Icon(Icons.Outlined.Share, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("提取日志")
+        }
     }
 }
 

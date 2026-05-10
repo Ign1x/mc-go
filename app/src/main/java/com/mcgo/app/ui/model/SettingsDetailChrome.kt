@@ -15,7 +15,8 @@ object SettingsDetailChrome {
         SettingsDestination.Overview -> SettingsDetailChromeState()
         SettingsDestination.Appearance,
         SettingsDestination.JavaManagement,
-        SettingsDestination.RuntimePermissions -> SettingsDetailChromeState(
+        SettingsDestination.RuntimePermissions,
+        SettingsDestination.HelpAndDebug -> SettingsDetailChromeState(
             backActionPlacement = SettingsBackActionPlacement.TopRight,
             usesCompactActionButton = true,
         )

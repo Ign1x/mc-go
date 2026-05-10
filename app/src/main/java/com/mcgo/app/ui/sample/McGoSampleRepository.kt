@@ -84,6 +84,12 @@ object McGoSampleRepository {
             highlight = "查看状态并申请",
             icon = SettingsCategoryIcon.RuntimePermissions,
         ),
+        SettingsSectionState(
+            title = "帮助与调试",
+            subtitle = "问题定位、日志提取与反馈建议",
+            highlight = "导出日志辅助排查",
+            icon = SettingsCategoryIcon.Diagnostics,
+        ),
     )
 
     fun appearanceSettings(): AppearanceSettingsState {
