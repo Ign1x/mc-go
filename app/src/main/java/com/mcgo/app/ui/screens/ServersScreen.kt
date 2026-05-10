@@ -147,22 +147,6 @@ fun ServersScreen(
 ) {
     var pendingStartServer by remember { mutableStateOf<ServerCardState?>(null) }
     var pendingDeleteServer by remember { mutableStateOf<ServerCardState?>(null) }
-    var fileMenuExpanded by remember { mutableStateOf(false) }
-    var selectedFileServerId by remember { mutableStateOf<String?>(null) }
-    val worldImportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        val serverId = selectedFileServerId
-        if (uri != null && serverId != null) onImportWorldArchive(serverId, uri)
-        selectedFileServerId = null
-    }
-    val worldExportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/zip"),
-    ) { uri ->
-        val serverId = selectedFileServerId
-        if (uri != null && serverId != null) onExportWorldArchive(serverId, uri)
-        selectedFileServerId = null
-    }
 
     if (showCreateServer) {
         CreateServerDialog(
@@ -208,50 +192,12 @@ fun ServersScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { Spacer(modifier = Modifier.height(6.dp)) }
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                Box {
-                    TextButton(onClick = { fileMenuExpanded = true }) {
-                        Icon(Icons.Outlined.Folder, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("文件管理")
-                    }
-                    DropdownMenu(
-                        expanded = fileMenuExpanded,
-                        onDismissRequest = { fileMenuExpanded = false },
-                    ) {
-                        servers.forEach { server ->
-                            DropdownMenuItem(
-                                text = { Text("导入存档 · ${server.name}") },
-                                enabled = !server.isRuntimeBusy(),
-                                onClick = {
-                                    selectedFileServerId = server.id
-                                    fileMenuExpanded = false
-                                    worldImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("导出存档 · ${server.name}") },
-                                onClick = {
-                                    selectedFileServerId = server.id
-                                    fileMenuExpanded = false
-                                    worldExportLauncher.launch("${server.worldName}.zip")
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        }
         items(items = servers, key = { it.id }) { server ->
             ServerCard(
                 server = server,
                 modifier = Modifier.padding(horizontal = 20.dp),
+                onImportWorldArchive = { uri -> onImportWorldArchive(server.id, uri) },
+                onExportWorldArchive = { uri -> onExportWorldArchive(server.id, uri) },
                 onOpenConsole = { onOpenConsole(server.id) },
                 onEditServer = { onEditServer(server.id) },
                 onStartClick = { pendingStartServer = server },
@@ -267,6 +213,8 @@ fun ServersScreen(
 private fun ServerCard(
     server: ServerCardState,
     modifier: Modifier = Modifier,
+    onImportWorldArchive: (android.net.Uri) -> Unit,
+    onExportWorldArchive: (android.net.Uri) -> Unit,
     onOpenConsole: () -> Unit,
     onEditServer: () -> Unit,
     onStartClick: () -> Unit,
@@ -274,6 +222,17 @@ private fun ServerCard(
     onDeleteClick: () -> Unit,
 ) {
     val context = LocalContext.current
+    var fileMenuExpanded by remember(server.id) { mutableStateOf(false) }
+    val worldImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) onImportWorldArchive(uri)
+    }
+    val worldExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) onExportWorldArchive(uri)
+    }
     val statusColor = when (server.launchStatus) {
         ServerLaunchStatus.Running -> MaterialTheme.colorScheme.secondary
         ServerLaunchStatus.Launching -> MaterialTheme.colorScheme.primary
@@ -387,6 +346,31 @@ private fun ServerCard(
         ) {
             val startEnabled = canStartServerFromUi(server)
             val stopEnabled = server.isRuntimeBusy()
+            Box {
+                IconButton(onClick = { fileMenuExpanded = true }) {
+                    Icon(Icons.Outlined.Folder, contentDescription = "文件管理")
+                }
+                DropdownMenu(
+                    expanded = fileMenuExpanded,
+                    onDismissRequest = { fileMenuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("导入存档") },
+                        enabled = !server.isRuntimeBusy(),
+                        onClick = {
+                            fileMenuExpanded = false
+                            worldImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导出存档") },
+                        onClick = {
+                            fileMenuExpanded = false
+                            worldExportLauncher.launch("${server.worldName}.zip")
+                        },
+                    )
+                }
+            }
             IconButton(onClick = onOpenConsole) {
                 Icon(Icons.Outlined.Terminal, contentDescription = stringResource(R.string.server_action_console))
             }

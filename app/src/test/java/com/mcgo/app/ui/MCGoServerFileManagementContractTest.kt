@@ -13,13 +13,20 @@ class MCGoServerFileManagementContractTest {
     private val archiveSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerWorldArchive.kt")))
 
     @Test
-    fun serversScreen_offersFileManagementForWorldImportAndExport() {
-        assertThat(serversScreenSource).contains("Text(\"文件管理\")")
-        assertThat(serversScreenSource).contains("导入存档 ·")
-        assertThat(serversScreenSource).contains("导出存档 ·")
+    fun serverCard_placesPerServerFileManagementToTheLeftOfConsole() {
+        assertThat(serversScreenSource).doesNotContain("TextButton(onClick = { fileMenuExpanded = true })")
+        assertThat(serversScreenSource).doesNotContain("Text(\"导入存档 ·")
+        assertThat(serversScreenSource).doesNotContain("Text(\"导出存档 ·")
+        assertThat(serversScreenSource).contains("var fileMenuExpanded by remember(server.id) { mutableStateOf(false) }")
+        assertThat(serversScreenSource).contains("Icon(Icons.Outlined.Folder, contentDescription = \"文件管理\")")
+        assertThat(serversScreenSource).contains("Text(\"导入存档\")")
+        assertThat(serversScreenSource).contains("Text(\"导出存档\")")
+        assertThat(serversScreenSource).contains("enabled = !server.isRuntimeBusy()")
+        assertThat(serversScreenSource).contains("Icon(Icons.Outlined.Terminal, contentDescription = stringResource(R.string.server_action_console))")
+        assertThat(serversScreenSource).contains("Icon(Icons.Outlined.Folder, contentDescription = \"文件管理\")\n                }")
+        assertThat(serversScreenSource.indexOf("Icons.Outlined.Folder")).isLessThan(serversScreenSource.indexOf("Icons.Outlined.Terminal"))
         assertThat(serversScreenSource).contains("ActivityResultContracts.OpenDocument()")
         assertThat(serversScreenSource).contains("ActivityResultContracts.CreateDocument(\"application/zip\")")
-        assertThat(serversScreenSource).contains("enabled = !server.isRuntimeBusy()")
         assertThat(appSource).contains("importManagedServerWorldArchive(")
         assertThat(appSource).contains("exportManagedServerWorldArchive(")
         assertThat(appSource).contains("syncManagedServerWorkspaceToAuthorizedDirectory(")
