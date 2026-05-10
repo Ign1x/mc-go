@@ -16,6 +16,7 @@ import java.util.zip.ZipFile
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
 private const val PaperDownloadsPageUrl = "https://papermc.io/downloads/paper"
 private const val PurpurApiBase = "https://api.purpurmc.org/v2/purpur"
+private const val FabricMetaBase = "https://meta.fabricmc.net/v2"
 private const val VanillaVersionManifestUrl = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 private const val DefaultProvisionablePaperVersion = "1.21.11"
 private const val BundledAndroidJnaVersion = "5.18.1"
@@ -111,6 +112,8 @@ fun vanillaServerJarFileName(version: String): String = "vanilla-${validatePaper
 
 fun purpurServerJarFileName(version: String): String = "purpur-${validatePaperVersion(version)}.jar"
 
+fun fabricServerJarFileName(version: String): String = "fabric-${validatePaperVersion(version)}.jar"
+
 fun paperJarSha256File(targetJar: Path): Path = targetJar.resolveSibling("${targetJar.fileName}.sha256")
 
 fun filterProvisionablePaperVersions(versions: List<String>): List<String> = versions.filter { version ->
@@ -190,6 +193,22 @@ fun fallbackPurpurVersions(): List<String> = listOf(
     "26.1.2",
 )
 
+fun fallbackFabricVersions(): List<String> = listOf(
+    "1.14.4",
+    "1.15.2",
+    "1.16.5",
+    "1.17.1",
+    "1.18.2",
+    "1.19.4",
+    "1.20.1",
+    "1.20.4",
+    "1.20.6",
+    "1.21.1",
+    "1.21.4",
+    "1.21.11",
+    "26.1.2",
+)
+
 fun filterProvisionablePurpurVersions(versions: List<String>): List<String> =
     filterProvisionablePaperVersions(versions).ifEmpty { fallbackPurpurVersions() }
 
@@ -204,8 +223,22 @@ fun fetchPurpurVersions(): List<String> = runCatching {
         .let(::filterProvisionablePurpurVersions)
 }.getOrElse { fallbackPurpurVersions() }
 
+fun fetchFabricVersions(): List<String> = runCatching {
+    val versions = httpGet("$FabricMetaBase/versions/game")
+        .lineSequence()
+        .mapNotNull { line ->
+            Regex("\\\"version\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"").find(line)?.groupValues?.getOrNull(1)
+        }
+        .filter { validatePaperVersionOrNull(it) != null }
+        .filter { recommendedJavaMajorVersion(it) in setOf(8, 11, 17, 21, 25) }
+        .toList()
+        .distinct()
+        .sortedWith(::compareMinecraftVersions)
+    if (versions.isEmpty()) fallbackFabricVersions() else versions
+}.getOrElse { fallbackFabricVersions() }
+
 fun fetchProvisionableMinecraftVersions(): List<String> =
-    (fetchVanillaVersions() + fetchPaperVersions() + fetchPurpurVersions() + fallbackPaperVersions())
+    (fetchVanillaVersions() + fetchPaperVersions() + fetchPurpurVersions() + fetchFabricVersions() + fallbackPaperVersions())
         .distinct()
         .let(::filterProvisionablePaperVersions)
 
@@ -219,6 +252,7 @@ fun preparePaperServerFiles(server: ServerCardState, rootDir: Path): PreparedPap
             com.mcgo.app.ui.model.MinecraftServerType.Vanilla -> vanillaServerJarFileName(server.minecraftVersion)
             com.mcgo.app.ui.model.MinecraftServerType.Paper -> paperServerJarFileName(server.minecraftVersion)
             com.mcgo.app.ui.model.MinecraftServerType.Purpur -> purpurServerJarFileName(server.minecraftVersion)
+            com.mcgo.app.ui.model.MinecraftServerType.Fabric -> fabricServerJarFileName(server.minecraftVersion)
         },
     )
 
@@ -255,7 +289,10 @@ fun deleteManagedServerIcon(filesDir: Path, serverId: String) {
 }
 
 private fun prepareAndroidCompatibleSparkConfig(workDir: Path, server: ServerCardState) {
-    if (server.serverType == com.mcgo.app.ui.model.MinecraftServerType.Vanilla) return
+    if (
+        server.serverType == com.mcgo.app.ui.model.MinecraftServerType.Vanilla ||
+        server.serverType == com.mcgo.app.ui.model.MinecraftServerType.Fabric
+    ) return
     val sparkConfigPath = workDir.resolve("plugins/spark/config.json")
     Files.createDirectories(sparkConfigPath.parent)
     val existingConfig = sparkConfigPath
@@ -722,6 +759,54 @@ fun downloadLatestPaperJar(
         Files.deleteIfExists(tempJar)
         throw error
     }
+}
+
+fun downloadFabricServerJar(
+    version: String,
+    targetJar: Path,
+    onProgress: (Int) -> Unit = {},
+) {
+    val safeVersion = validatePaperVersion(version)
+    onProgress(2)
+    val loaderVersion = Regex("\\\"version\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+        .find(httpGet("$FabricMetaBase/versions/loader/$safeVersion"))
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: error("Fabric Loader 版本缺失：$safeVersion")
+    onProgress(8)
+    val installerVersion = Regex("\\\"version\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+        .find(httpGet("$FabricMetaBase/versions/installer"))
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: error("Fabric Installer 版本缺失")
+    val downloadUrl = "$FabricMetaBase/versions/loader/$safeVersion/$loaderVersion/$installerVersion/server/jar"
+    Files.createDirectories(targetJar.parent)
+    val tempJar = targetJar.resolveSibling("${targetJar.fileName}.part")
+    Files.deleteIfExists(tempJar)
+    try {
+        downloadFile(downloadUrl, tempJar, scaledPaperDownloadProgressReporter(12, 74, onProgress), flavorLabel = "Fabric")
+        if (!Files.isRegularFile(tempJar) || Files.size(tempJar) <= 0L) error("Fabric 下载失败：文件为空")
+        moveDownloadedPaperJar(tempJar, targetJar)
+        Files.write(paperJarSha256File(targetJar), (sha256Hex(targetJar) + "\n").toByteArray())
+        onProgress(76)
+    } catch (error: Throwable) {
+        Files.deleteIfExists(tempJar)
+        throw error
+    }
+}
+
+fun installManagedServerModFile(
+    sourceFile: Path,
+    serverWorkDir: Path,
+    targetFileName: String = sourceFile.fileName.toString(),
+): Path {
+    require(Files.isRegularFile(sourceFile)) { "模组文件不存在：$sourceFile" }
+    require(targetFileName.endsWith(".jar", ignoreCase = true)) { "模组文件必须是 .jar" }
+    val modsDir = serverWorkDir.resolve("mods")
+    Files.createDirectories(modsDir)
+    val target = modsDir.resolve(targetFileName)
+    Files.copy(sourceFile, target, StandardCopyOption.REPLACE_EXISTING)
+    return target
 }
 
 fun scaledPaperDownloadProgressReporter(

@@ -5,6 +5,7 @@ import com.mcgo.app.BuildConfig
 import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.ui.model.PaperDifficulty
 import com.mcgo.app.ui.model.PaperGameMode
+import com.mcgo.app.ui.model.createFabricServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
@@ -180,6 +181,26 @@ class PaperServerRuntimeTest {
 
         assertThat(prepared.jarPath.fileName.toString()).isEqualTo("purpur-1.21.4.jar")
         assertThat(String(Files.readAllBytes(prepared.serverPropertiesPath))).contains("server-port=25567")
+    }
+
+    @Test
+    fun preparePaperServerFiles_usesFabricJarNameAndModInstallerTargetsModsDirectory() {
+        val workDir = Files.createTempDirectory("mcgo-fabric-runtime")
+        val server = createFabricServer("Fabric服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25568)
+        val prepared = preparePaperServerFiles(server, workDir)
+        val modFile = Files.createTempFile("fabric-api", ".jar")
+        Files.write(modFile, "fabric-mod".toByteArray())
+
+        assertThat(prepared.jarPath.fileName.toString()).isEqualTo("fabric-1.21.4.jar")
+        assertThat(String(Files.readAllBytes(prepared.serverPropertiesPath))).contains("server-port=25568")
+
+        val installedMod = installManagedServerModFile(modFile, prepared.workDir)
+        assertThat(installedMod.parent.fileName.toString()).isEqualTo("mods")
+        assertThat(installedMod.fileName.toString()).isEqualTo(modFile.fileName.toString())
+        assertThat(String(Files.readAllBytes(installedMod))).isEqualTo("fabric-mod")
+
+        val customNamedTarget = installManagedServerModFile(modFile, prepared.workDir, targetFileName = "fabric-api-0.1.0.jar")
+        assertThat(customNamedTarget.fileName.toString()).isEqualTo("fabric-api-0.1.0.jar")
     }
 
     @Test

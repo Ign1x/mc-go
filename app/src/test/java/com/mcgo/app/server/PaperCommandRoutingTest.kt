@@ -52,6 +52,28 @@ class PaperCommandRoutingTest {
     }
 
     @Test
+    fun serviceIntentRoundTrip_supportsFabricServerType() {
+        val server = decodeServerCardStateExtrasForTest(
+            mapOf(
+                "id" to "server-fabric",
+                "name" to "Fabric服",
+                "serverType" to "Fabric",
+                "minecraftVersion" to "1.21.4",
+                "maxPlayers" to 20,
+                "memoryMb" to 2048,
+                "port" to 25568,
+                "worldName" to "fabric_world",
+                "javaMajorVersion" to 21,
+            ),
+        )
+
+        assertThat(server.id).isEqualTo("server-fabric")
+        assertThat(server.serverType.name).isEqualTo("Fabric")
+        assertThat(server.edition).isEqualTo("Fabric 1.21.4")
+        assertThat(server.worldName).isEqualTo("fabric_world")
+    }
+
+    @Test
     fun tunnelIntentRoundTrip_preservesPastedConfigFixedPorts() {
         val tunnel = decodeTunnelProfileExtrasForTest(
             mapOf(

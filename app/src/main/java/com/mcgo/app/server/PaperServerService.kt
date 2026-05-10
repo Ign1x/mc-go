@@ -22,6 +22,7 @@ import com.mcgo.app.ui.model.TunnelConfigFormat
 import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.TunnelSource
+import com.mcgo.app.ui.model.createFabricServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
@@ -164,6 +165,7 @@ open class PaperServerService : Service() {
                         com.mcgo.app.ui.model.MinecraftServerType.Vanilla -> "Vanilla"
                         com.mcgo.app.ui.model.MinecraftServerType.Paper -> "Paper"
                         com.mcgo.app.ui.model.MinecraftServerType.Purpur -> "Purpur"
+                        com.mcgo.app.ui.model.MinecraftServerType.Fabric -> "Fabric"
                     }
                     publish(server.id, PaperServerEventStatus.Launching, 26, "正在解析 ${serverFlavorLabel} ${server.minecraftVersion} 下载信息")
                     if (!shouldReusePaperJar(config.jarPath)) {
@@ -188,6 +190,15 @@ open class PaperServerService : Service() {
                                 )
                             }
                             com.mcgo.app.ui.model.MinecraftServerType.Purpur -> downloadPurpurServerJar(server.minecraftVersion, config.jarPath) { progress ->
+                                ensureLaunchNotCancelled()
+                                publish(
+                                    server.id,
+                                    PaperServerEventStatus.Launching,
+                                    42 + ((progress.coerceIn(0, 100) * 34) / 100),
+                                    "正在下载 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
+                                )
+                            }
+                            com.mcgo.app.ui.model.MinecraftServerType.Fabric -> downloadFabricServerJar(server.minecraftVersion, config.jarPath) { progress ->
                                 ensureLaunchNotCancelled()
                                 publish(
                                     server.id,
@@ -917,6 +928,20 @@ private fun decodeServerCardStateExtras(extras: Map<String, Any?>): ServerCardSt
             serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
         )
         com.mcgo.app.ui.model.MinecraftServerType.Purpur -> createPurpurServer(
+            name = extras["name"] as? String ?: "",
+            minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
+            maxPlayers = extras["maxPlayers"] as? Int ?: 20,
+            memoryMb = extras["memoryMb"] as? Int ?: 2048,
+            port = extras["port"] as? Int ?: 25565,
+            worldName = extras["worldName"] as? String ?: "world",
+            tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
+            gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
+            difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
+            onlineMode = extras["onlineMode"] as? Boolean ?: true,
+            pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
+            serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
+        )
+        com.mcgo.app.ui.model.MinecraftServerType.Fabric -> createFabricServer(
             name = extras["name"] as? String ?: "",
             minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
             maxPlayers = extras["maxPlayers"] as? Int ?: 20,

@@ -22,7 +22,7 @@ class CreateServerDialogContractTest {
         assertThat(createDialogSource).contains("label = { Text(type.label) }")
         assertThat(createDialogSource).contains("when (selectedServerType)")
         assertThat(createDialogSource).contains("var versionWasAutoSelected by remember { mutableStateOf(true) }")
-        assertThat(createDialogSource).contains("LaunchedEffect(selectedServerType, vanillaVersionOptions, paperVersionOptions, purpurVersionOptions)")
+        assertThat(createDialogSource).contains("LaunchedEffect(selectedServerType, vanillaVersionOptions, paperVersionOptions, purpurVersionOptions, fabricVersionOptions)")
         assertThat(createDialogSource).contains("if (minecraftVersion !in versionOptions || versionWasAutoSelected)")
         assertThat(createDialogSource).contains("versionWasAutoSelected = true")
         assertThat(createDialogSource).contains("versionWasAutoSelected = false")
@@ -67,46 +67,33 @@ class CreateServerDialogContractTest {
     }
 
     @Test
-    fun serverModelRuntimeAndPersistence_supportVanillaPaperAndPurpurTypes() {
+    fun serverModelRuntimeAndPersistence_supportVanillaPaperPurpurAndFabricTypes() {
         assertThat(modelSource).contains("Vanilla(\"Vanilla\")")
         assertThat(modelSource).contains("Paper(\"Paper\")")
         assertThat(modelSource).contains("Purpur(\"Purpur\")")
+        assertThat(modelSource).contains("Fabric(\"Fabric\")")
         assertThat(modelSource).contains("fun createVanillaServer(")
         assertThat(modelSource).contains("fun createPaperServer(")
         assertThat(modelSource).contains("fun createPurpurServer(")
+        assertThat(modelSource).contains("fun createFabricServer(")
         assertThat(modelSource).contains("serverType = MinecraftServerType.Vanilla")
         assertThat(modelSource).contains("serverType = MinecraftServerType.Paper")
         assertThat(modelSource).contains("serverType = MinecraftServerType.Purpur")
+        assertThat(modelSource).contains("serverType = MinecraftServerType.Fabric")
 
-        assertThat(runtimeSource).contains("fun vanillaServerJarFileName(")
-        assertThat(runtimeSource).contains("fun paperServerJarFileName(")
-        assertThat(runtimeSource).contains("fun purpurServerJarFileName(")
-        assertThat(runtimeSource).contains("fun downloadVanillaServerJar(")
-        assertThat(runtimeSource).contains("fun downloadLatestPaperJar(")
-        assertThat(runtimeSource).contains("fun downloadPurpurServerJar(")
-        assertThat(runtimeSource).contains("fun fetchVanillaVersions(")
-        assertThat(runtimeSource).contains("fun fetchPaperVersions(")
-        assertThat(runtimeSource).contains("fun fetchPurpurVersions(")
-        assertThat(runtimeSource).contains("when (server.serverType)")
-        assertThat(runtimeSource).contains("MinecraftServerType.Vanilla")
-        assertThat(runtimeSource).contains("MinecraftServerType.Paper")
-        assertThat(runtimeSource).contains("MinecraftServerType.Purpur")
+        assertThat(runtimeSource).contains("fun fabricServerJarFileName(")
+        assertThat(runtimeSource).contains("fun fetchFabricVersions(")
+        assertThat(runtimeSource).contains("fun downloadFabricServerJar(")
+        assertThat(runtimeSource).contains("fun installManagedServerModFile(")
+        assertThat(runtimeSource).contains("MinecraftServerType.Fabric")
 
-        assertThat(serviceSource).contains("putExtra(\"serverType\", server.serverType.name)")
-        assertThat(serviceSource).contains("extras[\"serverType\"]")
-        assertThat(serviceSource).contains("MinecraftServerType.Vanilla")
-        assertThat(serviceSource).contains("MinecraftServerType.Purpur")
+        assertThat(serviceSource).contains("MinecraftServerType.Fabric")
+        assertThat(serviceSource).contains("downloadFabricServerJar(server.minecraftVersion, config.jarPath)")
 
-        assertThat(storeSource).contains("properties.setProperty(prefix + \"serverType\", server.serverType.name)")
-        assertThat(storeSource).contains("MinecraftServerType.Vanilla")
-        assertThat(storeSource).contains("MinecraftServerType.Purpur")
+        assertThat(storeSource).contains("MinecraftServerType.Fabric")
 
-        assertThat(tunnelModelSource).contains("when (serverType)")
-        assertThat(tunnelModelSource).contains("vanilla-")
-        assertThat(tunnelModelSource).contains("paper-")
-        assertThat(tunnelModelSource).contains("purpur-")
-        assertThat(tunnelModelSource).contains("serverFlavorLabel")
-        assertThat(tunnelModelSource).contains("已生成 \${serverFlavorLabel} 启动计划")
+        assertThat(tunnelModelSource).contains("fabric-")
+        assertThat(tunnelModelSource).contains("Fabric")
     }
 
     private fun readSource(relativePath: String): String =

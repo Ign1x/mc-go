@@ -83,6 +83,22 @@ class ServerModelsTest {
     }
 
     @Test
+    fun createFabricServer_buildsFabricInstanceWithRecommendedJava() {
+        val server = createFabricServer(
+            name = "Fabric服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        )
+
+        assertThat(server.name).isEqualTo("Fabric服")
+        assertThat(server.serverType).isEqualTo(MinecraftServerType.Fabric)
+        assertThat(server.edition).isEqualTo("Fabric 1.21.4")
+        assertThat(server.minecraftVersion).isEqualTo("1.21.4")
+        assertThat(server.javaMajorVersion).isEqualTo(21)
+    }
+
+    @Test
     fun iconDecoderTargetSize_capsLargeModernPhotosAtOrBelow2048px() {
         assertThat(calculateImageDecoderTargetSize(sourceWidth = 2048, sourceHeight = 1536, maxSize = 2048)).isNull()
         assertThat(calculateImageDecoderTargetSize(sourceWidth = 3000, sourceHeight = 2000, maxSize = 2048))

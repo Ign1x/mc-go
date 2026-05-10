@@ -109,6 +109,7 @@ import com.mcgo.app.ui.model.assignTunnelRemotePort
 import com.mcgo.app.ui.model.effectiveTunnelBindings
 import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.connectionAddresses
+import com.mcgo.app.ui.model.createFabricServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
@@ -129,6 +130,7 @@ fun ServersScreen(
     vanillaVersions: List<String>,
     paperVersions: List<String>,
     purpurVersions: List<String>,
+    fabricVersions: List<String>,
     serverDirectoryUri: String? = null,
     dynamicBackground: Boolean = true,
     supportedProvisionableJavaVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
@@ -139,6 +141,7 @@ fun ServersScreen(
     onCreateServer: (ServerCardState) -> Unit = {},
     onImportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onExportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
+    onImportModFile: (String, android.net.Uri) -> Unit = { _, _ -> },
     onStartServer: (serverId: String, startupPort: Int, tunnelSelections: List<TunnelLaunchSelection>) -> Unit,
     onStopServer: (serverId: String) -> Unit,
     onDeleteServer: (serverId: String) -> Unit,
@@ -154,6 +157,7 @@ fun ServersScreen(
             vanillaVersions = vanillaVersions,
             paperVersions = paperVersions,
             purpurVersions = purpurVersions,
+            fabricVersions = fabricVersions,
             serverDirectoryUri = serverDirectoryUri,
             dynamicBackground = dynamicBackground,
             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
@@ -198,6 +202,7 @@ fun ServersScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
                 onImportWorldArchive = { uri -> onImportWorldArchive(server.id, uri) },
                 onExportWorldArchive = { uri -> onExportWorldArchive(server.id, uri) },
+                onImportModFile = { uri -> onImportModFile(server.id, uri) },
                 onOpenConsole = { onOpenConsole(server.id) },
                 onEditServer = { onEditServer(server.id) },
                 onStartClick = { pendingStartServer = server },
@@ -215,6 +220,7 @@ private fun ServerCard(
     modifier: Modifier = Modifier,
     onImportWorldArchive: (android.net.Uri) -> Unit,
     onExportWorldArchive: (android.net.Uri) -> Unit,
+    onImportModFile: (android.net.Uri) -> Unit,
     onOpenConsole: () -> Unit,
     onEditServer: () -> Unit,
     onStartClick: () -> Unit,
@@ -232,6 +238,11 @@ private fun ServerCard(
         contract = ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
         if (uri != null) onExportWorldArchive(uri)
+    }
+    val modImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) onImportModFile(uri)
     }
     val statusColor = when (server.launchStatus) {
         ServerLaunchStatus.Running -> MaterialTheme.colorScheme.secondary
@@ -369,6 +380,14 @@ private fun ServerCard(
                             worldExportLauncher.launch("${server.worldName}.zip")
                         },
                     )
+                    DropdownMenuItem(
+                        text = { Text("安装模组") },
+                        enabled = server.serverType == MinecraftServerType.Fabric && !server.isRuntimeBusy(),
+                        onClick = {
+                            fileMenuExpanded = false
+                            modImportLauncher.launch(arrayOf("application/java-archive", "application/octet-stream", "*/*"))
+                        },
+                    )
                 }
             }
             IconButton(onClick = onOpenConsole) {
@@ -503,6 +522,7 @@ private fun CreateServerDialog(
     vanillaVersions: List<String>,
     paperVersions: List<String>,
     purpurVersions: List<String>,
+    fabricVersions: List<String>,
     serverDirectoryUri: String?,
     dynamicBackground: Boolean,
     supportedProvisionableJavaVersions: Set<Int>,
@@ -519,6 +539,9 @@ private fun CreateServerDialog(
     }
     val purpurVersionOptions = remember(purpurVersions, supportedProvisionableJavaVersions) {
         purpurVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+    }
+    val fabricVersionOptions = remember(fabricVersions, supportedProvisionableJavaVersions) {
+        fabricVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
     }
     var selectedServerType by remember { mutableStateOf(MinecraftServerType.Paper) }
     var name by remember { mutableStateOf("Paper 服务器") }
@@ -557,17 +580,19 @@ private fun CreateServerDialog(
             MinecraftServerType.Vanilla -> "Vanilla 服务器"
             MinecraftServerType.Paper -> "Paper 服务器"
             MinecraftServerType.Purpur -> "Purpur 服务器"
+            MinecraftServerType.Fabric -> "Fabric 服务器"
         }
         if (name.isBlank() || name == lastAutoGeneratedName) {
             name = defaultName
         }
         lastAutoGeneratedName = defaultName
     }
-    LaunchedEffect(selectedServerType, vanillaVersionOptions, paperVersionOptions, purpurVersionOptions) {
+    LaunchedEffect(selectedServerType, vanillaVersionOptions, paperVersionOptions, purpurVersionOptions, fabricVersionOptions) {
         val versionOptions = when (selectedServerType) {
             MinecraftServerType.Vanilla -> vanillaVersionOptions
             MinecraftServerType.Paper -> paperVersionOptions
             MinecraftServerType.Purpur -> purpurVersionOptions
+            MinecraftServerType.Fabric -> fabricVersionOptions
         }
         if (minecraftVersion !in versionOptions || versionWasAutoSelected) {
             minecraftVersion = versionOptions.lastOrNull().orEmpty()
@@ -596,6 +621,15 @@ private fun CreateServerDialog(
         MinecraftServerType.Purpur -> createPurpurServer(
             name = name,
             minecraftVersion = minecraftVersion.ifBlank { purpurVersionOptions.lastOrNull().orEmpty() },
+            maxPlayers = resolvedMaxPlayers,
+            memoryMb = resolvedMemoryMb,
+            port = resolvedPort,
+            javaMajorVersion = selectedJavaMajorVersion,
+            javaSelectionMode = javaSelectionMode,
+        )
+        MinecraftServerType.Fabric -> createFabricServer(
+            name = name,
+            minecraftVersion = minecraftVersion.ifBlank { fabricVersionOptions.lastOrNull().orEmpty() },
             maxPlayers = resolvedMaxPlayers,
             memoryMb = resolvedMemoryMb,
             port = resolvedPort,
@@ -634,6 +668,15 @@ private fun CreateServerDialog(
                                 javaSelectionMode = javaSelectionMode,
                             )
                             MinecraftServerType.Purpur -> createPurpurServer(
+                                name = name,
+                                minecraftVersion = minecraftVersion,
+                                maxPlayers = resolvedMaxPlayers,
+                                memoryMb = resolvedMemoryMb,
+                                port = resolvedPort,
+                                javaMajorVersion = selectedJavaMajorVersion,
+                                javaSelectionMode = javaSelectionMode,
+                            )
+                            MinecraftServerType.Fabric -> createFabricServer(
                                 name = name,
                                 minecraftVersion = minecraftVersion,
                                 maxPlayers = resolvedMaxPlayers,
@@ -689,6 +732,7 @@ private fun CreateServerDialog(
                         MinecraftServerType.Vanilla -> vanillaVersionOptions
                         MinecraftServerType.Paper -> paperVersionOptions
                         MinecraftServerType.Purpur -> purpurVersionOptions
+                        MinecraftServerType.Fabric -> fabricVersionOptions
                     }
                     OutlinedTextField(
                         value = minecraftVersion,
@@ -704,6 +748,7 @@ private fun CreateServerDialog(
                                     MinecraftServerType.Vanilla -> "从 Vanilla 官方版本列表选择"
                                     MinecraftServerType.Paper -> "从 Paper 官方版本列表选择"
                                     MinecraftServerType.Purpur -> "从 Purpur 官方版本列表选择"
+                                    MinecraftServerType.Fabric -> "从 Fabric 官方版本列表选择"
                                 },
                             )
                         },

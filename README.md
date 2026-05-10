@@ -18,7 +18,7 @@
 - **最低系统支持**：Android 8.0（API 26）
 - **编译 / 目标 API**：Android 16 / API 36
 - **构建 JDK**：Java 21（Kotlin / Java 字节码目标 17，兼顾新工具链与稳定兼容）
-- **当前版本**：`versionCode 72` / `versionName 0.2.62`
+- **当前版本**：`versionCode 73` / `versionName 0.2.63`
 
 ## 已初始化文件
 - `docs/frontend-ui-prompts.md`：MC-GO 前端设计提示词整理版

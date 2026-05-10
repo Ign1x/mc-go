@@ -179,6 +179,8 @@ import com.mcgo.app.server.exportManagedServerWorldArchive
 import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fallbackPurpurVersions
 import com.mcgo.app.server.fallbackVanillaVersions
+import com.mcgo.app.server.fallbackFabricVersions
+import com.mcgo.app.server.fetchFabricVersions
 import com.mcgo.app.server.fetchPaperVersions
 import com.mcgo.app.server.deleteManagedServerIcon
 import com.mcgo.app.server.writeManagedServerIcon
@@ -186,6 +188,7 @@ import com.mcgo.app.server.fetchProvisionableMinecraftVersions
 import com.mcgo.app.server.fetchPurpurVersions
 import com.mcgo.app.server.fetchVanillaVersions
 import com.mcgo.app.server.filterProvisionablePaperVersions
+import com.mcgo.app.server.installManagedServerModFile
 import com.mcgo.app.server.installPojavRuntimeFromApk
 import com.mcgo.app.server.importManagedServerWorldArchive
 import com.mcgo.app.server.installRuntimeFromTarXz
@@ -508,6 +511,9 @@ fun MCGoApp() {
             val purpurVersions by produceState(initialValue = fallbackPurpurVersions()) {
                 value = withContext(Dispatchers.IO) { fetchPurpurVersions() }
             }
+            val fabricVersions by produceState(initialValue = fallbackFabricVersions()) {
+                value = withContext(Dispatchers.IO) { fetchFabricVersions() }
+            }
 
             McGoTheme(appearancePreferences = appearancePreferences) {
                 MCGoAppScaffold(
@@ -517,6 +523,7 @@ fun MCGoApp() {
                     vanillaVersions = vanillaVersions,
                     paperVersions = paperVersions,
                     purpurVersions = purpurVersions,
+                    fabricVersions = fabricVersions,
                     supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                     appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
                     statusMonitor = statusMonitor,
@@ -560,6 +567,7 @@ private fun MCGoAppScaffold(
     vanillaVersions: List<String>,
     paperVersions: List<String>,
     purpurVersions: List<String>,
+    fabricVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
     appEntryElapsedRealtimeMillis: Long,
     statusMonitor: DevicePerformanceMonitor,
@@ -1096,6 +1104,7 @@ private fun MCGoAppScaffold(
                         vanillaVersions = vanillaVersions,
                         paperVersions = paperVersions,
                         purpurVersions = purpurVersions,
+                        fabricVersions = fabricVersions,
                         serverDirectoryUri = serverDirectoryUriText,
                         dynamicBackground = appearancePreferences.dynamicBackground,
                         supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
@@ -1153,6 +1162,48 @@ private fun MCGoAppScaffold(
                                     snackbarHostState.showSnackbar("已导出 ${targetServer.name} 的存档")
                                 }.onFailure {
                                     snackbarHostState.showSnackbar("导出存档失败：${it.message ?: "未知错误"}")
+                                }
+                            }
+                        },
+                        onImportModFile = { serverId, modUri ->
+                            val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen
+                            if (targetServer.serverType != MinecraftServerType.Fabric) {
+                                scope.launch { snackbarHostState.showSnackbar("当前只有 Fabric 服务器支持安装模组") }
+                                return@ServersScreen
+                            }
+                            if (targetServer.isRuntimeBusy()) {
+                                scope.launch { snackbarHostState.showSnackbar("请先停止 ${targetServer.name}，再安装模组") }
+                                return@ServersScreen
+                            }
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        val displayName = modUri.displayName(appContext).ifBlank { "mod.jar" }
+                                        require(displayName.endsWith(".jar", ignoreCase = true)) { "请选择 .jar 模组文件" }
+                                        val tempMod = Files.createTempFile("mcgo-mod-", ".jar")
+                                        appContext.contentResolver.openInputStream(modUri)?.use { input ->
+                                            Files.newOutputStream(tempMod).use { output -> input.copyTo(output) }
+                                        } ?: error("无法读取模组文件")
+                                        try {
+                                            installManagedServerModFile(
+                                                sourceFile = tempMod,
+                                                serverWorkDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id),
+                                                targetFileName = displayName,
+                                            )
+                                            syncManagedServerWorkspaceToAuthorizedDirectory(
+                                                context = appContext,
+                                                authorizedDirectoryUri = serverDirectoryUriText,
+                                                serverId = targetServer.id,
+                                                sourceWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id),
+                                            )
+                                        } finally {
+                                            Files.deleteIfExists(tempMod)
+                                        }
+                                    }
+                                }.onSuccess {
+                                    snackbarHostState.showSnackbar("已为 ${targetServer.name} 安装模组")
+                                }.onFailure {
+                                    snackbarHostState.showSnackbar("安装模组失败：${it.message ?: "未知错误"}")
                                 }
                             }
                         },
@@ -1292,6 +1343,7 @@ private fun MCGoAppScaffold(
                     vanillaVersions = vanillaVersions,
                     paperVersions = paperVersions,
                     purpurVersions = purpurVersions,
+                    fabricVersions = fabricVersions,
                     supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                     dynamicBackground = appearancePreferences.dynamicBackground,
                     serverDirectoryUri = serverDirectoryUriText,
@@ -2012,13 +2064,14 @@ private fun EditPaperServerDialog(
     vanillaVersions: List<String>,
     paperVersions: List<String>,
     purpurVersions: List<String>,
+    fabricVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
     dynamicBackground: Boolean,
     serverDirectoryUri: String?,
     onDismiss: () -> Unit,
     onSave: (ServerCardState) -> Unit,
 ) {
-    val baseVersionOptions: List<String> = remember(server.serverType, vanillaVersions, paperVersions, purpurVersions, supportedProvisionableJavaVersions) {
+    val baseVersionOptions: List<String> = remember(server.serverType, vanillaVersions, paperVersions, purpurVersions, fabricVersions, supportedProvisionableJavaVersions) {
         when (server.serverType) {
             MinecraftServerType.Vanilla -> vanillaVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
             MinecraftServerType.Paper -> com.mcgo.app.server.resolveProvisionablePaperVersionOptions(
@@ -2026,6 +2079,7 @@ private fun EditPaperServerDialog(
                 supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
             )
             MinecraftServerType.Purpur -> purpurVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+            MinecraftServerType.Fabric -> fabricVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
         }
     }
     val versionOptions: List<String> = remember(baseVersionOptions, server.minecraftVersion) {

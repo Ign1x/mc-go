@@ -7,6 +7,7 @@ import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.ServerTunnelBinding
+import com.mcgo.app.ui.model.createFabricServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
@@ -176,6 +177,45 @@ class ServerProfileStore(
                     serverIconVersion = serverIconVersion,
                 )
                 MinecraftServerType.Purpur -> createPurpurServer(
+                    name = name,
+                    minecraftVersion = minecraftVersion,
+                    maxPlayers = maxPlayers,
+                    memoryMb = memoryMb,
+                    port = defaultPort,
+                    worldName = worldName,
+                    tunnelRemotePort = tunnelRemotePort,
+                    gameMode = gameMode,
+                    difficulty = difficulty,
+                    onlineMode = onlineMode,
+                    pvpEnabled = pvpEnabled,
+                    serverPropertiesOverride = serverPropertiesOverride,
+                ).copy(
+                    id = id,
+                    onlinePlayers = onlinePlayers,
+                    onlinePlayerNames = onlinePlayerNames,
+                    javaMajorVersion = migrateManagedJavaMajorVersion(
+                        minecraftVersion = minecraftVersion,
+                        requestedJavaMajorVersion = requestedJavaMajorVersion,
+                        javaSelectionMode = javaSelectionMode,
+                    ),
+                    javaSelectionMode = javaSelectionMode,
+                    port = port,
+                    tunnelRemotePort = tunnelRemotePort,
+                    isOnline = isOnline,
+                    selectedTunnelId = selectedTunnelId,
+                    activeTunnelLabel = activeTunnelLabel,
+                    runtimeAddress = runtimeAddress,
+                    tunnelBindings = tunnelBindings,
+                    launchStatus = launchStatus,
+                    launchPlan = null,
+                    launchProgress = launchProgress,
+                    runtimeLogs = runtimeLogs,
+                    runtimeLogPath = runtimeLogPath,
+                    runtimeSlot = runtimeSlot,
+                    pendingDeletion = pendingDeletion,
+                    serverIconVersion = serverIconVersion,
+                )
+                MinecraftServerType.Fabric -> createFabricServer(
                     name = name,
                     minecraftVersion = minecraftVersion,
                     maxPlayers = maxPlayers,

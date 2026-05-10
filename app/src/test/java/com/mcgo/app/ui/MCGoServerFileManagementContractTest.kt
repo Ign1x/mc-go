@@ -21,6 +21,8 @@ class MCGoServerFileManagementContractTest {
         assertThat(serversScreenSource).contains("Icon(Icons.Outlined.Folder, contentDescription = \"文件管理\")")
         assertThat(serversScreenSource).contains("Text(\"导入存档\")")
         assertThat(serversScreenSource).contains("Text(\"导出存档\")")
+        assertThat(serversScreenSource).contains("Text(\"安装模组\")")
+        assertThat(serversScreenSource).contains("server.serverType == MinecraftServerType.Fabric")
         assertThat(serversScreenSource).contains("enabled = !server.isRuntimeBusy()")
         assertThat(serversScreenSource).contains("Icon(Icons.Outlined.Terminal, contentDescription = stringResource(R.string.server_action_console))")
         assertThat(serversScreenSource).contains("Icon(Icons.Outlined.Folder, contentDescription = \"文件管理\")\n                }")
@@ -29,6 +31,7 @@ class MCGoServerFileManagementContractTest {
         assertThat(serversScreenSource).contains("ActivityResultContracts.CreateDocument(\"application/zip\")")
         assertThat(appSource).contains("importManagedServerWorldArchive(")
         assertThat(appSource).contains("exportManagedServerWorldArchive(")
+        assertThat(appSource).contains("installManagedServerModFile(")
         assertThat(appSource).contains("syncManagedServerWorkspaceToAuthorizedDirectory(")
     }
 

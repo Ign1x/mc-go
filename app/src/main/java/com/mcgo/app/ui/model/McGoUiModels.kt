@@ -25,6 +25,7 @@ enum class MinecraftServerType(val label: String) {
     Vanilla("Vanilla"),
     Paper("Paper"),
     Purpur("Purpur"),
+    Fabric("Fabric"),
 }
 
 enum class ServerLaunchStatus(val label: String) {
@@ -267,6 +268,41 @@ fun createPurpurServer(
     serverPropertiesOverride = serverPropertiesOverride,
 )
 
+fun createFabricServer(
+    name: String,
+    minecraftVersion: String,
+    maxPlayers: Int,
+    memoryMb: Int,
+    port: Int = 25565,
+    worldName: String = "world",
+    javaMajorVersion: Int = recommendedJavaMajorVersion(minecraftVersion),
+    javaSelectionMode: JavaSelectionMode = JavaSelectionMode.Recommended,
+    tunnelRemotePort: Int? = null,
+    gameMode: PaperGameMode = PaperGameMode.Survival,
+    difficulty: PaperDifficulty = PaperDifficulty.Normal,
+    onlineMode: Boolean = true,
+    pvpEnabled: Boolean = true,
+    serverPropertiesOverride: String? = null,
+): ServerCardState = createManagedServer(
+    serverType = MinecraftServerType.Fabric,
+    defaultName = "Fabric 服务器",
+    editionLabel = "Fabric",
+    name = name,
+    minecraftVersion = minecraftVersion,
+    maxPlayers = maxPlayers,
+    memoryMb = memoryMb,
+    port = port,
+    worldName = worldName,
+    javaMajorVersion = javaMajorVersion,
+    javaSelectionMode = javaSelectionMode,
+    tunnelRemotePort = tunnelRemotePort,
+    gameMode = gameMode,
+    difficulty = difficulty,
+    onlineMode = onlineMode,
+    pvpEnabled = pvpEnabled,
+    serverPropertiesOverride = serverPropertiesOverride,
+)
+
 fun pickAvailableManagedServerPort(
     servers: List<ServerCardState>,
     preferredPort: Int = 25565,
@@ -458,6 +494,22 @@ fun applyPaperServerEdits(
             serverPropertiesOverride = serverPropertiesOverride,
         )
         MinecraftServerType.Purpur -> createPurpurServer(
+            name = name.ifBlank { server.name },
+            minecraftVersion = minecraftVersion,
+            maxPlayers = maxPlayers,
+            memoryMb = memoryMb,
+            port = port,
+            worldName = worldName.ifBlank { "world" },
+            javaMajorVersion = javaMajorVersion,
+            javaSelectionMode = javaSelectionMode,
+            tunnelRemotePort = server.tunnelRemotePort,
+            gameMode = gameMode,
+            difficulty = difficulty,
+            onlineMode = onlineMode,
+            pvpEnabled = pvpEnabled,
+            serverPropertiesOverride = serverPropertiesOverride,
+        )
+        MinecraftServerType.Fabric -> createFabricServer(
             name = name.ifBlank { server.name },
             minecraftVersion = minecraftVersion,
             maxPlayers = maxPlayers,

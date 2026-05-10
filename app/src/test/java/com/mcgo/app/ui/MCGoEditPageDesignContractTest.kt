@@ -95,9 +95,11 @@ class MCGoEditPageDesignContractTest {
         assertThat(editDialog).contains("MinecraftServerType.Vanilla")
         assertThat(editDialog).contains("MinecraftServerType.Paper")
         assertThat(editDialog).contains("MinecraftServerType.Purpur")
+        assertThat(editDialog).contains("MinecraftServerType.Fabric")
         assertThat(editDialog).contains("vanillaVersions")
         assertThat(editDialog).contains("paperVersions")
         assertThat(editDialog).contains("purpurVersions")
+        assertThat(editDialog).contains("fabricVersions")
     }
 
     @Test
