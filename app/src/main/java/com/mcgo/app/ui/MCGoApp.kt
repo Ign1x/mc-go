@@ -7,10 +7,12 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import androidx.activity.compose.BackHandler
@@ -1853,6 +1855,12 @@ private fun EditPaperServerDialog(
             preparedCrop.onSuccess { cropState ->
                 pendingServerIconCrop = cropState
                 overlayDestination = EditServerOverlayDestination.IconCrop
+            }.onFailure { error ->
+                Toast.makeText(
+                    context,
+                    "服务器图标读取失败：${error.message ?: "请换一张图片再试"}",
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         }
     }
@@ -2538,6 +2546,21 @@ internal fun ServerIconCropDialog(
 }
 
 internal fun decodeServerIconPreviewBitmap(context: Context, uri: Uri): Bitmap {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        runCatching {
+            val source = ImageDecoder.createSource(context.contentResolver, uri)
+            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                calculateImageDecoderTargetSize(
+                    sourceWidth = info.size.width,
+                    sourceHeight = info.size.height,
+                    maxSize = 2048,
+                )?.let { target ->
+                    decoder.setTargetSize(target.width, target.height)
+                }
+                decoder.isMutableRequired = false
+            }
+        }.getOrNull()?.let { return it }
+    }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     context.contentResolver.openInputStream(uri)?.use { input ->
         BitmapFactory.decodeStream(input, null, bounds)
@@ -2550,6 +2573,21 @@ internal fun decodeServerIconPreviewBitmap(context: Context, uri: Uri): Bitmap {
         BitmapFactory.decodeStream(input, null, sampled)
     }
         ?: error("无法读取所选图片")
+}
+
+data class ImageDecoderTargetSize(
+    val width: Int,
+    val height: Int,
+)
+
+fun calculateImageDecoderTargetSize(sourceWidth: Int, sourceHeight: Int, maxSize: Int): ImageDecoderTargetSize? {
+    if (sourceWidth <= 0 || sourceHeight <= 0 || maxSize <= 0) return null
+    val longestSide = maxOf(sourceWidth, sourceHeight)
+    if (longestSide <= maxSize) return null
+    val scale = maxSize.toDouble() / longestSide.toDouble()
+    val targetWidth = (sourceWidth * scale).toInt().coerceIn(1, maxSize)
+    val targetHeight = (sourceHeight * scale).toInt().coerceIn(1, maxSize)
+    return ImageDecoderTargetSize(width = targetWidth, height = targetHeight)
 }
 
 private fun calculateInSampleSize(width: Int, height: Int, maxSize: Int): Int {

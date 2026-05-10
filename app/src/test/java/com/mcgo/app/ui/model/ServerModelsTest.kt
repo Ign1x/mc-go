@@ -5,6 +5,8 @@ import com.mcgo.app.server.PaperServerEvent
 import com.mcgo.app.server.PaperServerEventStatus
 import com.mcgo.app.server.buildServerProperties
 import com.mcgo.app.server.reducePaperRuntimeEvent
+import com.mcgo.app.ui.ImageDecoderTargetSize
+import com.mcgo.app.ui.calculateImageDecoderTargetSize
 import kotlin.test.Test
 
 class ServerModelsTest {
@@ -78,6 +80,19 @@ class ServerModelsTest {
         assertThat(server.serverType).isEqualTo(MinecraftServerType.Purpur)
         assertThat(server.edition).isEqualTo("Purpur 1.21.4")
         assertThat(server.minecraftVersion).isEqualTo("1.21.4")
+    }
+
+    @Test
+    fun iconDecoderTargetSize_capsLargeModernPhotosAtOrBelow2048px() {
+        assertThat(calculateImageDecoderTargetSize(sourceWidth = 2048, sourceHeight = 1536, maxSize = 2048)).isNull()
+        assertThat(calculateImageDecoderTargetSize(sourceWidth = 3000, sourceHeight = 2000, maxSize = 2048))
+            .isEqualTo(ImageDecoderTargetSize(width = 2048, height = 1365))
+        assertThat(calculateImageDecoderTargetSize(sourceWidth = 5000, sourceHeight = 2500, maxSize = 2048))
+            .isEqualTo(ImageDecoderTargetSize(width = 2048, height = 1024))
+        assertThat(calculateImageDecoderTargetSize(sourceWidth = 4097, sourceHeight = 3073, maxSize = 2048))
+            .isEqualTo(ImageDecoderTargetSize(width = 2048, height = 1536))
+        assertThat(calculateImageDecoderTargetSize(sourceWidth = 6145, sourceHeight = 4097, maxSize = 2048))
+            .isEqualTo(ImageDecoderTargetSize(width = 2047, height = 1365))
     }
 
     @Test

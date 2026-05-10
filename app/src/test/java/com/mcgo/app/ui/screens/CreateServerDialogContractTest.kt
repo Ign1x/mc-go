@@ -79,6 +79,10 @@ class CreateServerDialogContractTest {
         assertThat(createDialogSource).contains("val activePendingServerIconCrop = pendingServerIconCrop")
         assertThat(createDialogSource).contains("if (activePendingServerIconCrop != null)")
         assertThat(createDialogSource).contains("return")
+        assertThat(createDialogSource).contains("runCatching { decodeServerIconPreviewBitmap(context, uri) }")
+        assertThat(createDialogSource).doesNotContain("getOrNull()")
+        assertThat(createDialogSource).contains("onFailure { error ->")
+        assertThat(createDialogSource).contains("服务器图标读取失败：")
     }
 
     @Test

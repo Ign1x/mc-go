@@ -496,10 +496,18 @@ private fun CreateServerDialog(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val previewBitmap = withContext(Dispatchers.IO) {
-                runCatching { decodeServerIconPreviewBitmap(context, uri) }.getOrNull()
-            } ?: return@launch
-            pendingServerIconCrop = previewBitmap
+            val previewBitmapResult = withContext(Dispatchers.IO) {
+                runCatching { decodeServerIconPreviewBitmap(context, uri) }
+            }
+            previewBitmapResult.onSuccess { previewBitmap ->
+                pendingServerIconCrop = previewBitmap
+            }.onFailure { error ->
+                Toast.makeText(
+                    context,
+                    "服务器图标读取失败：${error.message ?: "请换一张图片再试"}",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
     val javaVersionOptions = remember(
