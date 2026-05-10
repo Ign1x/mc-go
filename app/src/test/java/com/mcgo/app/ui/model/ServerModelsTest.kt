@@ -470,6 +470,7 @@ class ServerModelsTest {
 
         assertThat(reduced.launchStatus).isEqualTo(ServerLaunchStatus.Failed)
         assertThat(reduced.port).isEqualTo(launching.defaultPort)
+        assertThat(reduced.onlinePlayers).isEqualTo(0)
         assertThat(reduced.activeTunnelLabel).isNull()
     }
 
@@ -502,6 +503,7 @@ class ServerModelsTest {
 
         assertThat(reduced.launchStatus).isEqualTo(ServerLaunchStatus.Stopped)
         assertThat(reduced.port).isEqualTo(launching.defaultPort)
+        assertThat(reduced.onlinePlayers).isEqualTo(0)
         assertThat(reduced.activeTunnelLabel).isNull()
     }
 
@@ -562,6 +564,37 @@ class ServerModelsTest {
         assertThat(reduced.launchStatus).isEqualTo(ServerLaunchStatus.Launching)
         assertThat(reduced.isOnline).isFalse()
         assertThat(reduced.runtimeLogs.last()).contains("标准输入")
+    }
+
+    @Test
+    fun reducePaperRuntimeEvent_runningEventUpdatesOnlinePlayersFromJoinedGameLog() {
+        val running = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "26.1.2",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            isOnline = true,
+            launchStatus = ServerLaunchStatus.Running,
+            launchProgress = 100,
+            runtimeLogs = listOf("Paper 已监听 127.0.0.1:25565"),
+            onlinePlayers = 0,
+        )
+
+        val reduced = reducePaperRuntimeEvent(
+            running,
+            PaperServerEvent(
+                serverId = running.id,
+                status = PaperServerEventStatus.Running,
+                progress = 100,
+                message = "[17:50:27 INFO]: ign1xx joined the game",
+                onlinePlayers = 1,
+            ),
+        )
+
+        assertThat(reduced.launchStatus).isEqualTo(ServerLaunchStatus.Running)
+        assertThat(reduced.onlinePlayers).isEqualTo(1)
+        assertThat(reduced.runtimeLogs.last()).contains("joined the game")
     }
 
     @Test

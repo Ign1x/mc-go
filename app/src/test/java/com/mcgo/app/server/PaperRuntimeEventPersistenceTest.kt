@@ -31,6 +31,7 @@ class PaperRuntimeEventPersistenceTest {
                 status = PaperServerEventStatus.Running,
                 progress = 100,
                 message = "Paper 已监听 127.0.0.1:25565",
+                onlinePlayers = 1,
             ),
         )
 
@@ -38,7 +39,8 @@ class PaperRuntimeEventPersistenceTest {
         assertThat(updated.launchStatus).isEqualTo(ServerLaunchStatus.Running)
         assertThat(updated.isOnline).isTrue()
         assertThat(updated.launchProgress).isEqualTo(100)
-        assertThat(updated.runtimeLogs.last()).contains("Paper 已监听")
+        assertThat(updated.onlinePlayers).isEqualTo(1)
+        assertThat(updated.runtimeLogs).contains("Paper 已监听 127.0.0.1:25565")
     }
 
     @Test

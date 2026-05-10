@@ -28,18 +28,26 @@ fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): S
             runtimeAddress = if (event.tunnelBindings.isNotEmpty()) binding.runtimeAddress else primaryFallbackAddress,
         )
     })
+    val resolvedOnlinePlayers = event.onlinePlayers ?: mergedServer.onlinePlayers
     return when (event.status) {
-        PaperServerEventStatus.Running -> mergedServer.markLaunchRunning(event.message)
+        PaperServerEventStatus.Running -> mergedServer.markLaunchRunning(event.message).copy(
+            onlinePlayers = resolvedOnlinePlayers,
+        )
         PaperServerEventStatus.Failed -> mergedServer.markLaunchFailed(event.message)
-        PaperServerEventStatus.Stopping -> mergedServer.markLaunchStopping(event.message)
+        PaperServerEventStatus.Stopping -> mergedServer.markLaunchStopping(event.message).copy(
+            onlinePlayers = resolvedOnlinePlayers,
+        )
         PaperServerEventStatus.Stopped -> mergedServer.clearRuntimeState(ServerLaunchStatus.Stopped, event.message)
         PaperServerEventStatus.Launching -> mergedServer.withLaunchProgress(
             progress = event.progress ?: mergedServer.launchProgress,
             logLine = event.message,
             status = ServerLaunchStatus.Launching,
             online = false,
+        ).copy(
+            onlinePlayers = resolvedOnlinePlayers,
         )
         null -> mergedServer.copy(
+            onlinePlayers = resolvedOnlinePlayers,
             runtimeLogs = (mergedServer.runtimeLogs + event.message).takeLast(12),
         )
     }
@@ -132,6 +140,7 @@ private fun ServerCardState.markLaunchStopping(message: String): ServerCardState
 
 private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, message: String): ServerCardState = clearTunnelRuntimeBindings().copy(
     isOnline = false,
+    onlinePlayers = 0,
     port = defaultPort,
     activeTunnelLabel = null,
     runtimeAddress = null,

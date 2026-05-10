@@ -117,6 +117,7 @@ data class ServerCardState(
     val runtimeLogPath: String? = null,
     val runtimeSlot: Int? = null,
     val pendingDeletion: Boolean = false,
+    val serverIconVersion: Long = 0L,
 )
 
 data class SettingsSectionState(
@@ -391,6 +392,7 @@ fun ServerCardState.markLaunchRunning(logLine: String = "服务端进程已进�
 
 fun ServerCardState.markLaunchFailed(error: String): ServerCardState = clearTunnelRuntimeBindings().copy(
     isOnline = false,
+    onlinePlayers = 0,
     port = defaultPort,
     activeTunnelLabel = null,
     runtimeAddress = null,
@@ -486,6 +488,7 @@ fun applyPaperServerEdits(
         runtimeLogPath = server.runtimeLogPath,
         runtimeSlot = server.runtimeSlot,
         pendingDeletion = server.pendingDeletion,
+        serverIconVersion = server.serverIconVersion,
         port = if (server.isRuntimeBusy()) server.port else port,
         defaultPort = port,
     )

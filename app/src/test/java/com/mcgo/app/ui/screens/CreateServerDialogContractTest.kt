@@ -61,6 +61,24 @@ class CreateServerDialogContractTest {
     }
 
     @Test
+    fun createServerDialog_supportsPickingCroppingAndPersistingServerIcon() {
+        val createDialogSource = serversScreenSource.substringAfter("private fun CreateServerDialog(")
+            .substringBefore("@Composable\nprivate fun StartServerDialog(")
+
+        assertThat(createDialogSource).contains("serverDirectoryUri: String?")
+        assertThat(createDialogSource).contains("dynamicBackground: Boolean")
+        assertThat(createDialogSource).contains("rememberLauncherForActivityResult(")
+        assertThat(createDialogSource).contains("ActivityResultContracts.PickVisualMedia()")
+        assertThat(createDialogSource).contains("PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)")
+        assertThat(createDialogSource).contains("ServerIconEditorCard(")
+        assertThat(createDialogSource).contains("ServerIconCropDialog(")
+        assertThat(createDialogSource).contains("writeManagedServerIcon(")
+        assertThat(createDialogSource).contains("syncManagedServerIconToAuthorizedDirectory(")
+        assertThat(createDialogSource).contains("pendingServerIconChange")
+        assertThat(createDialogSource).contains("serverIconVersion = when (pendingServerIconChange)")
+    }
+
+    @Test
     fun serverModelRuntimeAndPersistence_supportVanillaPaperAndPurpurTypes() {
         assertThat(modelSource).contains("Vanilla(\"Vanilla\")")
         assertThat(modelSource).contains("Paper(\"Paper\")")

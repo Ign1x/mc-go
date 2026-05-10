@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
@@ -11,6 +14,7 @@ import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -19,9 +23,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +44,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -110,16 +117,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusEvent
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -144,6 +159,9 @@ import com.mcgo.app.server.activePaperRuntimeSlots
 import com.mcgo.app.server.allocateRuntimeSlot
 import com.mcgo.app.server.classifyJavaRuntimeArchiveName
 import com.mcgo.app.server.authorizedServerProfilesAvailable
+import com.mcgo.app.server.deleteManagedServerIconFromAuthorizedDirectory
+import com.mcgo.app.server.syncManagedServerIconToAuthorizedDirectory
+import com.mcgo.app.server.managedPaperServerIconFile
 import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromPrivateDirectory
@@ -152,6 +170,8 @@ import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fallbackPurpurVersions
 import com.mcgo.app.server.fallbackVanillaVersions
 import com.mcgo.app.server.fetchPaperVersions
+import com.mcgo.app.server.deleteManagedServerIcon
+import com.mcgo.app.server.writeManagedServerIcon
 import com.mcgo.app.server.fetchProvisionableMinecraftVersions
 import com.mcgo.app.server.fetchPurpurVersions
 import com.mcgo.app.server.fetchVanillaVersions
@@ -166,6 +186,7 @@ import com.mcgo.app.server.reconcilePersistedRuntimeState
 import com.mcgo.app.server.reducePaperRuntimeEvent
 import com.mcgo.app.server.resolvePojavRuntimeComponent
 import com.mcgo.app.server.restoreManagedServerWorkspaceFromAuthorizedDirectory
+import com.mcgo.app.server.restoreManagedServerIconFromAuthorizedDirectory
 import com.mcgo.app.server.restoreServerProfilesFromAuthorizedDirectory
 import com.mcgo.app.server.scanInstalledJavaVersions
 import com.mcgo.app.server.sha256Hex
@@ -238,6 +259,7 @@ import com.mcgo.app.ui.storage.TunnelProfileStore
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.McGoTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -247,6 +269,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.security.cert.X509Certificate
 import java.util.jar.JarFile
+import kotlin.math.roundToInt
 
 private const val RuntimePrefsName = "mcgo_runtime_permissions"
 private const val ServerDirectoryUriKey = "server_directory_uri"
@@ -261,6 +284,17 @@ private data class PendingStartRequest(
 private data class PendingManagedRuntimeStart(
     val request: PendingStartRequest,
     val javaMajorVersion: Int,
+)
+
+sealed interface PendingServerIconChange {
+    data object Unchanged : PendingServerIconChange
+    data object Remove : PendingServerIconChange
+    data class Replace(val pngBytes: ByteArray) : PendingServerIconChange
+}
+
+private data class PendingServerIconCrop(
+    val sourceUri: Uri,
+    val previewBitmap: Bitmap,
 )
 
 private enum class PendingServerDirectoryAction {
@@ -320,6 +354,21 @@ fun MCGoApp() {
             )
         }
         serverStore.load().also { loadedServers ->
+            if (authorizedProfilesAvailable) {
+                loadedServers.filterNot { it.runtimeSlot in activeRuntimeSlotsOnLaunch }.forEach { server ->
+                    restoreManagedManagedServerWorkspaceOnStartup(
+                        context = context,
+                        authorizedDirectoryUri = persistedServerDirectoryUri,
+                        serverId = server.id,
+                    )
+                    restoreManagedServerIconFromAuthorizedDirectory(
+                        context = context,
+                        authorizedDirectoryUri = persistedServerDirectoryUri,
+                        serverId = server.id,
+                        targetIconPath = managedPaperServerIconFile(context.filesDir.toPath(), server.id),
+                    )
+                }
+            }
             if (!authorizedProfilesAvailable && persistedServerDirectoryUri != null && loadedServers.isNotEmpty()) {
                 migratePrivateServerDataToAuthorizedDirectory(
                     context = context,
@@ -395,6 +444,19 @@ fun MCGoApp() {
             onPersistServers = { serverStore.save(it) },
         )
     }
+}
+
+private fun restoreManagedManagedServerWorkspaceOnStartup(
+    context: Context,
+    authorizedDirectoryUri: String?,
+    serverId: String,
+) {
+    restoreManagedServerWorkspaceFromAuthorizedDirectory(
+        context = context,
+        authorizedDirectoryUri = authorizedDirectoryUri,
+        serverId = serverId,
+        targetWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(context.filesDir.toPath(), serverId),
+    )
 }
 
 @Composable
@@ -574,6 +636,12 @@ private fun MCGoAppScaffold(
                                 authorizedDirectoryUri = serverDirectoryUriText,
                                 serverId = server.id,
                                 targetWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), server.id),
+                            )
+                            restoreManagedServerIconFromAuthorizedDirectory(
+                                context = appContext,
+                                authorizedDirectoryUri = serverDirectoryUriText,
+                                serverId = server.id,
+                                targetIconPath = managedPaperServerIconFile(appContext.filesDir.toPath(), server.id),
                             )
                         }
                     } else {
@@ -935,6 +1003,8 @@ private fun MCGoAppScaffold(
                         vanillaVersions = vanillaVersions,
                         paperVersions = paperVersions,
                         purpurVersions = purpurVersions,
+                        serverDirectoryUri = serverDirectoryUriText,
+                        dynamicBackground = appearancePreferences.dynamicBackground,
                         supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                         modifier = Modifier.fillMaxSize(),
                         bottomContentPadding = bottomContentPadding,
@@ -1078,6 +1148,7 @@ private fun MCGoAppScaffold(
                     purpurVersions = purpurVersions,
                     supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                     dynamicBackground = appearancePreferences.dynamicBackground,
+                    serverDirectoryUri = serverDirectoryUriText,
                     onDismiss = { editingServerId = null },
                     onSave = { edited ->
                         val updatedServers = servers.map { existing -> if (existing.id == edited.id) edited else existing }
@@ -1632,6 +1703,7 @@ private fun EditPaperServerDialog(
     purpurVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
     dynamicBackground: Boolean,
+    serverDirectoryUri: String?,
     onDismiss: () -> Unit,
     onSave: (ServerCardState) -> Unit,
 ) {
@@ -1662,6 +1734,30 @@ private fun EditPaperServerDialog(
     var pvpEnabled by remember(server.id) { mutableStateOf(server.pvpEnabled) }
     var serverPropertiesOverride by remember(server.id) { mutableStateOf(server.serverPropertiesOverride) }
     var overlayDestination by remember(server.id) { mutableStateOf(EditServerOverlayDestination.Form) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pendingServerIconChange by remember(server.id) { mutableStateOf<PendingServerIconChange>(PendingServerIconChange.Unchanged) }
+    var pendingServerIconCrop by remember(server.id) { mutableStateOf<PendingServerIconCrop?>(null) }
+    val iconPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val preparedCrop = withContext(Dispatchers.IO) {
+                runCatching {
+                    val previewBitmap = decodeServerIconPreviewBitmap(context, uri)
+                    PendingServerIconCrop(
+                        sourceUri = uri,
+                        previewBitmap = previewBitmap,
+                    )
+                }
+            }
+            preparedCrop.onSuccess { cropState ->
+                pendingServerIconCrop = cropState
+                overlayDestination = EditServerOverlayDestination.IconCrop
+            }
+        }
+    }
 
     val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
     LaunchedEffect(minecraftVersion, javaSelectionMode) {
@@ -1704,6 +1800,12 @@ private fun EditPaperServerDialog(
         onlineMode = onlineMode,
         pvpEnabled = pvpEnabled,
         serverPropertiesOverride = sanitizeAdvancedServerPropertiesOverride(serverPropertiesOverride),
+    ).copy(
+        serverIconVersion = when (pendingServerIconChange) {
+            PendingServerIconChange.Unchanged -> server.serverIconVersion
+            PendingServerIconChange.Remove -> 0L
+            is PendingServerIconChange.Replace -> System.currentTimeMillis()
+        },
     )
 
     fun applyDraftToForm(editedServer: ServerCardState) {
@@ -1739,6 +1841,24 @@ private fun EditPaperServerDialog(
             )
         }
 
+        EditServerOverlayDestination.IconCrop -> {
+            pendingServerIconCrop?.let { cropState ->
+                ServerIconCropDialog(
+                    previewBitmap = cropState.previewBitmap,
+                    dynamicBackground = dynamicBackground,
+                    onDismiss = {
+                        pendingServerIconCrop = null
+                        overlayDestination = EditServerOverlayDestination.Form
+                    },
+                    onApply = { pngBytes ->
+                        pendingServerIconChange = PendingServerIconChange.Replace(pngBytes)
+                        pendingServerIconCrop = null
+                        overlayDestination = EditServerOverlayDestination.Form
+                    },
+                )
+            }
+        }
+
         EditServerOverlayDestination.Form -> {
             EditFullScreenScaffold(
                 title = "编辑 ${server.name}",
@@ -1762,7 +1882,39 @@ private fun EditPaperServerDialog(
                             Text("编辑 server.properties")
                         }
                         Button(
-                            onClick = { onSave(buildDraftServer()) },
+                            onClick = {
+                                val editedServer = buildDraftServer()
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        when (val change = pendingServerIconChange) {
+                                            PendingServerIconChange.Unchanged -> Unit
+                                            PendingServerIconChange.Remove -> {
+                                                deleteManagedServerIcon(context.filesDir.toPath(), editedServer.id)
+                                                if (serverDirectoryUri != null) {
+                                                    deleteManagedServerIconFromAuthorizedDirectory(
+                                                        context = context,
+                                                        authorizedDirectoryUri = serverDirectoryUri,
+                                                        serverId = editedServer.id,
+                                                        fileName = "server-icon.png",
+                                                    )
+                                                }
+                                            }
+                                            is PendingServerIconChange.Replace -> {
+                                                writeManagedServerIcon(context.filesDir.toPath(), editedServer.id, change.pngBytes)
+                                                if (serverDirectoryUri != null) {
+                                                    syncManagedServerIconToAuthorizedDirectory(
+                                                        context = context,
+                                                        authorizedDirectoryUri = serverDirectoryUri,
+                                                        serverId = editedServer.id,
+                                                        iconPath = managedPaperServerIconFile(context.filesDir.toPath(), editedServer.id),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    onSave(editedServer)
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = canSave,
                         ) {
@@ -1783,7 +1935,18 @@ private fun EditPaperServerDialog(
                         )
                     }
 
-                    EditSettingsSectionCard(title = "基础设置") {
+                    EditSettingsSectionCard(title = "图标与基础设置") {
+                        ServerIconEditorCard(
+                            server = server,
+                            pendingServerIconChange = pendingServerIconChange,
+                            onPickIcon = {
+                                iconPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            },
+                            onRemoveIcon = { pendingServerIconChange = PendingServerIconChange.Remove },
+                        )
+                        EditSettingsDivider()
                         EditTextSettingRow(
                             icon = Icons.Outlined.Edit,
                             label = "服务器名称",
@@ -1911,6 +2074,7 @@ private enum class EditFullScreenScaffoldLayoutMode {
 private enum class EditServerOverlayDestination {
     Form,
     Properties,
+    IconCrop,
 }
 
 @Composable
@@ -2008,6 +2172,311 @@ private fun PaperServerPropertiesEditorDialog(
         }
     }
 }
+
+@Composable
+internal fun ServerIconEditorCard(
+    server: ServerCardState,
+    pendingServerIconChange: PendingServerIconChange,
+    onPickIcon: () -> Unit,
+    onRemoveIcon: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ServerAvatar(
+            server = server,
+            pendingServerIconChange = pendingServerIconChange,
+            modifier = Modifier.size(72.dp),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "服务器图标",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = "使用手机图片，裁剪成 1:1 后自动转为 64×64 PNG",
+                style = MaterialTheme.typography.bodySmall,
+                color = editPageColors().secondaryText,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = onPickIcon) {
+                    Text("更换图标")
+                }
+                OutlinedButton(onClick = onRemoveIcon) {
+                    Text("移除图标")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ServerAvatar(
+    server: ServerCardState,
+    pendingServerIconChange: PendingServerIconChange = PendingServerIconChange.Unchanged,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val pendingBitmap = remember(pendingServerIconChange) {
+        when (pendingServerIconChange) {
+            is PendingServerIconChange.Replace -> BitmapFactory.decodeByteArray(
+                pendingServerIconChange.pngBytes,
+                0,
+                pendingServerIconChange.pngBytes.size,
+            )
+            else -> null
+        }
+    }
+    val persistedBitmap by produceState<Bitmap?>(initialValue = null, server.id, server.serverIconVersion) {
+        value = withContext(Dispatchers.IO) {
+            loadManagedServerIcon(context.filesDir.toPath(), server.id)
+        }
+    }
+    val resolvedBitmap = when (pendingServerIconChange) {
+        PendingServerIconChange.Remove -> null
+        is PendingServerIconChange.Replace -> pendingBitmap
+        PendingServerIconChange.Unchanged -> persistedBitmap
+    }
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        if (resolvedBitmap != null) {
+            Image(
+                bitmap = resolvedBitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = server.name.firstOrNull()?.uppercase() ?: "M",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ServerIconCropDialog(
+    previewBitmap: Bitmap,
+    dynamicBackground: Boolean,
+    onDismiss: () -> Unit,
+    onApply: (ByteArray) -> Unit,
+) {
+    val configuration = LocalConfiguration.current
+    val cropViewportDp = configuration.screenWidthDp.dp - 40.dp
+    val density = LocalDensity.current
+    val cropViewportPx = remember(cropViewportDp, density) { with(density) { cropViewportDp.roundToPx() } }
+    var cropScale by remember(previewBitmap) { mutableStateOf(1f) }
+    var cropOffset by remember(previewBitmap, cropViewportPx) {
+        mutableStateOf(
+            clampServerIconCropOffset(
+                sourceWidth = previewBitmap.width,
+                sourceHeight = previewBitmap.height,
+                viewportSizePx = cropViewportPx,
+                scale = cropScale,
+                offset = Offset.Zero,
+            ),
+        )
+    }
+    val imageBitmap = remember(previewBitmap) { previewBitmap.asImageBitmap() }
+    val baseDisplayScale = remember(previewBitmap, cropViewportPx) {
+        cropViewportPx / minOf(previewBitmap.width, previewBitmap.height).toFloat().coerceAtLeast(1f)
+    }
+    val imageDisplayWidthDp = with(density) { (previewBitmap.width * baseDisplayScale).toDp() }
+    val imageDisplayHeightDp = with(density) { (previewBitmap.height * baseDisplayScale).toDp() }
+    BackHandler(enabled = true, onBack = onDismiss)
+    EditFullScreenScaffold(
+        title = "裁剪服务器图标",
+        subtitle = "拖动和缩放，导出为 1:1 64×64 PNG",
+        leadingIcon = Icons.Outlined.Edit,
+        dynamicBackground = dynamicBackground,
+        layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome,
+        onDismiss = onDismiss,
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                ) { Text("取消") }
+                Button(
+                    onClick = {
+                        onApply(
+                            cropServerIconToSquarePng(
+                                source = previewBitmap,
+                                viewportSizePx = cropViewportPx,
+                                scale = cropScale,
+                                offset = cropOffset,
+                            ),
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = cropViewportPx > 0,
+                ) { Text("应用图标") }
+            }
+        },
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(cropViewportDp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color.Black.copy(alpha = 0.16f))
+                    .pointerInput(previewBitmap, cropViewportPx) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val nextScale = (cropScale * zoom).coerceIn(1f, 6f)
+                            val unclampedOffset = cropOffset + pan
+                            cropScale = nextScale
+                            cropOffset = clampServerIconCropOffset(
+                                sourceWidth = previewBitmap.width,
+                                sourceHeight = previewBitmap.height,
+                                viewportSizePx = cropViewportPx,
+                                scale = nextScale,
+                                offset = unclampedOffset,
+                            )
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    bitmap = imageBitmap,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(
+                            width = imageDisplayWidthDp * cropScale,
+                            height = imageDisplayHeightDp * cropScale,
+                        )
+                        .offset { androidx.compose.ui.unit.IntOffset(cropOffset.x.roundToInt(), cropOffset.y.roundToInt()) },
+                    contentScale = ContentScale.FillBounds,
+                )
+            }
+        }
+    }
+}
+
+internal fun decodeServerIconPreviewBitmap(context: Context, uri: Uri): Bitmap {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, bounds)
+    } ?: error("无法读取所选图片")
+    val sampled = BitmapFactory.Options().apply {
+        inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, 2048)
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    return context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, sampled)
+    }
+        ?: error("无法读取所选图片")
+}
+
+private fun calculateInSampleSize(width: Int, height: Int, maxSize: Int): Int {
+    var sample = 1
+    var currentWidth = width
+    var currentHeight = height
+    while (currentWidth > maxSize || currentHeight > maxSize) {
+        sample *= 2
+        currentWidth /= 2
+        currentHeight /= 2
+    }
+    return sample.coerceAtLeast(1)
+}
+
+data class ServerIconCropWindow(
+    val startX: Int,
+    val startY: Int,
+    val size: Int,
+)
+
+internal fun resolveServerIconCropWindow(
+    sourceWidth: Int,
+    sourceHeight: Int,
+    viewportSizePx: Int,
+    scale: Float,
+    offset: Offset,
+): ServerIconCropWindow {
+    val minSide = minOf(sourceWidth, sourceHeight).toFloat().coerceAtLeast(1f)
+    val baseDisplayScale = viewportSizePx / minSide
+    val sourcePixelsPerViewportPx = 1f / (baseDisplayScale * scale)
+    val cropSize = (viewportSizePx * sourcePixelsPerViewportPx)
+        .roundToInt()
+        .coerceIn(1, minOf(sourceWidth, sourceHeight))
+    val centeredLeft = (sourceWidth - cropSize) / 2f
+    val centeredTop = (sourceHeight - cropSize) / 2f
+    val translatedX = centeredLeft - (offset.x * sourcePixelsPerViewportPx)
+    val translatedY = centeredTop - (offset.y * sourcePixelsPerViewportPx)
+    return ServerIconCropWindow(
+        startX = translatedX.roundToInt().coerceIn(0, sourceWidth - cropSize),
+        startY = translatedY.roundToInt().coerceIn(0, sourceHeight - cropSize),
+        size = cropSize,
+    )
+}
+
+internal fun clampServerIconCropOffset(
+    sourceWidth: Int,
+    sourceHeight: Int,
+    viewportSizePx: Int,
+    scale: Float,
+    offset: Offset,
+): Offset {
+    val minSide = minOf(sourceWidth, sourceHeight).toFloat().coerceAtLeast(1f)
+    val baseDisplayScale = viewportSizePx / minSide
+    val displayWidth = sourceWidth * baseDisplayScale * scale
+    val displayHeight = sourceHeight * baseDisplayScale * scale
+    val maxOffsetX = ((displayWidth - viewportSizePx) / 2f).coerceAtLeast(0f)
+    val maxOffsetY = ((displayHeight - viewportSizePx) / 2f).coerceAtLeast(0f)
+    return Offset(
+        x = offset.x.coerceIn(-maxOffsetX, maxOffsetX),
+        y = offset.y.coerceIn(-maxOffsetY, maxOffsetY),
+    )
+}
+
+private fun cropServerIconToSquarePng(
+    source: Bitmap,
+    viewportSizePx: Int,
+    scale: Float,
+    offset: Offset,
+): ByteArray {
+    val cropWindow = resolveServerIconCropWindow(
+        sourceWidth = source.width,
+        sourceHeight = source.height,
+        viewportSizePx = viewportSizePx,
+        scale = scale,
+        offset = offset,
+    )
+    val cropped = Bitmap.createBitmap(source, cropWindow.startX, cropWindow.startY, cropWindow.size, cropWindow.size)
+    val resized = Bitmap.createScaledBitmap(cropped, 64, 64, true)
+    return java.io.ByteArrayOutputStream().use { output ->
+        resized.compress(Bitmap.CompressFormat.PNG, 100, output)
+        output.toByteArray()
+    }
+}
+
+private fun loadManagedServerIcon(filesDir: Path, serverId: String): Bitmap? = runCatching {
+    val iconFile = com.mcgo.app.server.managedPaperServerIconFile(filesDir, serverId)
+    if (!Files.isRegularFile(iconFile)) return@runCatching null
+    BitmapFactory.decodeFile(iconFile.toString())
+}.getOrNull()
 
 private data class EditPageColors(
     val backgroundOverlayColor: Color,

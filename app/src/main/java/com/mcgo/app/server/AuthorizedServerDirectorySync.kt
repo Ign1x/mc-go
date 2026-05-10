@@ -47,18 +47,93 @@ fun syncServerProfilesToAuthorizedDirectory(
     }
 }
 
+fun restoreManagedServerIconFromAuthorizedDirectory(
+    context: Context,
+    authorizedDirectoryUri: String?,
+    serverId: String,
+    targetIconPath: Path,
+): Boolean {
+    val root = authorizedDirectoryRoot(context, authorizedDirectoryUri) ?: run {
+        Files.deleteIfExists(targetIconPath)
+        return false
+    }
+    val serversDir = root.findFile(AuthorizedServersDirectoryName) ?: run {
+        Files.deleteIfExists(targetIconPath)
+        return false
+    }
+    val serverDir = serversDir.findFile(sanitizeManagedServerId(serverId)) ?: run {
+        Files.deleteIfExists(targetIconPath)
+        return false
+    }
+    val iconFile = serverDir.findFile(targetIconPath.fileName.toString()) ?: run {
+        Files.deleteIfExists(targetIconPath)
+        return false
+    }
+    targetIconPath.parent?.let(Files::createDirectories)
+    context.contentResolver.openInputStream(iconFile.uri)?.use { input ->
+        Files.copy(input, targetIconPath, StandardCopyOption.REPLACE_EXISTING)
+    } ?: run {
+        Files.deleteIfExists(targetIconPath)
+        return false
+    }
+    return true
+}
+
 fun restoreManagedServerWorkspaceFromAuthorizedDirectory(
     context: Context,
     authorizedDirectoryUri: String?,
     serverId: String,
     targetWorkspaceDir: Path,
 ): Boolean {
-    val root = authorizedDirectoryRoot(context, authorizedDirectoryUri) ?: return false
-    val serversDir = root.findFile(AuthorizedServersDirectoryName) ?: return false
-    val serverDir = serversDir.findFile(sanitizeManagedServerId(serverId)) ?: return false
+    val root = authorizedDirectoryRoot(context, authorizedDirectoryUri) ?: run {
+        clearManagedServerWorkspace(targetWorkspaceDir)
+        return false
+    }
+    val serversDir = root.findFile(AuthorizedServersDirectoryName) ?: run {
+        clearManagedServerWorkspace(targetWorkspaceDir)
+        return false
+    }
+    val serverDir = serversDir.findFile(sanitizeManagedServerId(serverId)) ?: run {
+        clearManagedServerWorkspace(targetWorkspaceDir)
+        return false
+    }
     clearManagedServerWorkspace(targetWorkspaceDir)
     copyDocumentTreeToPath(context, serverDir, targetWorkspaceDir)
     return true
+}
+
+fun syncManagedServerIconToAuthorizedDirectory(
+    context: Context,
+    authorizedDirectoryUri: String?,
+    serverId: String,
+    iconPath: Path,
+) {
+    val root = authorizedDirectoryRoot(context, authorizedDirectoryUri) ?: return
+    val serversDir = root.findFile(AuthorizedServersDirectoryName)
+        ?: root.createDirectory(AuthorizedServersDirectoryName)
+        ?: return
+    val targetServerDir = serversDir.findFile(sanitizeManagedServerId(serverId))
+        ?: serversDir.createDirectory(sanitizeManagedServerId(serverId))
+        ?: return
+    val targetFile = targetServerDir.findFile(iconPath.fileName.toString())
+        ?: targetServerDir.createFile("image/png", iconPath.fileName.toString())
+        ?: return
+    context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
+        Files.newInputStream(iconPath).use { input -> input.copyTo(output) }
+    }
+}
+
+fun deleteManagedServerIconFromAuthorizedDirectory(
+    context: Context,
+    authorizedDirectoryUri: String?,
+    serverId: String,
+    fileName: String,
+) {
+    val root = authorizedDirectoryRoot(context, authorizedDirectoryUri) ?: return
+    root.findFile(AuthorizedServersDirectoryName)
+        ?.findFile(sanitizeManagedServerId(serverId))
+        ?.findFile(fileName)
+        ?.delete()
 }
 
 fun syncManagedServerWorkspaceToAuthorizedDirectory(
@@ -92,6 +167,15 @@ fun migratePrivateServerDataToAuthorizedDirectory(
                 authorizedDirectoryUri = authorizedDirectoryUri,
                 serverId = serverId,
                 sourceWorkspaceDir = workspace,
+            )
+        }
+        val icon = managedPaperServerIconFile(filesDir, serverId)
+        if (Files.isRegularFile(icon)) {
+            syncManagedServerIconToAuthorizedDirectory(
+                context = context,
+                authorizedDirectoryUri = authorizedDirectoryUri,
+                serverId = serverId,
+                iconPath = icon,
             )
         }
     }

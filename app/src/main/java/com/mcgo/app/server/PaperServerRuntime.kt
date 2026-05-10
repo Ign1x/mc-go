@@ -19,6 +19,8 @@ private const val PurpurApiBase = "https://api.purpurmc.org/v2/purpur"
 private const val VanillaVersionManifestUrl = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 private const val DefaultProvisionablePaperVersion = "1.21.11"
 private const val BundledAndroidJnaVersion = "5.18.1"
+private const val ManagedServerIconFileName = "server-icon.png"
+private const val ManagedServerIconSizePx = 64
 val PaperDownloadUserAgent: String = McGoUserAgent
 
 data class PreparedPaperServerFiles(
@@ -232,6 +234,25 @@ fun preparePaperServerFiles(server: ServerCardState, rootDir: Path): PreparedPap
 }
 
 fun buildPaperEula(): String = "eula=true\n"
+
+fun managedPaperServerIconFile(filesDir: Path, serverId: String): Path =
+    managedPaperServerDirectory(filesDir, serverId).resolve(ManagedServerIconFileName)
+
+fun writeManagedServerIcon(filesDir: Path, serverId: String, pngBytes: ByteArray) {
+    val iconFile = managedPaperServerIconFile(filesDir, serverId)
+    Files.createDirectories(iconFile.parent)
+    val tempFile = iconFile.resolveSibling("${ManagedServerIconFileName}.tmp")
+    Files.write(tempFile, pngBytes)
+    try {
+        Files.move(tempFile, iconFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+    } catch (_: AtomicMoveNotSupportedException) {
+        Files.move(tempFile, iconFile, StandardCopyOption.REPLACE_EXISTING)
+    }
+}
+
+fun deleteManagedServerIcon(filesDir: Path, serverId: String) {
+    Files.deleteIfExists(managedPaperServerIconFile(filesDir, serverId))
+}
 
 private fun prepareAndroidCompatibleSparkConfig(workDir: Path, server: ServerCardState) {
     if (server.serverType == com.mcgo.app.ui.model.MinecraftServerType.Vanilla) return

@@ -2,8 +2,12 @@ package com.mcgo.app.ui.screens
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.graphics.Bitmap
 import android.widget.Toast
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -63,6 +67,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,12 +78,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
+import com.mcgo.app.server.deleteManagedServerIcon
 import com.mcgo.app.server.fetchProvisionableMinecraftVersions
 import com.mcgo.app.server.fetchPurpurVersions
 import com.mcgo.app.server.fetchVanillaVersions
 import com.mcgo.app.server.initialProvisionablePaperVersion
+import com.mcgo.app.server.managedPaperServerIconFile
 import com.mcgo.app.server.resolveProvisionablePaperVersionOptions
+import com.mcgo.app.server.syncManagedServerIconToAuthorizedDirectory
+import com.mcgo.app.server.writeManagedServerIcon
+import com.mcgo.app.ui.ServerIconCropDialog
+import com.mcgo.app.ui.ServerIconEditorCard
 import com.mcgo.app.ui.components.GlassCard
+import com.mcgo.app.ui.decodeServerIconPreviewBitmap
 import com.mcgo.app.ui.model.JavaSelectionMode
 import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
@@ -97,8 +109,13 @@ import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createVanillaServer
 import com.mcgo.app.ui.model.pickAvailableManagedServerPort
 import com.mcgo.app.ui.model.formatPlayerCapacity
+import com.mcgo.app.ui.PendingServerIconChange
+import com.mcgo.app.ui.ServerAvatar
 import com.mcgo.app.ui.model.isRuntimeBusy
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ServersScreen(
@@ -107,6 +124,8 @@ fun ServersScreen(
     vanillaVersions: List<String>,
     paperVersions: List<String>,
     purpurVersions: List<String>,
+    serverDirectoryUri: String? = null,
+    dynamicBackground: Boolean = true,
     supportedProvisionableJavaVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
     modifier: Modifier = Modifier,
     bottomContentPadding: Dp = 0.dp,
@@ -128,6 +147,8 @@ fun ServersScreen(
             vanillaVersions = vanillaVersions,
             paperVersions = paperVersions,
             purpurVersions = purpurVersions,
+            serverDirectoryUri = serverDirectoryUri,
+            dynamicBackground = dynamicBackground,
             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
             onDismiss = onDismissCreateServer,
             onCreate = onCreateServer,
@@ -211,17 +232,11 @@ private fun ServerCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(20.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Terminal,
-                        contentDescription = null,
-                        modifier = Modifier.padding(12.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                ServerAvatar(
+                    server = server,
+                    pendingServerIconChange = PendingServerIconChange.Unchanged,
+                    modifier = Modifier.size(48.dp),
+                )
                 Column {
                     Text(text = server.name, style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -441,10 +456,14 @@ private fun CreateServerDialog(
     vanillaVersions: List<String>,
     paperVersions: List<String>,
     purpurVersions: List<String>,
+    serverDirectoryUri: String?,
+    dynamicBackground: Boolean,
     supportedProvisionableJavaVersions: Set<Int>,
     onDismiss: () -> Unit,
     onCreate: (ServerCardState) -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val vanillaVersionOptions = remember(vanillaVersions, supportedProvisionableJavaVersions) {
         vanillaVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
     }
@@ -463,12 +482,26 @@ private fun CreateServerDialog(
     var javaSelectionMode by remember { mutableStateOf(JavaSelectionMode.Recommended) }
     var javaVersionMenuExpanded by remember { mutableStateOf(false) }
     var selectedJavaMajorVersion by remember { mutableStateOf(recommendedJavaMajorVersion(minecraftVersion)) }
+    var pendingServerIconChange by remember { mutableStateOf<PendingServerIconChange>(PendingServerIconChange.Unchanged) }
+    var pendingServerIconCrop by remember { mutableStateOf<Bitmap?>(null) }
     var maxPlayers by remember { mutableStateOf("20") }
     var memoryMb by remember { mutableStateOf("2048") }
     val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: 20
     val resolvedMemoryMb = memoryMb.toIntOrNull()?.coerceAtLeast(512) ?: 2048
     val resolvedPort = remember(servers) { pickAvailableManagedServerPort(servers) }
     val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
+    val previewServerId = remember { "draft-server-preview-${System.currentTimeMillis()}" }
+    val iconPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val previewBitmap = withContext(Dispatchers.IO) {
+                runCatching { decodeServerIconPreviewBitmap(context, uri) }.getOrNull()
+            } ?: return@launch
+            pendingServerIconCrop = previewBitmap
+        }
+    }
     val javaVersionOptions = remember(
         supportedProvisionableJavaVersions,
         selectedJavaMajorVersion,
@@ -507,7 +540,55 @@ private fun CreateServerDialog(
             versionWasAutoSelected = true
         }
     }
+    val previewServer = when (selectedServerType) {
+        MinecraftServerType.Vanilla -> createVanillaServer(
+            name = name,
+            minecraftVersion = minecraftVersion.ifBlank { vanillaVersionOptions.lastOrNull().orEmpty() },
+            maxPlayers = resolvedMaxPlayers,
+            memoryMb = resolvedMemoryMb,
+            port = resolvedPort,
+            javaMajorVersion = selectedJavaMajorVersion,
+            javaSelectionMode = javaSelectionMode,
+        )
+        MinecraftServerType.Paper -> createPaperServer(
+            name = name,
+            minecraftVersion = minecraftVersion.ifBlank { paperVersionOptions.lastOrNull().orEmpty() },
+            maxPlayers = resolvedMaxPlayers,
+            memoryMb = resolvedMemoryMb,
+            port = resolvedPort,
+            javaMajorVersion = selectedJavaMajorVersion,
+            javaSelectionMode = javaSelectionMode,
+        )
+        MinecraftServerType.Purpur -> createPurpurServer(
+            name = name,
+            minecraftVersion = minecraftVersion.ifBlank { purpurVersionOptions.lastOrNull().orEmpty() },
+            maxPlayers = resolvedMaxPlayers,
+            memoryMb = resolvedMemoryMb,
+            port = resolvedPort,
+            javaMajorVersion = selectedJavaMajorVersion,
+            javaSelectionMode = javaSelectionMode,
+        )
+    }.copy(
+        id = previewServerId,
+        serverIconVersion = when (pendingServerIconChange) {
+            PendingServerIconChange.Unchanged -> 0L
+            PendingServerIconChange.Remove -> 0L
+            is PendingServerIconChange.Replace -> System.currentTimeMillis()
+        },
+    )
     val canCreate = name.isNotBlank() && minecraftVersion.isNotBlank()
+
+    pendingServerIconCrop?.let { previewBitmap ->
+        ServerIconCropDialog(
+            previewBitmap = previewBitmap,
+            dynamicBackground = dynamicBackground,
+            onDismiss = { pendingServerIconCrop = null },
+            onApply = { pngBytes ->
+                pendingServerIconChange = PendingServerIconChange.Replace(pngBytes)
+                pendingServerIconCrop = null
+            },
+        )
+    }
 
     AlertDialog(
         onDismissRequest = {},
@@ -515,37 +596,62 @@ private fun CreateServerDialog(
             TextButton(
                 enabled = canCreate,
                 onClick = {
-                    val server = when (selectedServerType) {
-                        MinecraftServerType.Vanilla -> createVanillaServer(
-                            name = name,
-                            minecraftVersion = minecraftVersion,
-                            maxPlayers = resolvedMaxPlayers,
-                            memoryMb = resolvedMemoryMb,
-                            port = resolvedPort,
-                            javaMajorVersion = selectedJavaMajorVersion,
-                            javaSelectionMode = javaSelectionMode,
+                    scope.launch {
+                        val server = when (selectedServerType) {
+                            MinecraftServerType.Vanilla -> createVanillaServer(
+                                name = name,
+                                minecraftVersion = minecraftVersion,
+                                maxPlayers = resolvedMaxPlayers,
+                                memoryMb = resolvedMemoryMb,
+                                port = resolvedPort,
+                                javaMajorVersion = selectedJavaMajorVersion,
+                                javaSelectionMode = javaSelectionMode,
+                            )
+                            MinecraftServerType.Paper -> createPaperServer(
+                                name = name,
+                                minecraftVersion = minecraftVersion,
+                                maxPlayers = resolvedMaxPlayers,
+                                memoryMb = resolvedMemoryMb,
+                                port = resolvedPort,
+                                javaMajorVersion = selectedJavaMajorVersion,
+                                javaSelectionMode = javaSelectionMode,
+                            )
+                            MinecraftServerType.Purpur -> createPurpurServer(
+                                name = name,
+                                minecraftVersion = minecraftVersion,
+                                maxPlayers = resolvedMaxPlayers,
+                                memoryMb = resolvedMemoryMb,
+                                port = resolvedPort,
+                                javaMajorVersion = selectedJavaMajorVersion,
+                                javaSelectionMode = javaSelectionMode,
+                            )
+                        }.copy(
+                            serverIconVersion = when (pendingServerIconChange) {
+                                PendingServerIconChange.Unchanged -> 0L
+                                PendingServerIconChange.Remove -> 0L
+                                is PendingServerIconChange.Replace -> System.currentTimeMillis()
+                            },
                         )
-                        MinecraftServerType.Paper -> createPaperServer(
-                            name = name,
-                            minecraftVersion = minecraftVersion,
-                            maxPlayers = resolvedMaxPlayers,
-                            memoryMb = resolvedMemoryMb,
-                            port = resolvedPort,
-                            javaMajorVersion = selectedJavaMajorVersion,
-                            javaSelectionMode = javaSelectionMode,
-                        )
-                        MinecraftServerType.Purpur -> createPurpurServer(
-                            name = name,
-                            minecraftVersion = minecraftVersion,
-                            maxPlayers = resolvedMaxPlayers,
-                            memoryMb = resolvedMemoryMb,
-                            port = resolvedPort,
-                            javaMajorVersion = selectedJavaMajorVersion,
-                            javaSelectionMode = javaSelectionMode,
-                        )
+                        withContext(Dispatchers.IO) {
+                            when (val change = pendingServerIconChange) {
+                                PendingServerIconChange.Unchanged -> Unit
+                                PendingServerIconChange.Remove -> deleteManagedServerIcon(context.filesDir.toPath(), server.id)
+                                is PendingServerIconChange.Replace -> {
+                                    writeManagedServerIcon(context.filesDir.toPath(), server.id, change.pngBytes)
+                                    if (serverDirectoryUri != null) {
+                                        syncManagedServerIconToAuthorizedDirectory(
+                                            context = context,
+                                            authorizedDirectoryUri = serverDirectoryUri,
+                                            serverId = server.id,
+                                            iconPath = managedPaperServerIconFile(context.filesDir.toPath(), server.id),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        onCreate(server)
+                        onDismiss()
                     }
-                    onCreate(server)
-                    onDismiss()
                 },
             ) {
                 Text("创建服务器")
@@ -560,6 +666,16 @@ private fun CreateServerDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                ServerIconEditorCard(
+                    server = previewServer,
+                    pendingServerIconChange = pendingServerIconChange,
+                    onPickIcon = {
+                        iconPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    onRemoveIcon = { pendingServerIconChange = PendingServerIconChange.Remove },
+                )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),

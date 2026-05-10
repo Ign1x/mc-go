@@ -385,16 +385,26 @@ open class PaperServerService : Service() {
         stopRuntimeMonitors()
         logTailJob = serviceScope.launch {
             var logOffset = 0L
+            var onlinePlayers = server.onlinePlayers
             while (isActive) {
-                val tail = readLastAppendedNonBlankLine(logFile, logOffset)
+                val tail = readAppendedNonBlankLinesWithOffset(logFile, logOffset)
                 logOffset = tail.nextOffset
-                val line = tail.line
-                if (!line.isNullOrBlank()) {
-                    publish(
-                        server.id,
-                        runtimeMonitorEventStatus(runtimeRunning = runtimeRunning, stopRequested = stopRequested),
-                        if (runtimeRunning && !stopRequested) 100 else null,
-                        line.takeLast(280),
+                tail.lines.forEach { line ->
+                    val updatedOnlinePlayers = updatedOnlinePlayersFromLogLine(onlinePlayers, line)
+                    if (updatedOnlinePlayers != null) {
+                        onlinePlayers = updatedOnlinePlayers
+                    }
+                    publishEvent(
+                        PaperServerEvent(
+                            serverId = server.id,
+                            status = runtimeMonitorEventStatus(runtimeRunning = runtimeRunning, stopRequested = stopRequested),
+                            progress = if (runtimeRunning && !stopRequested) 100 else null,
+                            message = line.takeLast(280),
+                            onlinePlayers = updatedOnlinePlayers,
+                            activeTunnelLabel = currentActiveTunnelLabel,
+                            runtimeAddress = currentRuntimeAddress,
+                            tunnelBindings = currentTunnelBindings,
+                        ),
                     )
                 }
                 delay(1200)
@@ -743,6 +753,17 @@ fun runtimeMonitorEventStatus(runtimeRunning: Boolean, stopRequested: Boolean): 
     stopRequested -> PaperServerEventStatus.Stopping
     runtimeRunning -> PaperServerEventStatus.Running
     else -> PaperServerEventStatus.Launching
+}
+
+fun updatedOnlinePlayersFromLogLine(currentOnlinePlayers: Int, logLine: String): Int? {
+    val normalized = logLine.trim()
+    val joinMatch = Regex("""^\[[^]]+]:\s+(?!<)(?!\[)(?![^\s:]+:).+ joined the game$""", RegexOption.IGNORE_CASE).matches(normalized)
+    val leaveMatch = Regex("""^\[[^]]+]:\s+(?!<)(?!\[)(?![^\s:]+:).+ left the game$""", RegexOption.IGNORE_CASE).matches(normalized)
+    return when {
+        joinMatch -> currentOnlinePlayers + 1
+        leaveMatch -> (currentOnlinePlayers - 1).coerceAtLeast(0)
+        else -> null
+    }
 }
 
 fun launchCancelledEvent(serverId: String): PaperServerEvent = PaperServerEvent(

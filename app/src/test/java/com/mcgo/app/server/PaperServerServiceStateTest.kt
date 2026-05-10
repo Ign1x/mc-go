@@ -47,6 +47,16 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun logTailMonitor_processesEveryAppendedLineSoJoinSignalsAreNotDroppedBehindLoginLine() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+
+        assertThat(source).contains("val tail = readAppendedNonBlankLinesWithOffset(logFile, logOffset)")
+        assertThat(source).contains("logOffset = tail.nextOffset")
+        assertThat(source).contains("tail.lines.forEach { line ->")
+        assertThat(source).doesNotContain("Files.size(logFile)")
+    }
+
+    @Test
     fun readLastAppendedNonBlankLine_returnsOnlyNewlyAppendedContent() {
         val logFile = Files.createTempFile("mcgo-log-tail", ".log")
         Files.write(logFile, "\n".toByteArray())
@@ -153,6 +163,22 @@ class PaperServerServiceStateTest {
             .isEqualTo(PaperServerEventStatus.Stopping)
         assertThat(runtimeMonitorEventStatus(runtimeRunning = false, stopRequested = true))
             .isEqualTo(PaperServerEventStatus.Stopping)
+    }
+
+    @Test
+    fun updatedOnlinePlayersFromLogLine_tracksJoinLeaveWithoutDoubleCountingLoginPrelude() {
+        assertThat(updatedOnlinePlayersFromLogLine(0, "[17:50:21 INFO]: UUID of player ign1xx is 711240d6-28f0-4e1a-9ab7-b07f3f7348a3")).isNull()
+        assertThat(updatedOnlinePlayersFromLogLine(0, "[17:50:27 INFO]: ign1xx[/127.0.0.1:34840] logged in with entity id 17 at ([minecraft:overworld]104.5, 63.0, 233.5)")).isNull()
+        assertThat(updatedOnlinePlayersFromLogLine(0, "[17:50:27 INFO]: ign1xx joined the game")).isEqualTo(1)
+        assertThat(updatedOnlinePlayersFromLogLine(1, "[17:55:10 INFO]: ign1xx left the game")).isEqualTo(0)
+    }
+
+    @Test
+    fun updatedOnlinePlayersFromLogLine_ignoresChatAndPluginLinesThatOnlyContainJoinPhrases() {
+        assertThat(updatedOnlinePlayersFromLogLine(1, "[17:50:27 INFO]: <ign1xx> joined the game")).isNull()
+        assertThat(updatedOnlinePlayersFromLogLine(1, "[17:50:27 INFO]: [MyPlugin] somebody joined the game")).isNull()
+        assertThat(updatedOnlinePlayersFromLogLine(1, "[17:50:27 INFO]: MyPlugin: somebody joined the game")).isNull()
+        assertThat(updatedOnlinePlayersFromLogLine(1, "joined the game")).isNull()
     }
 
     @Test

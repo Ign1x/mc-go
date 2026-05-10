@@ -100,4 +100,21 @@ class ServerProfileStoreTest {
         assertThat(loaded.onlineMode).isFalse()
         assertThat(loaded.pvpEnabled).isFalse()
     }
+
+    @Test
+    fun saveAndLoad_preservesServerIconVersionForUiRefreshAndWorkspaceSync() {
+        val storeFile = Files.createTempFile("mcgo-server-store-icon-version", ".properties")
+        val store = ServerProfileStore(storeFile)
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "26.1.2",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(serverIconVersion = 1_778_252_410_628L)
+
+        store.save(listOf(server))
+        val loaded = store.load().single()
+
+        assertThat(loaded.serverIconVersion).isEqualTo(1_778_252_410_628L)
+    }
 }

@@ -16,6 +16,8 @@ class AuthorizedServerDirectoryContractTest {
     fun authorizedServerDirectory_becomesDurableSourceOfTruthForServerData() {
         assertThat(appSource).contains("restoreServerProfilesFromAuthorizedDirectory(")
         assertThat(appSource).contains("migratePrivateServerDataToAuthorizedDirectory(")
+        assertThat(appSource).contains("activeRuntimeSlotsOnLaunch")
+        assertThat(appSource).contains("loadedServers.filterNot { it.runtimeSlot in activeRuntimeSlotsOnLaunch }")
         assertThat(appSource).contains("syncServerProfilesToAuthorizedDirectory(")
         assertThat(appSource).contains("deleteManagedServerWorkspaceFromAuthorizedDirectory(")
         assertThat(appSource).contains("authorizedServerProfilesAvailable(")
@@ -23,6 +25,19 @@ class AuthorizedServerDirectoryContractTest {
 
         assertThat(serviceSource).contains("restoreManagedServerWorkspaceFromAuthorizedDirectory(")
         assertThat(serviceSource).contains("syncManagedServerWorkspaceToAuthorizedDirectory(")
+        assertThat(appSource).contains("restoreManagedServerIconFromAuthorizedDirectory(")
+        assertThat(appSource).contains("restoreManagedManagedServerWorkspaceOnStartup")
+        assertThat(authorizedSyncSource).contains("fun restoreManagedServerIconFromAuthorizedDirectory(")
+        assertThat(authorizedSyncSource).contains("Files.deleteIfExists(targetIconPath)")
+        assertThat(authorizedSyncSource).contains("fun restoreManagedServerWorkspaceFromAuthorizedDirectory(")
+        assertThat(authorizedSyncSource).contains("Files.deleteIfExists(targetIconPath)")
+        assertThat(authorizedSyncSource).contains("clearManagedServerWorkspace(targetWorkspaceDir)")
+        assertThat(authorizedSyncSource).contains("sanitizeManagedServerId(serverId)) ?: run {")
+        assertThat(authorizedSyncSource).contains("fun syncManagedServerIconToAuthorizedDirectory(")
+        assertThat(authorizedSyncSource).contains("fun deleteManagedServerIconFromAuthorizedDirectory(")
+        assertThat(authorizedSyncSource).contains("fun migratePrivateServerDataToAuthorizedDirectory(")
+        assertThat(authorizedSyncSource).contains("val icon = managedPaperServerIconFile(filesDir, serverId)")
+        assertThat(authorizedSyncSource).contains("syncManagedServerIconToAuthorizedDirectory(")
         assertThat(serviceSource).contains("workspaceSyncJob")
         assertThat(serviceSource).contains("finally {")
 

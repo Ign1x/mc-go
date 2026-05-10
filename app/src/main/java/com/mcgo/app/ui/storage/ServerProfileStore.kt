@@ -47,6 +47,7 @@ class ServerProfileStore(
             val isOnline = properties.getProperty(prefix + "isOnline")?.toBooleanStrictOrNull()
                 ?: (launchStatus == ServerLaunchStatus.Running)
             val port = properties.getProperty(prefix + "port")?.toIntOrNull() ?: defaultPort
+            val onlinePlayers = properties.getProperty(prefix + "onlinePlayers")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
             val tunnelRemotePort = properties.getProperty(prefix + "tunnelRemotePort")?.toIntOrNull()
             val selectedTunnelId = properties.getProperty(prefix + "selectedTunnelId")
             val activeTunnelLabel = properties.getProperty(prefix + "activeTunnelLabel")
@@ -85,6 +86,7 @@ class ServerProfileStore(
             val runtimeLogPath = properties.getProperty(prefix + "runtimeLogPath")
             val runtimeSlot = properties.getProperty(prefix + "runtimeSlot")?.toIntOrNull()
             val pendingDeletion = properties.getProperty(prefix + "pendingDeletion")?.toBooleanStrictOrNull() ?: false
+            val serverIconVersion = properties.getProperty(prefix + "serverIconVersion")?.toLongOrNull() ?: 0L
             val runtimeLogCount = properties.getProperty(prefix + "runtimeLogCount")?.toIntOrNull() ?: 0
             val runtimeLogs = (0 until runtimeLogCount).mapNotNull { logIndex ->
                 properties.getProperty(prefix + "runtimeLog.$logIndex")
@@ -106,6 +108,7 @@ class ServerProfileStore(
                     serverPropertiesOverride = serverPropertiesOverride,
                 ).copy(
                     id = id,
+                    onlinePlayers = onlinePlayers,
                     javaMajorVersion = migrateManagedJavaMajorVersion(
                         minecraftVersion = minecraftVersion,
                         requestedJavaMajorVersion = requestedJavaMajorVersion,
@@ -126,6 +129,7 @@ class ServerProfileStore(
                     runtimeLogPath = runtimeLogPath,
                     runtimeSlot = runtimeSlot,
                     pendingDeletion = pendingDeletion,
+                    serverIconVersion = serverIconVersion,
                 )
                 MinecraftServerType.Paper -> createPaperServer(
                     name = name,
@@ -142,6 +146,7 @@ class ServerProfileStore(
                     serverPropertiesOverride = serverPropertiesOverride,
                 ).copy(
                     id = id,
+                    onlinePlayers = onlinePlayers,
                     javaMajorVersion = migrateManagedJavaMajorVersion(
                         minecraftVersion = minecraftVersion,
                         requestedJavaMajorVersion = requestedJavaMajorVersion,
@@ -162,6 +167,7 @@ class ServerProfileStore(
                     runtimeLogPath = runtimeLogPath,
                     runtimeSlot = runtimeSlot,
                     pendingDeletion = pendingDeletion,
+                    serverIconVersion = serverIconVersion,
                 )
                 MinecraftServerType.Purpur -> createPurpurServer(
                     name = name,
@@ -178,6 +184,7 @@ class ServerProfileStore(
                     serverPropertiesOverride = serverPropertiesOverride,
                 ).copy(
                     id = id,
+                    onlinePlayers = onlinePlayers,
                     javaMajorVersion = migrateManagedJavaMajorVersion(
                         minecraftVersion = minecraftVersion,
                         requestedJavaMajorVersion = requestedJavaMajorVersion,
@@ -198,6 +205,7 @@ class ServerProfileStore(
                     runtimeLogPath = runtimeLogPath,
                     runtimeSlot = runtimeSlot,
                     pendingDeletion = pendingDeletion,
+                    serverIconVersion = serverIconVersion,
                 )
             }
         }
@@ -220,6 +228,7 @@ class ServerProfileStore(
             properties.setProperty(prefix + "memoryMb", server.memoryMb.toString())
             properties.setProperty(prefix + "defaultPort", server.defaultPort.toString())
             properties.setProperty(prefix + "port", server.port.toString())
+            properties.setProperty(prefix + "onlinePlayers", server.onlinePlayers.toString())
             server.tunnelRemotePort?.let { properties.setProperty(prefix + "tunnelRemotePort", it.toString()) }
             server.effectiveTunnelBindings().takeIf { it.isNotEmpty() }?.let { bindings ->
                 properties.setProperty(prefix + "tunnelBindingCount", bindings.size.toString())
@@ -247,6 +256,7 @@ class ServerProfileStore(
             server.runtimeLogPath?.let { properties.setProperty(prefix + "runtimeLogPath", it) }
             server.runtimeSlot?.let { properties.setProperty(prefix + "runtimeSlot", it.toString()) }
             properties.setProperty(prefix + "pendingDeletion", server.pendingDeletion.toString())
+            server.serverIconVersion.takeIf { it > 0L }?.let { properties.setProperty(prefix + "serverIconVersion", it.toString()) }
             server.runtimeLogs.forEachIndexed { logIndex, logLine ->
                 properties.setProperty(prefix + "runtimeLog.$logIndex", logLine)
             }

@@ -14,6 +14,7 @@ private const val ExtraMessage = "message"
 private const val ExtraActiveTunnelLabel = "activeTunnelLabel"
 private const val ExtraRuntimeAddress = "runtimeAddress"
 private const val ExtraTunnelBindingCount = "tunnelBindingCount"
+private const val ExtraOnlinePlayers = "onlinePlayers"
 
 fun Context.sendPaperRuntimeEvent(event: PaperServerEvent) {
     sendBroadcast(
@@ -26,6 +27,7 @@ fun Context.sendPaperRuntimeEvent(event: PaperServerEvent) {
             putExtra(ExtraActiveTunnelLabel, event.activeTunnelLabel)
             putExtra(ExtraRuntimeAddress, event.runtimeAddress)
             putExtra(ExtraTunnelBindingCount, event.tunnelBindings.size)
+            event.onlinePlayers?.let { putExtra(ExtraOnlinePlayers, it) }
             event.tunnelBindings.forEachIndexed { index, binding ->
                 putExtra("tunnelBinding.$index.tunnelId", binding.tunnelId)
                 putExtra("tunnelBinding.$index.remotePort", binding.remotePort ?: -1)
@@ -60,6 +62,7 @@ class PaperRuntimeEventReceiver : BroadcastReceiver() {
                     activeTunnelLabel = intent.getStringExtra(ExtraActiveTunnelLabel),
                     runtimeAddress = intent.getStringExtra(ExtraRuntimeAddress),
                     tunnelBindings = tunnelBindings,
+                    onlinePlayers = intent.getIntExtra(ExtraOnlinePlayers, -1).takeIf { it >= 0 },
                 )
                 syncPaperRuntimeEvent(context, event)
                 PaperServerEvents.publish(event)
