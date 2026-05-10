@@ -685,6 +685,8 @@ private fun CreateServerDialog(
                         )
                     },
                     onRemoveIcon = { pendingServerIconChange = PendingServerIconChange.Remove },
+                    showRemoveAction = false,
+                    pickButtonLabel = "选择图标",
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

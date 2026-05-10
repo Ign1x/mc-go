@@ -2051,6 +2051,8 @@ private fun EditPaperServerDialog(
                                 )
                             },
                             onRemoveIcon = { pendingServerIconChange = PendingServerIconChange.Remove },
+                            showRemoveAction = true,
+                            preferSingleRowActions = true,
                         )
                         EditSettingsDivider()
                         EditTextSettingRow(
@@ -2285,12 +2287,90 @@ internal fun ServerIconEditorCard(
     pendingServerIconChange: PendingServerIconChange,
     onPickIcon: () -> Unit,
     onRemoveIcon: () -> Unit,
+    showRemoveAction: Boolean = true,
+    pickButtonLabel: String = "更换图标",
+    preferSingleRowActions: Boolean = false,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val containerModifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 16.dp)
-        if (maxWidth < 360.dp) {
+        val pickAction: @Composable () -> Unit = {
+            OutlinedButton(
+                onClick = onPickIcon,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(pickButtonLabel)
+            }
+        }
+        val removeAction: @Composable () -> Unit = {
+            OutlinedButton(
+                onClick = onRemoveIcon,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("移除图标")
+            }
+        }
+        val actionColumn: @Composable () -> Unit = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                pickAction()
+                if (showRemoveAction) {
+                    removeAction()
+                }
+            }
+        }
+        val actionRow: @Composable () -> Unit = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onPickIcon,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(pickButtonLabel)
+                }
+                if (showRemoveAction) {
+                    OutlinedButton(
+                        onClick = onRemoveIcon,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("移除图标")
+                    }
+                }
+            }
+        }
+        if (preferSingleRowActions) {
+            Row(
+                modifier = containerModifier,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ServerAvatar(
+                    server = server,
+                    pendingServerIconChange = pendingServerIconChange,
+                    modifier = Modifier.size(72.dp),
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "服务器图标",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = "使用手机图片，裁剪成 1:1 后自动转为 64×64 PNG",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = editPageColors().secondaryText,
+                    )
+                    actionRow()
+                }
+            }
+        } else if (maxWidth < 360.dp) {
             Column(
                 modifier = containerModifier,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -2320,23 +2400,7 @@ internal fun ServerIconEditorCard(
                         )
                     }
                 }
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = onPickIcon,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("更换图标")
-                    }
-                    OutlinedButton(
-                        onClick = onRemoveIcon,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("移除图标")
-                    }
-                }
+                actionColumn()
             }
         } else {
             Row(
@@ -2362,23 +2426,7 @@ internal fun ServerIconEditorCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = editPageColors().secondaryText,
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = onPickIcon,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("更换图标")
-                        }
-                        OutlinedButton(
-                            onClick = onRemoveIcon,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("移除图标")
-                        }
-                    }
+                    actionColumn()
                 }
             }
         }
@@ -2474,7 +2522,7 @@ internal fun ServerIconCropDialog(
         subtitle = "拖动和缩放，导出为 1:1 64×64 PNG",
         leadingIcon = Icons.Outlined.Edit,
         dynamicBackground = dynamicBackground,
-        layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome,
+        layoutMode = EditFullScreenScaffoldLayoutMode.ScrollableChrome,
         onDismiss = onDismiss,
         footer = {
             Row(
@@ -2538,7 +2586,7 @@ internal fun ServerIconCropDialog(
                             height = imageDisplayHeightDp * cropScale,
                         )
                         .offset { androidx.compose.ui.unit.IntOffset(cropOffset.x.roundToInt(), cropOffset.y.roundToInt()) },
-                    contentScale = ContentScale.FillBounds,
+                    contentScale = ContentScale.Fit,
                 )
             }
         }
