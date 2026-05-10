@@ -33,6 +33,8 @@ class McGoSampleRepositoryTest {
         assertThat(sections[1].subtitle).contains("JRE")
         assertThat(sections[2].subtitle).contains("权限")
         assertThat(sections.last().subtitle).contains("日志")
+        assertThat(sections.last().subtitle).contains("关于")
+        assertThat(sections.last().highlight).contains("版本")
     }
 
     @Test

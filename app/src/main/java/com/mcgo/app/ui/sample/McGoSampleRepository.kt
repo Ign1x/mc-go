@@ -86,8 +86,8 @@ object McGoSampleRepository {
         ),
         SettingsSectionState(
             title = "帮助与调试",
-            subtitle = "问题定位、日志提取与反馈建议",
-            highlight = "导出日志辅助排查",
+            subtitle = "问题定位、日志提取、关于与反馈建议",
+            highlight = "查看版本并导出日志",
             icon = SettingsCategoryIcon.Diagnostics,
         ),
     )

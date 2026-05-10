@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mcgo.app.BuildConfig
 import com.mcgo.app.ui.components.GlassCard
 import com.mcgo.app.ui.model.AccentPreset
 import com.mcgo.app.ui.model.AppearancePreferences
@@ -514,6 +515,40 @@ private fun HelpAndDebugCard(
                     text = "遇到问题时，可先提取日志；问题反馈时建议附上日志，能更快定位开服、隧道、Java 或目录授权问题。",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.secondary,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(14.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = "关于",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = colors.primary,
+                )
+                Text(
+                    text = "MC-GO 是一个安卓端 Minecraft Java 版手机开服工具，当前页面提供版本信息、日志导出和基础排障说明。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
+                Text(
+                    text = "当前版本",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.secondary,
+                )
+                Text(
+                    text = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.primary,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }

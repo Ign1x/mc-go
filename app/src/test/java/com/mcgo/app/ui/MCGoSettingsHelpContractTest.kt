@@ -11,7 +11,7 @@ class MCGoSettingsHelpContractTest {
     private val manifestSource: String = readSource("app/src/main/AndroidManifest.xml")
 
     @Test
-    fun settingsHelpSection_offersSupportInfoAndExportLogsAction() {
+    fun settingsHelpSection_offersSupportInfoAboutCardAndExportLogsAction() {
         assertThat(settingsScreenSource).contains("SettingsDestination.HelpAndDebug")
         assertThat(settingsScreenSource).contains("onOpenHelpAndDebug")
         assertThat(settingsScreenSource).contains("HelpAndDebugDetailScreen(")
@@ -20,6 +20,10 @@ class MCGoSettingsHelpContractTest {
         assertThat(settingsScreenSource).contains("onExportLogs")
         assertThat(settingsScreenSource).contains("遇到问题时，可先提取日志")
         assertThat(settingsScreenSource).contains("问题反馈时建议附上日志")
+        assertThat(settingsScreenSource).contains("关于")
+        assertThat(settingsScreenSource).contains("当前版本")
+        assertThat(settingsScreenSource).contains("BuildConfig.VERSION_NAME")
+        assertThat(settingsScreenSource).contains("BuildConfig.VERSION_CODE")
     }
 
     @Test
