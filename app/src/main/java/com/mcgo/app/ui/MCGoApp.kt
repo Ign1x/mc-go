@@ -74,6 +74,7 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
@@ -102,6 +103,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -2052,6 +2054,7 @@ private fun EditPaperServerDialog(
                             },
                             onRemoveIcon = { pendingServerIconChange = PendingServerIconChange.Remove },
                             showRemoveAction = true,
+                            pickButtonLabel = "更换图标",
                             preferSingleRowActions = true,
                         )
                         EditSettingsDivider()
@@ -2288,7 +2291,7 @@ internal fun ServerIconEditorCard(
     onPickIcon: () -> Unit,
     onRemoveIcon: () -> Unit,
     showRemoveAction: Boolean = true,
-    pickButtonLabel: String = "更换图标",
+    pickButtonLabel: String = "选择图标",
     preferSingleRowActions: Boolean = false,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -2510,6 +2513,17 @@ internal fun ServerIconCropDialog(
             ),
         )
     }
+    fun updateCropScale(nextScale: Float) {
+        val resolvedScale = nextScale.coerceIn(1f, 6f)
+        cropScale = resolvedScale
+        cropOffset = clampServerIconCropOffset(
+            sourceWidth = previewBitmap.width,
+            sourceHeight = previewBitmap.height,
+            viewportSizePx = cropViewportPx,
+            scale = resolvedScale,
+            offset = cropOffset,
+        )
+    }
     val imageBitmap = remember(previewBitmap) { previewBitmap.asImageBitmap() }
     val baseDisplayScale = remember(previewBitmap, cropViewportPx) {
         cropViewportPx / minOf(previewBitmap.width, previewBitmap.height).toFloat().coerceAtLeast(1f)
@@ -2556,38 +2570,76 @@ internal fun ServerIconCropDialog(
                 .padding(vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(cropViewportDp)
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color.Black.copy(alpha = 0.16f))
-                    .pointerInput(previewBitmap, cropViewportPx) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val nextScale = (cropScale * zoom).coerceIn(1f, 6f)
-                            val unclampedOffset = cropOffset + pan
-                            cropScale = nextScale
-                            cropOffset = clampServerIconCropOffset(
-                                sourceWidth = previewBitmap.width,
-                                sourceHeight = previewBitmap.height,
-                                viewportSizePx = cropViewportPx,
-                                scale = nextScale,
-                                offset = unclampedOffset,
-                            )
-                        }
-                    },
-                contentAlignment = Alignment.Center,
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Image(
-                    bitmap = imageBitmap,
-                    contentDescription = null,
+                Box(
                     modifier = Modifier
-                        .size(
-                            width = imageDisplayWidthDp * cropScale,
-                            height = imageDisplayHeightDp * cropScale,
-                        )
-                        .offset { androidx.compose.ui.unit.IntOffset(cropOffset.x.roundToInt(), cropOffset.y.roundToInt()) },
-                    contentScale = ContentScale.Fit,
-                )
+                        .size(cropViewportDp)
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Color.Black.copy(alpha = 0.16f))
+                        .pointerInput(previewBitmap, cropViewportPx) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                val nextScale = (cropScale * zoom).coerceIn(1f, 6f)
+                                val unclampedOffset = cropOffset + pan
+                                updateCropScale(nextScale)
+                                cropOffset = clampServerIconCropOffset(
+                                    sourceWidth = previewBitmap.width,
+                                    sourceHeight = previewBitmap.height,
+                                    viewportSizePx = cropViewportPx,
+                                    scale = cropScale,
+                                    offset = unclampedOffset,
+                                )
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        bitmap = imageBitmap,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(
+                                width = imageDisplayWidthDp * cropScale,
+                                height = imageDisplayHeightDp * cropScale,
+                            )
+                            .offset { androidx.compose.ui.unit.IntOffset(cropOffset.x.roundToInt(), cropOffset.y.roundToInt()) },
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = editPageColors().cardContainerColor,
+                    contentColor = editPageColors().primaryText,
+                    shape = RoundedCornerShape(22.dp),
+                    border = BorderStroke(1.dp, editPageColors().cardStrokeColor),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("缩放", style = MaterialTheme.typography.titleSmall)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            IconButton(onClick = { updateCropScale(cropScale - 0.25f) }) {
+                                Icon(Icons.Outlined.Remove, contentDescription = "缩小")
+                            }
+                            Slider(
+                                value = cropScale,
+                                onValueChange = { updateCropScale(it) },
+                                valueRange = 1f..6f,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(onClick = { updateCropScale(cropScale + 0.25f) }) {
+                                Icon(Icons.Outlined.Add, contentDescription = "放大")
+                            }
+                        }
+                    }
+                }
             }
         }
     }
