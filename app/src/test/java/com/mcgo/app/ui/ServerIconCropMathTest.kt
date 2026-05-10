@@ -48,4 +48,11 @@ class ServerIconCropMathTest {
         assertThat(clamped.x).isEqualTo(150f)
         assertThat(clamped.y).isEqualTo(0f)
     }
+
+    @Test
+    fun formatServerIconCropZoomLabel_returnsReadablePercent() {
+        assertThat(formatServerIconCropZoomLabel(1f)).isEqualTo("100%")
+        assertThat(formatServerIconCropZoomLabel(1.5f)).isEqualTo("150%")
+        assertThat(formatServerIconCropZoomLabel(2.25f)).isEqualTo("225%")
+    }
 }

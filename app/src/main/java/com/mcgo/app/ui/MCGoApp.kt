@@ -126,7 +126,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusEvent
@@ -277,6 +277,7 @@ import java.nio.file.StandardCopyOption
 import java.security.cert.X509Certificate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.jar.JarFile
 import kotlin.math.roundToInt
 
@@ -2580,6 +2581,11 @@ internal fun ServerIconCropDialog(
                         .size(cropViewportDp)
                         .clip(RoundedCornerShape(28.dp))
                         .background(Color.Black.copy(alpha = 0.16f))
+                        .border(
+                            2.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+                            RoundedCornerShape(28.dp),
+                        )
                         .pointerInput(previewBitmap, cropViewportPx) {
                             detectTransformGestures { _, pan, zoom, _ ->
                                 val nextScale = (cropScale * zoom).coerceIn(1f, 6f)
@@ -2601,10 +2607,15 @@ internal fun ServerIconCropDialog(
                         contentDescription = null,
                         modifier = Modifier
                             .size(
-                                width = imageDisplayWidthDp * cropScale,
-                                height = imageDisplayHeightDp * cropScale,
+                                width = imageDisplayWidthDp,
+                                height = imageDisplayHeightDp,
                             )
-                            .offset { androidx.compose.ui.unit.IntOffset(cropOffset.x.roundToInt(), cropOffset.y.roundToInt()) },
+                            .graphicsLayer(
+                                scaleX = cropScale,
+                                scaleY = cropScale,
+                                translationX = cropOffset.x,
+                                translationY = cropOffset.y,
+                            ),
                         contentScale = ContentScale.Fit,
                     )
                 }
@@ -2619,7 +2630,18 @@ internal fun ServerIconCropDialog(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("缩放", style = MaterialTheme.typography.titleSmall)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("缩放", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = formatServerIconCropZoomLabel(cropScale),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = editPageColors().secondaryText,
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2637,6 +2659,12 @@ internal fun ServerIconCropDialog(
                             IconButton(onClick = { updateCropScale(cropScale + 0.25f) }) {
                                 Icon(Icons.Outlined.Add, contentDescription = "放大")
                             }
+                        }
+                        TextButton(onClick = {
+                                updateCropScale(1f)
+                                cropOffset = Offset.Zero
+                            }) {
+                            Text("重置位置与缩放")
                         }
                     }
                 }
@@ -2750,6 +2778,9 @@ internal fun clampServerIconCropOffset(
         y = offset.y.coerceIn(-maxOffsetY, maxOffsetY),
     )
 }
+
+internal fun formatServerIconCropZoomLabel(scale: Float): String =
+    String.format(Locale.US, "%.0f%%", scale.coerceIn(1f, 6f) * 100f)
 
 private fun cropServerIconToSquarePng(
     source: Bitmap,
