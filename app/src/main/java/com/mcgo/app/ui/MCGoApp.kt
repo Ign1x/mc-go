@@ -86,6 +86,7 @@ import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -307,6 +308,67 @@ private data class PendingServerIconCrop(
     val previewBitmap: Bitmap,
 )
 
+private sealed interface StartupUiState {
+    data object Loading : StartupUiState
+
+    data class Ready(
+        val appearancePreferences: AppearancePreferences,
+        val persistedServers: List<ServerCardState>,
+        val reconciledPersistedServers: List<ServerCardState>,
+        val persistedTunnels: List<TunnelProfile>,
+        val activeRuntimeSlotsOnLaunch: Set<Int>,
+        val persistedServerDirectoryUri: String?,
+    ) : StartupUiState
+}
+
+@Composable
+private fun MCGoStartupLoadingScreen(appearancePreferences: AppearancePreferences) {
+    McGoTheme(appearancePreferences = appearancePreferences) {
+        val visuals = LocalMcGoVisualTokens.current
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            contentColor = visuals.primaryTextColor,
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                FluidGradientBackground(
+                    spec = visuals.fluidBackgroundSpec,
+                    animate = appearancePreferences.dynamicBackground,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.52f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Surface(
+                        modifier = Modifier.padding(horizontal = 28.dp),
+                        color = visuals.cardContainerColor,
+                        contentColor = visuals.primaryTextColor,
+                        shape = RoundedCornerShape(28.dp),
+                        border = BorderStroke(1.dp, visuals.cardStrokeColor),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 28.dp, vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            CircularProgressIndicator()
+                            Text(stringResource(R.string.startup_loading_title), style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = stringResource(R.string.startup_loading_body),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = visuals.secondaryTextColor,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 private enum class PendingServerDirectoryAction {
     StartServer,
     OpenConsole,
@@ -341,118 +403,135 @@ fun MCGoApp() {
         ServerProfileStore(serverStorePath)
     }
     val runtimePrefs = remember(context) { context.getSharedPreferences(RuntimePrefsName, Context.MODE_PRIVATE) }
-    val persistedServerDirectoryUri = remember(runtimePrefs) {
-        runtimePrefs.getString(ServerDirectoryUriKey, null)
-    }
     val appearanceStore = remember(context) {
         AppearancePreferencesStore(context.filesDir.toPath().resolve("appearance_preferences.properties"))
-    }
-    var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
-        mutableStateOf(appearanceStore.load())
     }
     val supportedProvisionableJavaVersions = remember {
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") setOf(8, 11, 17, 21, 25) else setOf(8, 11, 17, 21)
     }
-    val activeRuntimeSlotsOnLaunch = remember(context) { activePaperRuntimeSlots(context) }
-    val persistedServers = remember(serverStore, persistedServerDirectoryUri) {
-        val authorizedProfilesAvailable = authorizedServerProfilesAvailable(context, persistedServerDirectoryUri)
-        if (authorizedProfilesAvailable) {
-            restoreServerProfilesFromAuthorizedDirectory(
-                context = context,
-                authorizedDirectoryUri = persistedServerDirectoryUri,
-                targetProfilesPath = serverStorePath,
-            )
-        }
-        serverStore.load().also { loadedServers ->
+    val startupUiState by produceState<StartupUiState>(initialValue = StartupUiState.Loading, appContext, serverStorePath) {
+        value = withContext(Dispatchers.IO) {
+            val appearancePreferences = appearanceStore.load()
+            val persistedServerDirectoryUri = runtimePrefs.getString(ServerDirectoryUriKey, null)
+            val activeRuntimeSlotsOnLaunch = activePaperRuntimeSlots(context)
+            val authorizedProfilesAvailable = authorizedServerProfilesAvailable(context, persistedServerDirectoryUri)
             if (authorizedProfilesAvailable) {
-                loadedServers.filterNot { it.runtimeSlot in activeRuntimeSlotsOnLaunch }.forEach { server ->
-                    restoreManagedManagedServerWorkspaceOnStartup(
+                restoreServerProfilesFromAuthorizedDirectory(
+                    context = context,
+                    authorizedDirectoryUri = persistedServerDirectoryUri,
+                    targetProfilesPath = serverStorePath,
+                )
+            }
+            val persistedServers = serverStore.load().also { loadedServers ->
+                if (authorizedProfilesAvailable) {
+                    loadedServers.filterNot { it.runtimeSlot in activeRuntimeSlotsOnLaunch }.forEach { server ->
+                        restoreManagedManagedServerWorkspaceOnStartup(
+                            context = context,
+                            authorizedDirectoryUri = persistedServerDirectoryUri,
+                            serverId = server.id,
+                        )
+                        restoreManagedServerIconFromAuthorizedDirectory(
+                            context = context,
+                            authorizedDirectoryUri = persistedServerDirectoryUri,
+                            serverId = server.id,
+                            targetIconPath = managedPaperServerIconFile(context.filesDir.toPath(), server.id),
+                        )
+                    }
+                }
+                if (!authorizedProfilesAvailable && persistedServerDirectoryUri != null && loadedServers.isNotEmpty()) {
+                    migratePrivateServerDataToAuthorizedDirectory(
                         context = context,
                         authorizedDirectoryUri = persistedServerDirectoryUri,
-                        serverId = server.id,
+                        filesDir = context.filesDir.toPath(),
+                        serverIds = loadedServers.map { it.id },
                     )
-                    restoreManagedServerIconFromAuthorizedDirectory(
+                    syncServerProfilesToAuthorizedDirectory(
                         context = context,
                         authorizedDirectoryUri = persistedServerDirectoryUri,
-                        serverId = server.id,
-                        targetIconPath = managedPaperServerIconFile(context.filesDir.toPath(), server.id),
+                        sourceProfilesPath = serverStorePath,
                     )
                 }
             }
-            if (!authorizedProfilesAvailable && persistedServerDirectoryUri != null && loadedServers.isNotEmpty()) {
-                migratePrivateServerDataToAuthorizedDirectory(
-                    context = context,
-                    authorizedDirectoryUri = persistedServerDirectoryUri,
-                    filesDir = context.filesDir.toPath(),
-                    serverIds = loadedServers.map { it.id },
-                )
-                syncServerProfilesToAuthorizedDirectory(
-                    context = context,
-                    authorizedDirectoryUri = persistedServerDirectoryUri,
-                    sourceProfilesPath = serverStorePath,
-                )
-            }
-        }
-    }
-    val reconciledPersistedServers = remember(persistedServers, activeRuntimeSlotsOnLaunch) {
-        finalizePendingServerDeletion(
-            reconcilePersistedRuntimeState(
-                servers = persistedServers,
-                activeRuntimeSlots = activeRuntimeSlotsOnLaunch,
-            ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
-        )
-    }
-    var servers by remember(serverStore) {
-        mutableStateOf(reconciledPersistedServers)
-    }
-    var tunnels by remember(tunnelStore) { mutableStateOf(tunnelStore.load()) }
-    LaunchedEffect(reconciledPersistedServers, persistedServerDirectoryUri) {
-        if (reconciledPersistedServers != persistedServers) {
-            serverStore.save(reconciledPersistedServers)
-        }
-        if (authorizedServerProfilesAvailable(context, persistedServerDirectoryUri)) {
-            syncServerProfilesToAuthorizedDirectory(
-                context = context,
-                authorizedDirectoryUri = persistedServerDirectoryUri,
-                sourceProfilesPath = serverStorePath,
+            val reconciledPersistedServers = finalizePendingServerDeletion(
+                reconcilePersistedRuntimeState(
+                    servers = persistedServers,
+                    activeRuntimeSlots = activeRuntimeSlotsOnLaunch,
+                ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
+            )
+            StartupUiState.Ready(
+                appearancePreferences = appearancePreferences,
+                persistedServers = persistedServers,
+                reconciledPersistedServers = reconciledPersistedServers,
+                persistedTunnels = tunnelStore.load(),
+                activeRuntimeSlotsOnLaunch = activeRuntimeSlotsOnLaunch,
+                persistedServerDirectoryUri = persistedServerDirectoryUri,
             )
         }
     }
-    val vanillaVersions by produceState(initialValue = fallbackVanillaVersions()) {
-        value = withContext(Dispatchers.IO) { fetchVanillaVersions() }
-    }
-    val paperVersions by produceState(initialValue = filterProvisionablePaperVersions(fallbackPaperVersions())) {
-        value = withContext(Dispatchers.IO) { fetchPaperVersions() }
-    }
-    val purpurVersions by produceState(initialValue = fallbackPurpurVersions()) {
-        value = withContext(Dispatchers.IO) { fetchPurpurVersions() }
-    }
 
-    McGoTheme(appearancePreferences = appearancePreferences) {
-        MCGoAppScaffold(
-            appearancePreferences = appearancePreferences,
-            servers = servers,
-            tunnels = tunnels,
-            vanillaVersions = vanillaVersions,
-            paperVersions = paperVersions,
-            purpurVersions = purpurVersions,
-            supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
-            appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
-            statusMonitor = statusMonitor,
-            onAppearancePreferencesChange = {
-                appearancePreferences = it
-                appearanceStore.save(it)
-            },
-            onServersChange = { servers = it },
-            onTunnelsChange = { tunnels = it },
-            onTunnelsChangeAndPersist = {
-                tunnels = it
-                tunnelStore.save(it)
-            },
-            serverStorePath = serverStorePath,
-            serverStore = serverStore,
-            onPersistServers = { serverStore.save(it) },
-        )
+    when (val state = startupUiState) {
+        StartupUiState.Loading -> MCGoStartupLoadingScreen(appearancePreferences = AppearancePreferences())
+        is StartupUiState.Ready -> {
+            var appearancePreferences by rememberSaveable(stateSaver = AppearancePreferencesSaver) {
+                mutableStateOf(state.appearancePreferences)
+            }
+            val persistedServerDirectoryUri = state.persistedServerDirectoryUri
+            val persistedServers = state.persistedServers
+            val reconciledPersistedServers = state.reconciledPersistedServers
+            val activeRuntimeSlotsOnLaunch = state.activeRuntimeSlotsOnLaunch
+            var servers by remember(serverStore, state.reconciledPersistedServers) {
+                mutableStateOf(state.reconciledPersistedServers)
+            }
+            var tunnels by remember(tunnelStore, state.persistedTunnels) { mutableStateOf(state.persistedTunnels) }
+            LaunchedEffect(reconciledPersistedServers, persistedServerDirectoryUri) {
+                if (reconciledPersistedServers != persistedServers) {
+                    serverStore.save(reconciledPersistedServers)
+                }
+                if (authorizedServerProfilesAvailable(context, persistedServerDirectoryUri)) {
+                    syncServerProfilesToAuthorizedDirectory(
+                        context = context,
+                        authorizedDirectoryUri = persistedServerDirectoryUri,
+                        sourceProfilesPath = serverStorePath,
+                    )
+                }
+            }
+            val vanillaVersions by produceState(initialValue = fallbackVanillaVersions()) {
+                value = withContext(Dispatchers.IO) { fetchVanillaVersions() }
+            }
+            val paperVersions by produceState(initialValue = filterProvisionablePaperVersions(fallbackPaperVersions())) {
+                value = withContext(Dispatchers.IO) { fetchPaperVersions() }
+            }
+            val purpurVersions by produceState(initialValue = fallbackPurpurVersions()) {
+                value = withContext(Dispatchers.IO) { fetchPurpurVersions() }
+            }
+
+            McGoTheme(appearancePreferences = appearancePreferences) {
+                MCGoAppScaffold(
+                    appearancePreferences = appearancePreferences,
+                    servers = servers,
+                    tunnels = tunnels,
+                    vanillaVersions = vanillaVersions,
+                    paperVersions = paperVersions,
+                    purpurVersions = purpurVersions,
+                    supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
+                    appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
+                    statusMonitor = statusMonitor,
+                    onAppearancePreferencesChange = {
+                        appearancePreferences = it
+                        appearanceStore.save(it)
+                    },
+                    onServersChange = { servers = it },
+                    onTunnelsChange = { tunnels = it },
+                    onTunnelsChangeAndPersist = {
+                        tunnels = it
+                        tunnelStore.save(it)
+                    },
+                    serverStorePath = serverStorePath,
+                    serverStore = serverStore,
+                    onPersistServers = { serverStore.save(it) },
+                )
+            }
+        }
     }
 }
 

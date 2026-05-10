@@ -26,4 +26,6 @@
     <string name="server_action_refresh_latency">刷新延迟</string>
     <string name="server_status_online">在线</string>
     <string name="server_status_offline">离线</string>
+    <string name="startup_loading_title">正在加载 MC-GO</string>
+    <string name="startup_loading_body">读取服务器、外观和运行状态…</string>
 </resources>
