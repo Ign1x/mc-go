@@ -182,6 +182,21 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun updatedOnlinePlayerNamesFromLogLine_tracksJoinAndLeavePlayerNames() {
+        assertThat(updatedOnlinePlayerNamesFromLogLine(emptyList(), "[17:50:27 INFO]: ign1xx joined the game")?.toList())
+            .containsExactly("ign1xx")
+        assertThat(updatedOnlinePlayerNamesFromLogLine(listOf("ign1xx", "paimon"), "[17:55:10 INFO]: ign1xx left the game")?.toList())
+            .containsExactly("paimon")
+    }
+
+    @Test
+    fun updatedOnlinePlayerNamesFromLogLine_ignoresChatPluginAndLoginPreludeLines() {
+        assertThat(updatedOnlinePlayerNamesFromLogLine(listOf("paimon"), "[17:50:27 INFO]: <ign1xx> joined the game")).isNull()
+        assertThat(updatedOnlinePlayerNamesFromLogLine(listOf("paimon"), "[17:50:27 INFO]: [MyPlugin] ign1xx joined the game")).isNull()
+        assertThat(updatedOnlinePlayerNamesFromLogLine(listOf("paimon"), "[17:50:27 INFO]: ign1xx[/127.0.0.1:34840] logged in with entity id 17 at ([minecraft:overworld]104.5, 63.0, 233.5)")).isNull()
+    }
+
+    @Test
     fun runtimeExitEvent_usesGracefulStoppedOnlyAfterSuccessfulRequestedStop() {
         assertThat(runtimeExitEvent("survival", exitCode = 0, stopRequested = false, logFile = java.nio.file.Path.of("/tmp/mcgo.log")).status)
             .isEqualTo(PaperServerEventStatus.Stopped)

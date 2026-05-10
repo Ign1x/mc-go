@@ -93,6 +93,7 @@ data class ServerCardState(
     val defaultPort: Int = port,
     val tunnelRemotePort: Int? = null,
     val onlinePlayers: Int,
+    val onlinePlayerNames: List<String> = emptyList(),
     val maxPlayers: Int,
     val gameMode: PaperGameMode = PaperGameMode.Survival,
     val difficulty: PaperDifficulty = PaperDifficulty.Normal,

@@ -30,7 +30,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.Arrangement
@@ -173,6 +175,7 @@ import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromPrivateDirectory
 import com.mcgo.app.server.extractTarXzSafely
+import com.mcgo.app.server.exportManagedServerWorldArchive
 import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fallbackPurpurVersions
 import com.mcgo.app.server.fallbackVanillaVersions
@@ -184,6 +187,7 @@ import com.mcgo.app.server.fetchPurpurVersions
 import com.mcgo.app.server.fetchVanillaVersions
 import com.mcgo.app.server.filterProvisionablePaperVersions
 import com.mcgo.app.server.installPojavRuntimeFromApk
+import com.mcgo.app.server.importManagedServerWorldArchive
 import com.mcgo.app.server.installRuntimeFromTarXz
 import com.mcgo.app.server.installRuntimeWithStaging
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
@@ -1106,6 +1110,52 @@ private fun MCGoAppScaffold(
                             showServerComposer = false
                             scope.launch { snackbarHostState.showSnackbar("已创建 ${server.name}") }
                         },
+                        onImportWorldArchive = { serverId, archiveUri ->
+                            val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen
+                            if (targetServer.isRuntimeBusy()) {
+                                scope.launch { snackbarHostState.showSnackbar("请先停止 ${targetServer.name}，再导入存档") }
+                                return@ServersScreen
+                            }
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        importManagedServerWorldArchive(
+                                            context = appContext,
+                                            archiveUri = archiveUri,
+                                            targetWorldDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id).resolve(targetServer.worldName),
+                                        )
+                                        syncManagedServerWorkspaceToAuthorizedDirectory(
+                                            context = appContext,
+                                            authorizedDirectoryUri = serverDirectoryUriText,
+                                            serverId = targetServer.id,
+                                            sourceWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id),
+                                        )
+                                    }
+                                }.onSuccess {
+                                    snackbarHostState.showSnackbar("已导入 ${targetServer.name} 的存档")
+                                }.onFailure {
+                                    snackbarHostState.showSnackbar("导入存档失败：${it.message ?: "未知错误"}")
+                                }
+                            }
+                        },
+                        onExportWorldArchive = { serverId, archiveUri ->
+                            val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        exportManagedServerWorldArchive(
+                                            context = appContext,
+                                            sourceWorldDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id).resolve(targetServer.worldName),
+                                            targetUri = archiveUri,
+                                        )
+                                    }
+                                }.onSuccess {
+                                    snackbarHostState.showSnackbar("已导出 ${targetServer.name} 的存档")
+                                }.onFailure {
+                                    snackbarHostState.showSnackbar("导出存档失败：${it.message ?: "未知错误"}")
+                                }
+                            }
+                        },
                         onStartServer = { serverId, startupPort, tunnelSelections ->
                             if (!hasServerDirectoryGrant()) {
                                 pendingStartRequest = PendingStartRequest(serverId, startupPort, tunnelSelections)
@@ -1730,6 +1780,7 @@ private fun ServerConsoleDialog(
     val annotatedLog = remember(consoleText) { buildConsoleAnnotatedLog(consoleText) }
     var command by remember(server.id) { mutableStateOf("") }
     var inlineError by remember(server.id) { mutableStateOf<String?>(null) }
+    var selectedOnlinePlayer by remember(server.id) { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
     LaunchedEffect(annotatedLog.text) {
         scrollState.scrollTo(scrollState.maxValue)
@@ -1820,17 +1871,95 @@ private fun ServerConsoleDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(14.dp)
-                            .verticalScroll(scrollState),
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        BasicText(
-                            text = annotatedLog,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = Color(0xFFE6EDF3),
-                                fontFamily = FontFamily.Monospace,
-                                lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.35,
-                            ),
+                        Text(
+                            text = "在线玩家",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color(0xFFD0D7DE),
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (server.onlinePlayerNames.isEmpty()) {
+                                Text(
+                                    text = "当前无人在线",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF8B949E),
+                                )
+                            } else {
+                                server.onlinePlayerNames.forEach { playerName ->
+                                    Surface(
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = {},
+                                            onLongClick = { selectedOnlinePlayer = playerName },
+                                        ),
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = ConsoleInfoColor.copy(alpha = 0.14f),
+                                        contentColor = ConsoleInfoColor,
+                                    ) {
+                                        Text(
+                                            text = playerName,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            style = MaterialTheme.typography.labelMedium,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        selectedOnlinePlayer?.let { playerName ->
+                            DropdownMenu(
+                                expanded = true,
+                                onDismissRequest = { selectedOnlinePlayer = null },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("复制昵称") },
+                                    onClick = {
+                                        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                            ClipData.newPlainText("player-name", playerName),
+                                        )
+                                        selectedOnlinePlayer = null
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("踢出玩家") },
+                                    onClick = {
+                                        if (onSubmitCommand("kick $playerName")) inlineError = null else inlineError = "当前 Paper 进程尚未接收标准输入，请稍后再试"
+                                        selectedOnlinePlayer = null
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("授予 OP") },
+                                    onClick = {
+                                        if (onSubmitCommand("op $playerName")) inlineError = null else inlineError = "当前 Paper 进程尚未接收标准输入，请稍后再试"
+                                        selectedOnlinePlayer = null
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("移除 OP") },
+                                    onClick = {
+                                        if (onSubmitCommand("deop $playerName")) inlineError = null else inlineError = "当前 Paper 进程尚未接收标准输入，请稍后再试"
+                                        selectedOnlinePlayer = null
+                                    },
+                                )
+                            }
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scrollState),
+                        ) {
+                            BasicText(
+                                text = annotatedLog,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = Color(0xFFE6EDF3),
+                                    fontFamily = FontFamily.Monospace,
+                                    lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.35,
+                                ),
+                            )
+                        }
                     }
                 }
                 inlineError?.let {

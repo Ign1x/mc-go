@@ -15,19 +15,7 @@ class CreateServerDialogContractTest {
     private val tunnelModelSource: String = readSource("app/src/main/java/com/mcgo/app/ui/model/TunnelModels.kt")
 
     @Test
-    fun createServerEntryAndDialog_allowChoosingVanillaPaperOrPurpur() {
-        assertThat(appSource).contains("Text(\"创建服务器\")")
-        assertThat(appSource).doesNotContain("Text(\"创建 Paper\")")
-
-        assertThat(appSource).contains("val vanillaVersions by produceState(initialValue = fallbackVanillaVersions())")
-        assertThat(appSource).contains("fetchVanillaVersions()")
-        assertThat(appSource).contains("val paperVersions by produceState")
-        assertThat(appSource).contains("fetchPaperVersions()")
-        assertThat(appSource).contains("val purpurVersions by produceState(initialValue = fallbackPurpurVersions())")
-        assertThat(appSource).contains("fetchPurpurVersions()")
-        assertThat(appSource).contains("vanillaVersions = vanillaVersions")
-        assertThat(appSource).contains("paperVersions = paperVersions")
-        assertThat(appSource).contains("purpurVersions = purpurVersions")
+    fun createServerDialog_usesNoServerIconEntryAndStillCreatesSupportedServerTypes() {
         val createDialogSource = serversScreenSource.substringAfter("private fun CreateServerDialog(").substringBefore("@Composable\nprivate fun StartServerDialog(")
         assertThat(createDialogSource).contains("servers: List<ServerCardState>")
         assertThat(createDialogSource).contains("Text(\"创建服务器\")")
@@ -61,32 +49,21 @@ class CreateServerDialogContractTest {
     }
 
     @Test
-    fun createServerDialog_supportsPickingCroppingAndPersistingServerIcon() {
+    fun createServerDialog_hasNoServerIconEntryOrCropFlow() {
         val createDialogSource = serversScreenSource.substringAfter("private fun CreateServerDialog(")
             .substringBefore("@Composable\nprivate fun StartServerDialog(")
 
-        assertThat(createDialogSource).contains("serverDirectoryUri: String?")
-        assertThat(createDialogSource).contains("dynamicBackground: Boolean")
-        assertThat(createDialogSource).contains("rememberLauncherForActivityResult(")
-        assertThat(createDialogSource).contains("ActivityResultContracts.PickVisualMedia()")
-        assertThat(createDialogSource).contains("PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)")
-        assertThat(createDialogSource).contains("ServerIconEditorCard(")
-        assertThat(createDialogSource).contains("showRemoveAction = false")
-        assertThat(createDialogSource).contains("pickButtonLabel = \"选择图标\"")
+        assertThat(createDialogSource).doesNotContain("ServerIconEditorCard(")
+        assertThat(createDialogSource).doesNotContain("pickButtonLabel = \"选择图标\"")
         assertThat(createDialogSource).doesNotContain("Text(\"更换图标\")")
         assertThat(createDialogSource).doesNotContain("Text(\"移除图标\")")
-        assertThat(createDialogSource).contains("ServerIconCropDialog(")
-        assertThat(createDialogSource).contains("writeManagedServerIcon(")
-        assertThat(createDialogSource).contains("syncManagedServerIconToAuthorizedDirectory(")
-        assertThat(createDialogSource).contains("pendingServerIconChange")
-        assertThat(createDialogSource).contains("serverIconVersion = when (pendingServerIconChange)")
-        assertThat(createDialogSource).contains("val activePendingServerIconCrop = pendingServerIconCrop")
-        assertThat(createDialogSource).contains("if (activePendingServerIconCrop != null)")
-        assertThat(createDialogSource).contains("return")
-        assertThat(createDialogSource).contains("runCatching { decodeServerIconPreviewBitmap(context, uri) }")
-        assertThat(createDialogSource).doesNotContain("getOrNull()")
-        assertThat(createDialogSource).contains("onFailure { error ->")
-        assertThat(createDialogSource).contains("服务器图标读取失败：")
+        assertThat(createDialogSource).doesNotContain("Text(\"选择图标\")")
+        assertThat(createDialogSource).doesNotContain("ServerIconCropDialog(")
+        assertThat(createDialogSource).doesNotContain("writeManagedServerIcon(")
+        assertThat(createDialogSource).doesNotContain("syncManagedServerIconToAuthorizedDirectory(")
+        assertThat(createDialogSource).doesNotContain("pendingServerIconChange")
+        assertThat(createDialogSource).doesNotContain("serverIconVersion = when (pendingServerIconChange)")
+        assertThat(createDialogSource).doesNotContain("runCatching { decodeServerIconPreviewBitmap(context, uri) }")
     }
 
     @Test

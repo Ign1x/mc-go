@@ -41,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Terminal
@@ -49,6 +50,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -82,7 +84,10 @@ import com.mcgo.app.server.deleteManagedServerIcon
 import com.mcgo.app.server.fetchProvisionableMinecraftVersions
 import com.mcgo.app.server.fetchPurpurVersions
 import com.mcgo.app.server.fetchVanillaVersions
+import com.mcgo.app.server.importManagedServerWorldArchive
+import com.mcgo.app.server.exportManagedServerWorldArchive
 import com.mcgo.app.server.initialProvisionablePaperVersion
+import com.mcgo.app.server.managedPaperServerDirectory
 import com.mcgo.app.server.managedPaperServerIconFile
 import com.mcgo.app.server.resolveProvisionablePaperVersionOptions
 import com.mcgo.app.server.syncManagedServerIconToAuthorizedDirectory
@@ -132,6 +137,8 @@ fun ServersScreen(
     showCreateServer: Boolean = false,
     onDismissCreateServer: () -> Unit = {},
     onCreateServer: (ServerCardState) -> Unit = {},
+    onImportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
+    onExportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onStartServer: (serverId: String, startupPort: Int, tunnelSelections: List<TunnelLaunchSelection>) -> Unit,
     onStopServer: (serverId: String) -> Unit,
     onDeleteServer: (serverId: String) -> Unit,
@@ -140,6 +147,22 @@ fun ServersScreen(
 ) {
     var pendingStartServer by remember { mutableStateOf<ServerCardState?>(null) }
     var pendingDeleteServer by remember { mutableStateOf<ServerCardState?>(null) }
+    var fileMenuExpanded by remember { mutableStateOf(false) }
+    var selectedFileServerId by remember { mutableStateOf<String?>(null) }
+    val worldImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val serverId = selectedFileServerId
+        if (uri != null && serverId != null) onImportWorldArchive(serverId, uri)
+        selectedFileServerId = null
+    }
+    val worldExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val serverId = selectedFileServerId
+        if (uri != null && serverId != null) onExportWorldArchive(serverId, uri)
+        selectedFileServerId = null
+    }
 
     if (showCreateServer) {
         CreateServerDialog(
@@ -185,6 +208,46 @@ fun ServersScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { Spacer(modifier = Modifier.height(6.dp)) }
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Box {
+                    TextButton(onClick = { fileMenuExpanded = true }) {
+                        Icon(Icons.Outlined.Folder, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("文件管理")
+                    }
+                    DropdownMenu(
+                        expanded = fileMenuExpanded,
+                        onDismissRequest = { fileMenuExpanded = false },
+                    ) {
+                        servers.forEach { server ->
+                            DropdownMenuItem(
+                                text = { Text("导入存档 · ${server.name}") },
+                                enabled = !server.isRuntimeBusy(),
+                                onClick = {
+                                    selectedFileServerId = server.id
+                                    fileMenuExpanded = false
+                                    worldImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("导出存档 · ${server.name}") },
+                                onClick = {
+                                    selectedFileServerId = server.id
+                                    fileMenuExpanded = false
+                                    worldExportLauncher.launch("${server.worldName}.zip")
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
         items(items = servers, key = { it.id }) { server ->
             ServerCard(
                 server = server,
@@ -482,8 +545,6 @@ private fun CreateServerDialog(
     var javaSelectionMode by remember { mutableStateOf(JavaSelectionMode.Recommended) }
     var javaVersionMenuExpanded by remember { mutableStateOf(false) }
     var selectedJavaMajorVersion by remember { mutableStateOf(recommendedJavaMajorVersion(minecraftVersion)) }
-    var pendingServerIconChange by remember { mutableStateOf<PendingServerIconChange>(PendingServerIconChange.Unchanged) }
-    var pendingServerIconCrop by remember { mutableStateOf<Bitmap?>(null) }
     var maxPlayers by remember { mutableStateOf("20") }
     var memoryMb by remember { mutableStateOf("2048") }
     val resolvedMaxPlayers = maxPlayers.toIntOrNull()?.coerceIn(1, 200) ?: 20
@@ -491,25 +552,6 @@ private fun CreateServerDialog(
     val resolvedPort = remember(servers) { pickAvailableManagedServerPort(servers) }
     val recommendedJava = remember(minecraftVersion) { recommendedJavaMajorVersion(minecraftVersion) }
     val previewServerId = remember { "draft-server-preview-${System.currentTimeMillis()}" }
-    val iconPickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val previewBitmapResult = withContext(Dispatchers.IO) {
-                runCatching { decodeServerIconPreviewBitmap(context, uri) }
-            }
-            previewBitmapResult.onSuccess { previewBitmap ->
-                pendingServerIconCrop = previewBitmap
-            }.onFailure { error ->
-                Toast.makeText(
-                    context,
-                    "服务器图标读取失败：${error.message ?: "请换一张图片再试"}",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-    }
     val javaVersionOptions = remember(
         supportedProvisionableJavaVersions,
         selectedJavaMajorVersion,
@@ -578,27 +620,8 @@ private fun CreateServerDialog(
         )
     }.copy(
         id = previewServerId,
-        serverIconVersion = when (pendingServerIconChange) {
-            PendingServerIconChange.Unchanged -> 0L
-            PendingServerIconChange.Remove -> 0L
-            is PendingServerIconChange.Replace -> System.currentTimeMillis()
-        },
     )
     val canCreate = name.isNotBlank() && minecraftVersion.isNotBlank()
-
-    val activePendingServerIconCrop = pendingServerIconCrop
-    if (activePendingServerIconCrop != null) {
-        ServerIconCropDialog(
-            previewBitmap = activePendingServerIconCrop,
-            dynamicBackground = dynamicBackground,
-            onDismiss = { pendingServerIconCrop = null },
-            onApply = { pngBytes ->
-                pendingServerIconChange = PendingServerIconChange.Replace(pngBytes)
-                pendingServerIconCrop = null
-            },
-        )
-        return
-    }
 
     AlertDialog(
         onDismissRequest = {},
@@ -636,29 +659,7 @@ private fun CreateServerDialog(
                                 javaSelectionMode = javaSelectionMode,
                             )
                         }.copy(
-                            serverIconVersion = when (pendingServerIconChange) {
-                                PendingServerIconChange.Unchanged -> 0L
-                                PendingServerIconChange.Remove -> 0L
-                                is PendingServerIconChange.Replace -> System.currentTimeMillis()
-                            },
                         )
-                        withContext(Dispatchers.IO) {
-                            when (val change = pendingServerIconChange) {
-                                PendingServerIconChange.Unchanged -> Unit
-                                PendingServerIconChange.Remove -> deleteManagedServerIcon(context.filesDir.toPath(), server.id)
-                                is PendingServerIconChange.Replace -> {
-                                    writeManagedServerIcon(context.filesDir.toPath(), server.id, change.pngBytes)
-                                    if (serverDirectoryUri != null) {
-                                        syncManagedServerIconToAuthorizedDirectory(
-                                            context = context,
-                                            authorizedDirectoryUri = serverDirectoryUri,
-                                            serverId = server.id,
-                                            iconPath = managedPaperServerIconFile(context.filesDir.toPath(), server.id),
-                                        )
-                                    }
-                                }
-                            }
-                        }
                         onCreate(server)
                         onDismiss()
                     }
@@ -676,18 +677,6 @@ private fun CreateServerDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                ServerIconEditorCard(
-                    server = previewServer,
-                    pendingServerIconChange = pendingServerIconChange,
-                    onPickIcon = {
-                        iconPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                    onRemoveIcon = { pendingServerIconChange = PendingServerIconChange.Remove },
-                    showRemoveAction = false,
-                    pickButtonLabel = "选择图标",
-                )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),

@@ -386,6 +386,7 @@ open class PaperServerService : Service() {
         logTailJob = serviceScope.launch {
             var logOffset = 0L
             var onlinePlayers = server.onlinePlayers
+            var onlinePlayerNames = server.onlinePlayerNames
             while (isActive) {
                 val tail = readAppendedNonBlankLinesWithOffset(logFile, logOffset)
                 logOffset = tail.nextOffset
@@ -394,6 +395,10 @@ open class PaperServerService : Service() {
                     if (updatedOnlinePlayers != null) {
                         onlinePlayers = updatedOnlinePlayers
                     }
+                    val updatedOnlinePlayerNames = updatedOnlinePlayerNamesFromLogLine(onlinePlayerNames, line)
+                    if (updatedOnlinePlayerNames != null) {
+                        onlinePlayerNames = updatedOnlinePlayerNames
+                    }
                     publishEvent(
                         PaperServerEvent(
                             serverId = server.id,
@@ -401,6 +406,7 @@ open class PaperServerService : Service() {
                             progress = if (runtimeRunning && !stopRequested) 100 else null,
                             message = line.takeLast(280),
                             onlinePlayers = updatedOnlinePlayers,
+                            onlinePlayerNames = updatedOnlinePlayerNames,
                             activeTunnelLabel = currentActiveTunnelLabel,
                             runtimeAddress = currentRuntimeAddress,
                             tunnelBindings = currentTunnelBindings,
@@ -764,6 +770,23 @@ fun updatedOnlinePlayersFromLogLine(currentOnlinePlayers: Int, logLine: String):
         leaveMatch -> (currentOnlinePlayers - 1).coerceAtLeast(0)
         else -> null
     }
+}
+
+fun updatedOnlinePlayerNamesFromLogLine(currentOnlinePlayerNames: List<String>, logLine: String): List<String>? {
+    val normalized = logLine.trim()
+    val joinMatch = Regex("""^\[[^]]+]:\s+(?!<)(?!\[)(?![^\s:]+:)(.+) joined the game$""", RegexOption.IGNORE_CASE)
+        .find(normalized)
+    if (joinMatch != null) {
+        val playerName = joinMatch.groupValues[1].trim()
+        return (currentOnlinePlayerNames + playerName).distinct()
+    }
+    val leaveMatch = Regex("""^\[[^]]+]:\s+(?!<)(?!\[)(?![^\s:]+:)(.+) left the game$""", RegexOption.IGNORE_CASE)
+        .find(normalized)
+    if (leaveMatch != null) {
+        val playerName = leaveMatch.groupValues[1].trim()
+        return currentOnlinePlayerNames.filterNot { it.equals(playerName, ignoreCase = true) }
+    }
+    return null
 }
 
 fun launchCancelledEvent(serverId: String): PaperServerEvent = PaperServerEvent(

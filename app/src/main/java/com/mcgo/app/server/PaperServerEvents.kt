@@ -21,6 +21,7 @@ data class PaperServerEvent(
     val runtimeAddress: String? = null,
     val tunnelBindings: List<ServerTunnelBinding> = emptyList(),
     val onlinePlayers: Int? = null,
+    val onlinePlayerNames: List<String>? = null,
 )
 
 object PaperServerEvents {

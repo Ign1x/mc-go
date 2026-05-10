@@ -15,6 +15,7 @@ private const val ExtraActiveTunnelLabel = "activeTunnelLabel"
 private const val ExtraRuntimeAddress = "runtimeAddress"
 private const val ExtraTunnelBindingCount = "tunnelBindingCount"
 private const val ExtraOnlinePlayers = "onlinePlayers"
+private const val ExtraOnlinePlayerNameCount = "onlinePlayerNameCount"
 
 fun Context.sendPaperRuntimeEvent(event: PaperServerEvent) {
     sendBroadcast(
@@ -28,6 +29,12 @@ fun Context.sendPaperRuntimeEvent(event: PaperServerEvent) {
             putExtra(ExtraRuntimeAddress, event.runtimeAddress)
             putExtra(ExtraTunnelBindingCount, event.tunnelBindings.size)
             event.onlinePlayers?.let { putExtra(ExtraOnlinePlayers, it) }
+            event.onlinePlayerNames?.let { onlinePlayerNames ->
+                putExtra(ExtraOnlinePlayerNameCount, onlinePlayerNames.size)
+                onlinePlayerNames.forEachIndexed { index, playerName ->
+                    putExtra("onlinePlayerName.$index", playerName)
+                }
+            }
             event.tunnelBindings.forEachIndexed { index, binding ->
                 putExtra("tunnelBinding.$index.tunnelId", binding.tunnelId)
                 putExtra("tunnelBinding.$index.remotePort", binding.remotePort ?: -1)
@@ -45,6 +52,13 @@ class PaperRuntimeEventReceiver : BroadcastReceiver() {
         RuntimeEventSyncExecutor.execute {
             try {
                 val tunnelBindingCount = intent.getIntExtra(ExtraTunnelBindingCount, 0)
+                val onlinePlayerNames = intent.getIntExtra(ExtraOnlinePlayerNameCount, -1)
+                    .takeIf { it >= 0 }
+                    ?.let { onlinePlayerNameCount ->
+                        (0 until onlinePlayerNameCount).mapNotNull { index ->
+                            intent.getStringExtra("onlinePlayerName.$index")
+                        }
+                    }
                 val tunnelBindings = (0 until tunnelBindingCount).mapNotNull { index ->
                     val tunnelId = intent.getStringExtra("tunnelBinding.$index.tunnelId") ?: return@mapNotNull null
                     ServerTunnelBinding(
@@ -63,6 +77,7 @@ class PaperRuntimeEventReceiver : BroadcastReceiver() {
                     runtimeAddress = intent.getStringExtra(ExtraRuntimeAddress),
                     tunnelBindings = tunnelBindings,
                     onlinePlayers = intent.getIntExtra(ExtraOnlinePlayers, -1).takeIf { it >= 0 },
+                    onlinePlayerNames = onlinePlayerNames,
                 )
                 syncPaperRuntimeEvent(context, event)
                 PaperServerEvents.publish(event)

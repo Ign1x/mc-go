@@ -48,6 +48,10 @@ class ServerProfileStore(
                 ?: (launchStatus == ServerLaunchStatus.Running)
             val port = properties.getProperty(prefix + "port")?.toIntOrNull() ?: defaultPort
             val onlinePlayers = properties.getProperty(prefix + "onlinePlayers")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+            val onlinePlayerNameCount = properties.getProperty(prefix + "onlinePlayerNameCount")?.toIntOrNull() ?: 0
+            val onlinePlayerNames = (0 until onlinePlayerNameCount).mapNotNull { playerIndex ->
+                properties.getProperty(prefix + "onlinePlayerName.$playerIndex")
+            }
             val tunnelRemotePort = properties.getProperty(prefix + "tunnelRemotePort")?.toIntOrNull()
             val selectedTunnelId = properties.getProperty(prefix + "selectedTunnelId")
             val activeTunnelLabel = properties.getProperty(prefix + "activeTunnelLabel")
@@ -109,6 +113,7 @@ class ServerProfileStore(
                 ).copy(
                     id = id,
                     onlinePlayers = onlinePlayers,
+                    onlinePlayerNames = onlinePlayerNames,
                     javaMajorVersion = migrateManagedJavaMajorVersion(
                         minecraftVersion = minecraftVersion,
                         requestedJavaMajorVersion = requestedJavaMajorVersion,
@@ -147,6 +152,7 @@ class ServerProfileStore(
                 ).copy(
                     id = id,
                     onlinePlayers = onlinePlayers,
+                    onlinePlayerNames = onlinePlayerNames,
                     javaMajorVersion = migrateManagedJavaMajorVersion(
                         minecraftVersion = minecraftVersion,
                         requestedJavaMajorVersion = requestedJavaMajorVersion,
@@ -185,6 +191,7 @@ class ServerProfileStore(
                 ).copy(
                     id = id,
                     onlinePlayers = onlinePlayers,
+                    onlinePlayerNames = onlinePlayerNames,
                     javaMajorVersion = migrateManagedJavaMajorVersion(
                         minecraftVersion = minecraftVersion,
                         requestedJavaMajorVersion = requestedJavaMajorVersion,
@@ -229,6 +236,10 @@ class ServerProfileStore(
             properties.setProperty(prefix + "defaultPort", server.defaultPort.toString())
             properties.setProperty(prefix + "port", server.port.toString())
             properties.setProperty(prefix + "onlinePlayers", server.onlinePlayers.toString())
+            properties.setProperty(prefix + "onlinePlayerNameCount", server.onlinePlayerNames.size.toString())
+            server.onlinePlayerNames.forEachIndexed { playerIndex, playerName ->
+                properties.setProperty(prefix + "onlinePlayerName.$playerIndex", playerName)
+            }
             server.tunnelRemotePort?.let { properties.setProperty(prefix + "tunnelRemotePort", it.toString()) }
             server.effectiveTunnelBindings().takeIf { it.isNotEmpty() }?.let { bindings ->
                 properties.setProperty(prefix + "tunnelBindingCount", bindings.size.toString())

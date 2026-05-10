@@ -29,13 +29,16 @@ fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): S
         )
     })
     val resolvedOnlinePlayers = event.onlinePlayers ?: mergedServer.onlinePlayers
+    val resolvedOnlinePlayerNames = event.onlinePlayerNames ?: mergedServer.onlinePlayerNames
     return when (event.status) {
         PaperServerEventStatus.Running -> mergedServer.markLaunchRunning(event.message).copy(
             onlinePlayers = resolvedOnlinePlayers,
+            onlinePlayerNames = resolvedOnlinePlayerNames,
         )
         PaperServerEventStatus.Failed -> mergedServer.markLaunchFailed(event.message)
         PaperServerEventStatus.Stopping -> mergedServer.markLaunchStopping(event.message).copy(
             onlinePlayers = resolvedOnlinePlayers,
+            onlinePlayerNames = resolvedOnlinePlayerNames,
         )
         PaperServerEventStatus.Stopped -> mergedServer.clearRuntimeState(ServerLaunchStatus.Stopped, event.message)
         PaperServerEventStatus.Launching -> mergedServer.withLaunchProgress(
@@ -45,9 +48,11 @@ fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): S
             online = false,
         ).copy(
             onlinePlayers = resolvedOnlinePlayers,
+            onlinePlayerNames = resolvedOnlinePlayerNames,
         )
         null -> mergedServer.copy(
             onlinePlayers = resolvedOnlinePlayers,
+            onlinePlayerNames = resolvedOnlinePlayerNames,
             runtimeLogs = (mergedServer.runtimeLogs + event.message).takeLast(12),
         )
     }
@@ -141,6 +146,7 @@ private fun ServerCardState.markLaunchStopping(message: String): ServerCardState
 private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, message: String): ServerCardState = clearTunnelRuntimeBindings().copy(
     isOnline = false,
     onlinePlayers = 0,
+    onlinePlayerNames = emptyList(),
     port = defaultPort,
     activeTunnelLabel = null,
     runtimeAddress = null,
