@@ -39,6 +39,33 @@ class PaperJvmLaunchConfigTest {
     }
 
     @Test
+    fun buildManagedPaperLaunchConfig_prefersAuthorizedWorkspaceWhenProvided_butKeepsLogsInPrivateDirectory() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-authorized")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-authorized")
+        val authorizedRoot = Files.createTempDirectory("mcgo-authorized-root")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createPaperServer("外置服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+        val authorizedWorkDir = authorizedRoot.resolve("servers/${server.id}")
+        Files.createDirectories(authorizedWorkDir)
+        val authorizedJar = authorizedWorkDir.resolve("server.jar")
+        Files.write(authorizedJar, "authorized-server".toByteArray())
+        Files.write(paperJarSha256File(authorizedJar), (sha256Hex(authorizedJar) + "\n").toByteArray())
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+            serverWorkDirOverride = authorizedWorkDir,
+        )
+
+        assertThat(config.workingDirectory).isEqualTo(authorizedWorkDir)
+        assertThat(config.arguments).contains(authorizedJar.toString())
+        assertThat(config.logFile).isEqualTo(managedPaperServerLogFile(filesDir, server.id))
+    }
+
+    @Test
     fun buildManagedPaperLaunchConfig_usesImportedServerPayloadJarForDirectJarServerTypes() {
         val filesDir = Files.createTempDirectory("mcgo-launch-files-imported-payload")
         val cacheDir = Files.createTempDirectory("mcgo-launch-cache-imported-payload")

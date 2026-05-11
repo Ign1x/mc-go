@@ -33,6 +33,7 @@ import com.mcgo.app.ui.storage.ServerProfileStore
 import com.mcgo.app.ui.storage.TunnelProfileStore
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -63,6 +64,12 @@ open class PaperServerService : Service() {
     private var logTailJob: Job? = null
     private var portMonitorJob: Job? = null
     private var workspaceSyncJob: Job? = null
+    @Volatile
+    private var currentWorkspacePreparedFromAuthorizedDirectory = false
+    @Volatile
+    private var currentWorkspacePath: Path? = null
+    @Volatile
+    private var currentWorkspaceMode: ManagedServerWorkspaceMode = ManagedServerWorkspaceMode.PrivatePersistentFallback
     private val frpcProcesses = mutableMapOf<String, Process>()
     private val frpcWatchJobs = mutableMapOf<String, Job>()
     private val tunnelRuntimeStateLock = Any()
@@ -131,6 +138,22 @@ open class PaperServerService : Service() {
             return
         }
         currentServerId = server.id
+        currentWorkspacePreparedFromAuthorizedDirectory = intent.getBooleanExtra("workspacePrepared", false)
+        currentWorkspacePath = intent.getStringExtra("workspacePath")?.let(Paths::get)
+        currentWorkspaceMode = intent.getStringExtra("workspaceMode")
+            ?.let { runCatching { enumValueOf<ManagedServerWorkspaceMode>(it) }.getOrNull() }
+            ?: ManagedServerWorkspaceMode.PrivatePersistentFallback
+        if (currentWorkspacePath == null) {
+            val workspaceAccess = prepareManagedServerWorkspaceAccess(
+                context = this,
+                authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this),
+                filesDir = filesDir.toPath(),
+                serverId = server.id,
+            )
+            currentWorkspacePath = workspaceAccess.path
+            currentWorkspaceMode = workspaceAccess.mode
+            currentWorkspacePreparedFromAuthorizedDirectory = true
+        }
         currentActiveTunnelLabel = server.activeTunnelLabel
         currentRuntimeAddress = server.runtimeAddress
         runtimeRunning = false
@@ -150,18 +173,25 @@ open class PaperServerService : Service() {
             try {
                 val result = runCatching {
                     ensureLaunchNotCancelled()
-                    restoreManagedServerWorkspaceFromAuthorizedDirectory(
-                        context = this@PaperServerService,
-                        authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
-                        serverId = server.id,
-                        targetWorkspaceDir = managedPaperServerDirectory(filesDir.toPath(), server.id),
-                    )
+                    if (currentWorkspacePreparedFromAuthorizedDirectory) {
+                        Files.createDirectories(currentWorkspacePath ?: managedPaperServerDirectory(filesDir.toPath(), server.id))
+                    } else {
+                        val preparedWorkspace = prepareManagedServerWorkspaceForForegroundAccess(
+                            context = this@PaperServerService,
+                            authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
+                            filesDir = filesDir.toPath(),
+                            serverId = server.id,
+                        )
+                        currentWorkspacePath = preparedWorkspace
+                        currentWorkspacePreparedFromAuthorizedDirectory = true
+                    }
                     val runtimeContext = prepareManagedPaperRuntimeContext(
                         server = server,
                         filesDir = filesDir.toPath(),
                         cacheDir = cacheDir.toPath(),
                         nativeLibraryDir = applicationInfo.nativeLibraryDir,
                         is64BitProcess = android.os.Process.is64Bit(),
+                        serverWorkDirOverride = currentWorkspacePath,
                     )
                     ensureLaunchNotCancelled()
                     val serverFlavorLabel = when (server.serverType) {
@@ -306,6 +336,7 @@ open class PaperServerService : Service() {
                         cacheDir = cacheDir.toPath(),
                         nativeLibraryDir = applicationInfo.nativeLibraryDir,
                         is64BitProcess = android.os.Process.is64Bit(),
+                        serverWorkDirOverride = currentWorkspacePath,
                     )
                     publish(server.id, PaperServerEventStatus.Launching, 78, "正在通过内置 HotSpot 启动 ${serverFlavorLabel}")
                     startRuntimeMonitors(server, launchConfig.logFile)
@@ -328,14 +359,29 @@ open class PaperServerService : Service() {
                         .load()
                         .firstOrNull { persisted -> persisted.id == server.id }
                     val serverPendingDeletion = persistedServer?.pendingDeletion == true
-                    if (!serverPendingDeletion) {
-                        syncManagedServerWorkspaceToAuthorizedDirectory(
-                            context = this@PaperServerService,
-                            authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
-                            serverId = server.id,
-                            sourceWorkspaceDir = managedPaperServerDirectory(filesDir.toPath(), server.id),
-                        )
+                    if (!serverPendingDeletion && shouldPersistManagedServerWorkspaceAfterLaunchAttempt(currentWorkspaceMode, runtimeLaunchSubmitted)) {
+                        currentWorkspacePath?.let { workspacePath ->
+                            check(
+                                syncManagedServerWorkspaceToAuthorizedDirectory(
+                                    context = this@PaperServerService,
+                                    authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
+                                    serverId = server.id,
+                                    sourceWorkspaceDir = workspacePath,
+                                ),
+                            ) { "停止时同步服务器目录失败" }
+                        }
+                        check(
+                            releaseManagedServerWorkspaceAfterForegroundAccess(
+                                context = this@PaperServerService,
+                                authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
+                                filesDir = filesDir.toPath(),
+                                serverId = server.id,
+                                workspaceMode = currentWorkspaceMode,
+                            ),
+                        ) { "停止时清理临时服务器目录失败" }
                     }
+                }.onFailure { error ->
+                    publishEvent(PaperServerEvent(server.id, null, null, error.message ?: "停止后同步服务器目录失败"))
                 }
             }
             launchJob = null
@@ -349,6 +395,9 @@ open class PaperServerService : Service() {
             currentActiveTunnelLabel = null
             currentRuntimeAddress = null
             currentTunnelBindings = emptyList()
+            currentWorkspacePreparedFromAuthorizedDirectory = false
+            currentWorkspacePath = null
+            currentWorkspaceMode = ManagedServerWorkspaceMode.PrivatePersistentFallback
             PaperJvmLauncher.clearPendingStopRequest()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -509,18 +558,28 @@ open class PaperServerService : Service() {
         }
         workspaceSyncJob = serviceScope.launch {
             while (isActive) {
+                if (!currentWorkspaceMode.shouldSyncBack) {
+                    delay(15_000)
+                    continue
+                }
                 runCatching {
                     val persistedServer = ServerProfileStore(filesDir.toPath().resolve("server_profiles.properties"))
                         .load()
                         .firstOrNull { persisted -> persisted.id == server.id }
                     if (persistedServer?.pendingDeletion != true) {
-                        syncManagedServerWorkspaceToAuthorizedDirectory(
-                            context = this@PaperServerService,
-                            authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
-                            serverId = server.id,
-                            sourceWorkspaceDir = managedPaperServerDirectory(filesDir.toPath(), server.id),
-                        )
+                        currentWorkspacePath?.let { workspacePath ->
+                            check(
+                                syncManagedServerWorkspaceToAuthorizedDirectory(
+                                    context = this@PaperServerService,
+                                    authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
+                                    serverId = server.id,
+                                    sourceWorkspaceDir = workspacePath,
+                                ),
+                            ) { "运行中同步服务器目录失败" }
+                        }
                     }
+                }.onFailure { error ->
+                    publishEvent(PaperServerEvent(server.id, null, null, error.message ?: "运行中同步服务器目录失败"))
                 }
                 delay(15_000)
             }
@@ -684,6 +743,22 @@ open class PaperServerService : Service() {
         private const val ServerDirectoryUriKey = "server_directory_uri"
 
         fun start(context: Context, server: ServerCardState, tunnels: List<TunnelProfile> = emptyList()) {
+            start(
+                context = context,
+                server = server,
+                tunnels = tunnels,
+                workspacePath = null,
+                workspaceMode = null,
+            )
+        }
+
+        fun start(
+            context: Context,
+            server: ServerCardState,
+            tunnels: List<TunnelProfile> = emptyList(),
+            workspacePath: String? = null,
+            workspaceMode: ManagedServerWorkspaceMode? = null,
+        ) {
             val slot = server.runtimeSlot ?: 1
             val intent = Intent(context, paperRuntimeServiceClass(slot)).apply {
                 action = ActionStart
@@ -706,6 +781,9 @@ open class PaperServerService : Service() {
                 putExtra("selectedTunnelId", server.selectedTunnelId)
                 putExtra("activeTunnelLabel", server.activeTunnelLabel)
                 putExtra("runtimeAddress", server.runtimeAddress)
+                putExtra("workspacePrepared", server.runtimeLogPath != null)
+                putExtra("workspacePath", workspacePath)
+                putExtra("workspaceMode", workspaceMode?.name)
                 putExtra("tunnelCount", tunnels.size)
                 tunnels.forEachIndexed { index, tunnel ->
                     putExtra("tunnels.$index.id", tunnel.id)

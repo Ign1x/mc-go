@@ -54,6 +54,7 @@ fun prepareManagedPaperRuntimeContext(
     cacheDir: Path,
     nativeLibraryDir: String,
     is64BitProcess: Boolean,
+    serverWorkDirOverride: Path? = null,
 ): ManagedPaperRuntimeContext {
     val javaHome = requireManagedJavaHome(filesDir, server.javaMajorVersion)
     ensureAndroidLegacyLibCompat(javaHome)
@@ -62,7 +63,7 @@ fun prepareManagedPaperRuntimeContext(
         nativeLibraryDir = nativeLibraryDir,
         is64BitProcess = is64BitProcess,
     )
-    val preparedFiles = preparePaperServerFiles(server, filesDir.resolve("servers"))
+    val preparedFiles = preparePaperServerFiles(server, filesDir.resolve("servers"), serverWorkDirOverride)
     val environment = buildList {
         add("JAVA_HOME=$javaHome")
         add("HOME=${preparedFiles.workDir}")
@@ -84,6 +85,7 @@ fun buildManagedPaperLaunchConfig(
     cacheDir: Path,
     nativeLibraryDir: String,
     is64BitProcess: Boolean,
+    serverWorkDirOverride: Path? = null,
 ): ManagedPaperLaunchConfig {
     val javaHome = requireManagedJavaHome(filesDir, server.javaMajorVersion)
     ensureAndroidLegacyLibCompat(javaHome)
@@ -92,7 +94,7 @@ fun buildManagedPaperLaunchConfig(
         nativeLibraryDir = nativeLibraryDir,
         is64BitProcess = is64BitProcess,
     )
-    val preparedFiles = preparePaperServerFiles(server, filesDir.resolve("servers"))
+    val preparedFiles = preparePaperServerFiles(server, filesDir.resolve("servers"), serverWorkDirOverride)
     val logFile = managedPaperServerLogFile(filesDir, server.id)
     Files.createDirectories(logFile.parent)
     Files.write(logFile, byteArrayOf())

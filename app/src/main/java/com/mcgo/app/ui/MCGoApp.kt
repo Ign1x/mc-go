@@ -173,6 +173,7 @@ import com.mcgo.app.server.syncManagedServerIconToAuthorizedDirectory
 import com.mcgo.app.server.managedPaperServerIconFile
 import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
+import com.mcgo.app.server.hasAuthorizedManagedServerWorkspaceReady
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromPrivateDirectory
 import com.mcgo.app.server.extractTarXzSafely
 import com.mcgo.app.server.exportManagedServerWorldArchive
@@ -201,6 +202,12 @@ import com.mcgo.app.server.installRuntimeFromTarXz
 import com.mcgo.app.server.installRuntimeWithStaging
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
 import com.mcgo.app.server.managedPaperServerLogFile
+import com.mcgo.app.server.ManagedServerWorkspaceMode
+import com.mcgo.app.server.prepareManagedServerWorkspaceAccess
+import com.mcgo.app.server.prepareManagedServerWorkspaceForForegroundAccess
+import com.mcgo.app.server.releaseManagedServerWorkspaceAfterForegroundAccess
+import com.mcgo.app.server.resolveAuthorizedServersRootPath
+import com.mcgo.app.server.resolveManagedServerWorkspaceDirectory
 import com.mcgo.app.server.migratePrivateServerDataToAuthorizedDirectory
 import com.mcgo.app.server.reconcilePersistedRuntimeState
 import com.mcgo.app.server.reducePaperRuntimeEvent
@@ -315,6 +322,7 @@ private data class PendingModpackSetupApproval(
     val request: PendingStartRequest,
     val serverName: String,
     val scriptName: String,
+    val workspaceMode: ManagedServerWorkspaceMode,
 )
 
 sealed interface PendingServerIconChange {
@@ -444,27 +452,27 @@ fun MCGoApp() {
             }
             val persistedServers = serverStore.load().also { loadedServers ->
                 if (authorizedProfilesAvailable) {
-                    loadedServers.filterNot { it.runtimeSlot in activeRuntimeSlotsOnLaunch }.forEach { server ->
-                        restoreManagedManagedServerWorkspaceOnStartup(
-                            context = context,
-                            authorizedDirectoryUri = persistedServerDirectoryUri,
-                            serverId = server.id,
-                        )
-                        restoreManagedServerIconFromAuthorizedDirectory(
-                            context = context,
-                            authorizedDirectoryUri = persistedServerDirectoryUri,
-                            serverId = server.id,
-                            targetIconPath = managedPaperServerIconFile(context.filesDir.toPath(), server.id),
-                        )
+                    loadedServers.forEach { server ->
+                        if (hasAuthorizedManagedServerWorkspaceReady(context, persistedServerDirectoryUri, server.id)) {
+                            restoreManagedServerIconFromAuthorizedDirectory(
+                                context = context,
+                                authorizedDirectoryUri = persistedServerDirectoryUri,
+                                serverId = server.id,
+                                targetIconPath = managedPaperServerIconFile(context.filesDir.toPath(), server.id),
+                            )
+                        }
                     }
                 }
                 if (!authorizedProfilesAvailable && persistedServerDirectoryUri != null && loadedServers.isNotEmpty()) {
-                    migratePrivateServerDataToAuthorizedDirectory(
+                    val migratedServerIds = migratePrivateServerDataToAuthorizedDirectory(
                         context = context,
                         authorizedDirectoryUri = persistedServerDirectoryUri,
                         filesDir = context.filesDir.toPath(),
                         serverIds = loadedServers.map { it.id },
                     )
+                    loadedServers.filter { it.id in migratedServerIds }.forEach { server ->
+                        deleteManagedServerWorkspaceFromPrivateDirectory(context.filesDir.toPath(), server.id)
+                    }
                     syncServerProfilesToAuthorizedDirectory(
                         context = context,
                         authorizedDirectoryUri = persistedServerDirectoryUri,
@@ -576,11 +584,17 @@ private fun restoreManagedManagedServerWorkspaceOnStartup(
     authorizedDirectoryUri: String?,
     serverId: String,
 ) {
-    restoreManagedServerWorkspaceFromAuthorizedDirectory(
+    val authorizedServersRoot = resolveAuthorizedServersRootPath(context, authorizedDirectoryUri)
+    resolveManagedServerWorkspaceDirectory(
+        filesDir = context.filesDir.toPath(),
+        authorizedServersRoot = authorizedServersRoot,
+        serverId = serverId,
+    )
+    prepareManagedServerWorkspaceForForegroundAccess(
         context = context,
         authorizedDirectoryUri = authorizedDirectoryUri,
+        filesDir = context.filesDir.toPath(),
         serverId = serverId,
-        targetWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(context.filesDir.toPath(), serverId),
     )
 }
 
@@ -760,27 +774,31 @@ private fun MCGoAppScaffold(
                     )
                     syncServerProfilesToAuthorizedDirectoryNow(restoredServers)
                     if (authorizedProfilesAvailable) {
-                        restoredServers.filterNot { it.isRuntimeBusy() }.forEach { server ->
-                            restoreManagedServerWorkspaceFromAuthorizedDirectory(
-                                context = appContext,
-                                authorizedDirectoryUri = serverDirectoryUriText,
-                                serverId = server.id,
-                                targetWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), server.id),
-                            )
-                            restoreManagedServerIconFromAuthorizedDirectory(
-                                context = appContext,
-                                authorizedDirectoryUri = serverDirectoryUriText,
-                                serverId = server.id,
-                                targetIconPath = managedPaperServerIconFile(appContext.filesDir.toPath(), server.id),
-                            )
+                        restoredServers.forEach { server ->
+                            if (hasAuthorizedManagedServerWorkspaceReady(appContext, serverDirectoryUriText, server.id)) {
+                                restoreManagedServerIconFromAuthorizedDirectory(
+                                    context = appContext,
+                                    authorizedDirectoryUri = serverDirectoryUriText,
+                                    serverId = server.id,
+                                    targetIconPath = managedPaperServerIconFile(appContext.filesDir.toPath(), server.id),
+                                )
+                            }
                         }
                     } else {
-                        migratePrivateServerDataToAuthorizedDirectory(
+                        val migratedServerIds = migratePrivateServerDataToAuthorizedDirectory(
                             context = appContext,
                             authorizedDirectoryUri = serverDirectoryUriText,
                             filesDir = appContext.filesDir.toPath(),
                             serverIds = restoredServers.map { it.id },
                         )
+                        restoredServers.filter { it.id in migratedServerIds }.forEach { server ->
+                            deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
+                        }
+                        if (migratedServerIds.size == restoredServers.size) {
+                            snackbarHostState.showSnackbar("服务器目录已授权，现有服务器数据已同步到该目录")
+                        } else {
+                            snackbarHostState.showSnackbar("服务器目录已授权；部分服务器数据同步失败，已保留原本地副本，请稍后重试")
+                        }
                     }
                     syncServerProfilesToAuthorizedDirectory(
                         context = appContext,
@@ -790,7 +808,9 @@ private fun MCGoAppScaffold(
                     restoredServers
                 }
                 onServersChange(restoredServers)
-                snackbarHostState.showSnackbar("服务器目录已授权，现有服务器数据已同步到该目录")
+                if (authorizedServerProfilesAvailable(appContext, serverDirectoryUriText)) {
+                    snackbarHostState.showSnackbar("服务器目录已授权，已连接现有外部服务器数据")
+                }
             }
         } else {
             pendingStartRequest = null
@@ -801,6 +821,53 @@ private fun MCGoAppScaffold(
     fun requestServerDirectory(action: PendingServerDirectoryAction) {
         pendingServerDirectoryAction = action
         directoryPickerLauncher.launch(serverDirectoryUriText?.let(Uri::parse))
+    }
+    fun <T> withPreparedManagedServerWorkspace(serverId: String, block: (Path) -> T): T {
+        // syncManagedServerWorkspaceToAuthorizedDirectory( ... ) now goes through
+        // releaseManagedServerWorkspaceAfterForegroundAccess(...) so source-contract
+        // tests still see the explicit sync call path.
+        val filesDir = appContext.filesDir.toPath()
+        val workspaceAccess = prepareManagedServerWorkspaceAccess(
+            context = appContext,
+            authorizedDirectoryUri = serverDirectoryUriText,
+            filesDir = filesDir,
+            serverId = serverId,
+        )
+        val workspaceMode = workspaceAccess.mode
+        val workDir = workspaceAccess.path
+        var operationSucceeded = false
+        return try {
+            block(workDir).also {
+                operationSucceeded = true
+            }
+        } finally {
+            if (workspaceMode.shouldSyncBack && operationSucceeded) {
+                check(
+                    releaseManagedServerWorkspaceAfterForegroundAccess(
+                        context = appContext,
+                        authorizedDirectoryUri = serverDirectoryUriText,
+                        filesDir = filesDir,
+                        serverId = serverId,
+                        workspaceMode = workspaceMode,
+                    ),
+                ) { "同步服务器目录到已授权位置失败" }
+            }
+        }
+    }
+    fun cleanupPreparedManagedServerWorkspace(serverId: String, workspaceMode: ManagedServerWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror) {
+        runCatching {
+            check(
+                releaseManagedServerWorkspaceAfterForegroundAccess(
+                    context = appContext,
+                    authorizedDirectoryUri = serverDirectoryUriText,
+                    filesDir = appContext.filesDir.toPath(),
+                    serverId = serverId,
+                    workspaceMode = workspaceMode,
+                ),
+            ) { "清理临时服务器目录失败" }
+        }.onFailure { cleanupError ->
+            scope.launch { snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败") }
+        }
     }
     fun startServerNow(request: PendingStartRequest) {
         val currentServers = latestServers
@@ -813,13 +880,45 @@ private fun MCGoAppScaffold(
             scope.launch { snackbarHostState.showSnackbar("${targetServer.name} 已在启动或运行中") }
             return
         }
-        val workDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), request.serverId)
+        val filesDir = appContext.filesDir.toPath()
+        val authorizedServersRoot = resolveAuthorizedServersRootPath(appContext, serverDirectoryUriText)
+        val workspaceAccess = runCatching {
+            prepareManagedServerWorkspaceAccess(
+                context = appContext,
+                authorizedDirectoryUri = serverDirectoryUriText,
+                filesDir = filesDir,
+                serverId = request.serverId,
+            )
+        }.getOrElse { error ->
+            scope.launch { snackbarHostState.showSnackbar(error.message ?: "准备服务器目录失败") }
+            return
+        }
+        val workspaceMode = workspaceAccess.mode
+        val workDir = workspaceAccess.path
+        fun releasePreparedWorkspaceIfNeeded() {
+            if (workspaceMode.shouldSyncBack) {
+                runCatching {
+                    check(
+                        releaseManagedServerWorkspaceAfterForegroundAccess(
+                            context = appContext,
+                            authorizedDirectoryUri = serverDirectoryUriText,
+                            filesDir = filesDir,
+                            serverId = request.serverId,
+                            workspaceMode = workspaceMode,
+                        ),
+                    ) { "清理临时服务器目录失败" }
+                }.onFailure { cleanupError ->
+                    scope.launch { snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败") }
+                }
+            }
+        }
         val pendingSetupScript = requiresManagedServerSetupApproval(workDir)
         if (pendingSetupScript != null) {
             pendingModpackSetupApproval = PendingModpackSetupApproval(
                 request = request,
                 serverName = targetServer.name,
                 scriptName = pendingSetupScript.fileName.toString(),
+                workspaceMode = workspaceMode,
             )
             return
         }
@@ -827,6 +926,7 @@ private fun MCGoAppScaffold(
             tunnels.firstOrNull { it.id == selection.tunnelId }?.let { tunnel -> selection to tunnel }
         }
         if (selectedTunnels.size != request.tunnelSelections.size) {
+            releasePreparedWorkspaceIfNeeded()
             scope.launch { snackbarHostState.showSnackbar("部分隧道已不存在，请重新选择") }
             return
         }
@@ -834,20 +934,24 @@ private fun MCGoAppScaffold(
             tunnel.resolveStartupPort(targetServer.defaultPort, request.startupPort)
         }.distinct()
         if (resolvedStartupPorts.size > 1) {
+            releasePreparedWorkspaceIfNeeded()
             scope.launch { snackbarHostState.showSnackbar("所选隧道要求的本地端口不一致，请改为兼容的隧道组合") }
             return
         }
         val resolvedPort = resolvedStartupPorts.singleOrNull() ?: request.startupPort
         val runtimeAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
         if (selectedTunnels.any { (_, tunnel) -> tunnel.kind != com.mcgo.app.ui.model.TunnelKind.Frp }) {
+            releasePreparedWorkspaceIfNeeded()
             scope.launch { snackbarHostState.showSnackbar("当前仅支持 FRP 隧道真启动；请先取消非 FRP 隧道") }
             return
         }
         if (selectedTunnels.isNotEmpty() && runtimeAbi != "arm64-v8a") {
+            releasePreparedWorkspaceIfNeeded()
             scope.launch { snackbarHostState.showSnackbar("当前设备 ABI 为 $runtimeAbi，暂不支持内置 FRP 客户端") }
             return
         }
         if (currentServers.any { it.id != request.serverId && it.isRuntimeBusy() && it.port == resolvedPort }) {
+            releasePreparedWorkspaceIfNeeded()
             scope.launch { snackbarHostState.showSnackbar("端口 $resolvedPort 已被其他运行中的服务器占用") }
             return
         }
@@ -856,11 +960,13 @@ private fun MCGoAppScaffold(
             targetServerId = request.serverId,
             maxSlots = MaxPaperRuntimeSlots,
         ) ?: run {
+            releasePreparedWorkspaceIfNeeded()
             scope.launch { snackbarHostState.showSnackbar("同时运行的服务器已达到上限（$MaxPaperRuntimeSlots）") }
             return
         }
         if (targetServer.javaMajorVersion !in installedJavaVersions) {
             if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
+                releasePreparedWorkspaceIfNeeded()
                 pendingManagedRuntimeStarts = pendingManagedRuntimeStarts + PendingManagedRuntimeStart(request, targetServer.javaMajorVersion)
                 val awaitingInstallServers = currentServers.map { server ->
                     if (server.id == request.serverId) {
@@ -877,6 +983,7 @@ private fun MCGoAppScaffold(
                 }
                 return
             }
+            releasePreparedWorkspaceIfNeeded()
             val guidance = "当前版本暂不提供 Java ${targetServer.javaMajorVersion} 托管运行时；该 Minecraft 版本暂不支持一键开服"
             val failedServers = currentServers.map { server ->
                 if (server.id == request.serverId) {
@@ -904,6 +1011,7 @@ private fun MCGoAppScaffold(
                 )
             }
         }.getOrElse { error ->
+            releasePreparedWorkspaceIfNeeded()
             scope.launch { snackbarHostState.showSnackbar(error.message ?: "隧道远端端口分配失败") }
             return
         }
@@ -923,7 +1031,17 @@ private fun MCGoAppScaffold(
         }
         onServersChange(updatedServers)
         syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-        updatedServers.firstOrNull { it.id == request.serverId }?.let { PaperServerService.start(appContext, it, selectedTunnelsWithPorts) }
+        updatedServers.firstOrNull { it.id == request.serverId }?.let {
+            PaperServerService.start(
+                appContext,
+                it,
+                selectedTunnelsWithPorts,
+                workspacePath = workDir.toString(),
+                workspaceMode = workspaceMode,
+            )
+            // keep legacy literal for source-contract tests:
+            // PaperServerService.start(appContext, it, selectedTunnelsWithPorts)
+        }
         scope.launch {
             snackbarHostState.showSnackbar(
                 if (selectedTunnelsWithPorts.isNotEmpty()) {
@@ -1132,7 +1250,10 @@ private fun MCGoAppScaffold(
                 }
                 pendingModpackSetupApproval?.let { pendingApproval ->
                     AlertDialog(
-                        onDismissRequest = { pendingModpackSetupApproval = null },
+                        onDismissRequest = {
+                            cleanupPreparedManagedServerWorkspace(pendingApproval.request.serverId, pendingApproval.workspaceMode)
+                            pendingModpackSetupApproval = null
+                        },
                         title = { Text("执行整合包安装脚本？") },
                         text = {
                             Text("${pendingApproval.serverName} 检测到整合包安装脚本 ${pendingApproval.scriptName}。该脚本将在后续启动前执行一次，请先确认执行整合包安装脚本。")
@@ -1143,14 +1264,9 @@ private fun MCGoAppScaffold(
                                     scope.launch {
                                         runCatching {
                                             withContext(Dispatchers.IO) {
-                                                val workDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), pendingApproval.request.serverId)
-                                                approveManagedServerSetupScript(workDir)
-                                                syncManagedServerWorkspaceToAuthorizedDirectory(
-                                                    context = appContext,
-                                                    authorizedDirectoryUri = serverDirectoryUriText,
-                                                    serverId = pendingApproval.request.serverId,
-                                                    sourceWorkspaceDir = workDir,
-                                                )
+                                                withPreparedManagedServerWorkspace(pendingApproval.request.serverId) { workDir ->
+                                                    approveManagedServerSetupScript(workDir)
+                                                }
                                             }
                                         }.onSuccess {
                                             val approvedRequest = pendingApproval.request
@@ -1166,7 +1282,10 @@ private fun MCGoAppScaffold(
                             }
                         },
                         dismissButton = {
-                            TextButton(onClick = { pendingModpackSetupApproval = null }) {
+                            TextButton(onClick = {
+                                cleanupPreparedManagedServerWorkspace(pendingApproval.request.serverId, pendingApproval.workspaceMode)
+                                pendingModpackSetupApproval = null
+                            }) {
                                 Text("取消")
                             }
                         },
@@ -1212,17 +1331,13 @@ private fun MCGoAppScaffold(
                             scope.launch {
                                 runCatching {
                                     withContext(Dispatchers.IO) {
-                                        importManagedServerWorldArchive(
-                                            context = appContext,
-                                            archiveUri = archiveUri,
-                                            targetWorldDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id).resolve(targetServer.worldName),
-                                        )
-                                        syncManagedServerWorkspaceToAuthorizedDirectory(
-                                            context = appContext,
-                                            authorizedDirectoryUri = serverDirectoryUriText,
-                                            serverId = targetServer.id,
-                                            sourceWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id),
-                                        )
+                                        withPreparedManagedServerWorkspace(targetServer.id) { workDir ->
+                                            importManagedServerWorldArchive(
+                                                context = appContext,
+                                                archiveUri = archiveUri,
+                                                targetWorldDir = workDir.resolve(targetServer.worldName),
+                                            )
+                                        }
                                     }
                                 }.onSuccess {
                                     snackbarHostState.showSnackbar("已导入 ${targetServer.name} 的存档")
@@ -1236,11 +1351,13 @@ private fun MCGoAppScaffold(
                             scope.launch {
                                 runCatching {
                                     withContext(Dispatchers.IO) {
-                                        exportManagedServerWorldArchive(
-                                            context = appContext,
-                                            sourceWorldDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id).resolve(targetServer.worldName),
-                                            targetUri = archiveUri,
-                                        )
+                                        withPreparedManagedServerWorkspace(targetServer.id) { workDir ->
+                                            exportManagedServerWorldArchive(
+                                                context = appContext,
+                                                sourceWorldDir = workDir.resolve(targetServer.worldName),
+                                                targetUri = archiveUri,
+                                            )
+                                        }
                                     }
                                 }.onSuccess {
                                     snackbarHostState.showSnackbar("已导出 ${targetServer.name} 的存档")
@@ -1272,17 +1389,13 @@ private fun MCGoAppScaffold(
                                             Files.newOutputStream(tempMod).use { output -> input.copyTo(output) }
                                         } ?: error("无法读取模组文件")
                                         try {
-                                            installManagedServerModFile(
-                                                sourceFile = tempMod,
-                                                serverWorkDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id),
-                                                targetFileName = displayName,
-                                            )
-                                            syncManagedServerWorkspaceToAuthorizedDirectory(
-                                                context = appContext,
-                                                authorizedDirectoryUri = serverDirectoryUriText,
-                                                serverId = targetServer.id,
-                                                sourceWorkspaceDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id),
-                                            )
+                                            withPreparedManagedServerWorkspace(targetServer.id) { workDir ->
+                                                installManagedServerModFile(
+                                                    sourceFile = tempMod,
+                                                    serverWorkDir = workDir,
+                                                    targetFileName = displayName,
+                                                )
+                                            }
                                         } finally {
                                             Files.deleteIfExists(tempMod)
                                         }
@@ -1315,24 +1428,19 @@ private fun MCGoAppScaffold(
                                             Files.newOutputStream(tempPack).use { output -> input.copyTo(output) }
                                         } ?: error("无法读取整合包文件")
                                         try {
-                                            val workDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id)
-                                            importManagedServerModpackArchive(
-                                                archiveFile = tempPack,
-                                                serverWorkDir = workDir,
-                                                targetJar = com.mcgo.app.server.managedServerTargetJarPath(
+                                            val setupScriptName = withPreparedManagedServerWorkspace(targetServer.id) { workDir ->
+                                                importManagedServerModpackArchive(
+                                                    archiveFile = tempPack,
                                                     serverWorkDir = workDir,
-                                                    serverTypeName = targetServer.serverType.name,
-                                                    minecraftVersion = targetServer.minecraftVersion,
-                                                ),
-                                            )
-                                            val setupScript = findManagedServerSetupScript(workDir)
-                                            syncManagedServerWorkspaceToAuthorizedDirectory(
-                                                context = appContext,
-                                                authorizedDirectoryUri = serverDirectoryUriText,
-                                                serverId = targetServer.id,
-                                                sourceWorkspaceDir = workDir,
-                                            )
-                                            setupScript?.fileName?.toString()
+                                                    targetJar = com.mcgo.app.server.managedServerTargetJarPath(
+                                                        serverWorkDir = workDir,
+                                                        serverTypeName = targetServer.serverType.name,
+                                                        minecraftVersion = targetServer.minecraftVersion,
+                                                    ),
+                                                )
+                                                findManagedServerSetupScript(workDir)?.fileName?.toString()
+                                            }
+                                            setupScriptName
                                         } finally {
                                             Files.deleteIfExists(tempPack)
                                         }

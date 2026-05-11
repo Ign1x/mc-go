@@ -331,9 +331,10 @@ fun fetchProvisionableMinecraftVersions(): List<String> =
         .distinct()
         .let(::filterProvisionablePaperVersions)
 
-fun preparePaperServerFiles(server: ServerCardState, rootDir: Path): PreparedPaperServerFiles {
-    val workDir = rootDir.resolve(sanitizeManagedServerId(server.id))
+fun preparePaperServerFiles(server: ServerCardState, rootDir: Path, workDirOverride: Path? = null): PreparedPaperServerFiles {
+    val workDir = workDirOverride ?: rootDir.resolve(sanitizeManagedServerId(server.id))
     Files.createDirectories(workDir)
+    writeManagedServerWorkspaceReadyMarker(workDir)
     val eulaPath = workDir.resolve("eula.txt")
     val propertiesPath = workDir.resolve("server.properties")
     val jarPath = workDir.resolve(
