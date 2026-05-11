@@ -29,6 +29,13 @@ data class ManagedPaperLaunchConfig(
     val launcherDotVersion: String,
 )
 
+data class ManagedPaperRuntimeContext(
+    val workingDirectory: Path,
+    val jarPath: Path,
+    val javaBinary: String,
+    val environment: List<String>,
+)
+
 fun managedPaperServerDirectory(filesDir: Path, serverId: String): Path =
     filesDir.resolve("servers").resolve(sanitizeManagedServerId(serverId))
 
@@ -40,6 +47,36 @@ fun managedPaperServerFrpcLogFile(filesDir: Path, serverId: String): Path =
 
 fun managedPaperServerFrpcLogFile(filesDir: Path, serverId: String, tunnelId: String): Path =
     managedPaperServerDirectory(filesDir, serverId).resolve("logs/frpc-${sanitizeManagedServerId(tunnelId)}.log")
+
+fun prepareManagedPaperRuntimeContext(
+    server: ServerCardState,
+    filesDir: Path,
+    cacheDir: Path,
+    nativeLibraryDir: String,
+    is64BitProcess: Boolean,
+): ManagedPaperRuntimeContext {
+    val javaHome = requireManagedJavaHome(filesDir, server.javaMajorVersion)
+    ensureAndroidLegacyLibCompat(javaHome)
+    val runtimeLayout = resolveManagedJavaRuntimeLayout(
+        javaHome = javaHome,
+        nativeLibraryDir = nativeLibraryDir,
+        is64BitProcess = is64BitProcess,
+    )
+    val preparedFiles = preparePaperServerFiles(server, filesDir.resolve("servers"))
+    val environment = buildList {
+        add("JAVA_HOME=$javaHome")
+        add("HOME=${preparedFiles.workDir}")
+        add("TMPDIR=$cacheDir")
+        add("PATH=${runtimeLayout.javaBinary.parent}:${defaultProcessPath()}")
+        add("LD_LIBRARY_PATH=${runtimeLayout.libraryPath}")
+    }
+    return ManagedPaperRuntimeContext(
+        workingDirectory = preparedFiles.workDir,
+        jarPath = preparedFiles.jarPath,
+        javaBinary = runtimeLayout.javaBinary.toString(),
+        environment = environment,
+    )
+}
 
 fun buildManagedPaperLaunchConfig(
     server: ServerCardState,
@@ -68,9 +105,32 @@ fun buildManagedPaperLaunchConfig(
         add("-Djava.awt.headless=true")
         add("-Djava.io.tmpdir=$cacheDir")
         add("-Duser.home=${preparedFiles.workDir}")
-        add("-jar")
-        add(preparedFiles.jarPath.toString())
-        add("nogui")
+        when (server.serverType) {
+            com.mcgo.app.ui.model.MinecraftServerType.Forge -> {
+                ensureManagedUserJvmArgsFile(preparedFiles.workDir)
+                add("@user_jvm_args.txt")
+                val installedArgs = resolveInstalledForgeUnixArgsRelativePath(preparedFiles.workDir, server.minecraftVersion)
+                add("@${installedArgs ?: "libraries/net/minecraftforge/forge/${resolveLatestForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"}")
+            }
+            com.mcgo.app.ui.model.MinecraftServerType.NeoForge -> {
+                ensureManagedUserJvmArgsFile(preparedFiles.workDir)
+                add("@user_jvm_args.txt")
+                val installedArgs = resolveInstalledNeoForgeUnixArgsRelativePath(preparedFiles.workDir, server.minecraftVersion)
+                add("@${installedArgs ?: "libraries/net/neoforged/neoforge/${resolveLatestNeoForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"}")
+            }
+            com.mcgo.app.ui.model.MinecraftServerType.Quilt -> {
+                val quiltLaunchJar = preparedFiles.workDir.resolve("quilt-server-launch.jar")
+                add("-jar")
+                add(quiltLaunchJar.toString())
+                add("nogui")
+            }
+            else -> {
+                val launchJar = resolveInstalledPayloadJar(preparedFiles.workDir, preparedFiles.jarPath) ?: preparedFiles.jarPath
+                add("-jar")
+                add(launchJar.toString())
+                add("nogui")
+            }
+        }
     }
     val environment = buildList {
         add("JAVA_HOME=$javaHome")
@@ -152,12 +212,20 @@ fun resolveManagedJavaRuntimeLayout(
         libraryPath = libraryPath,
     )
 }
+fun sanitizeManagedServerId(serverId: String): String =
+    serverId
+        .replace(Regex("[^\\p{L}\\p{N}._-]+"), "-")
+        .replace(Regex("-+"), "-")
+        .trim('-', '.')
+        .ifBlank { "paper-server" }
 
-fun sanitizeManagedServerId(serverId: String): String = serverId
-    .replace(Regex("[^\\p{L}\\p{N}._-]+"), "-")
-    .replace(Regex("-+"), "-")
-    .trim('-', '.')
-    .ifBlank { "paper-server" }
+private fun ensureManagedUserJvmArgsFile(serverWorkDir: Path) {
+    val userJvmArgsFile = serverWorkDir.resolve("user_jvm_args.txt")
+    if (!Files.exists(userJvmArgsFile)) {
+        Files.createDirectories(userJvmArgsFile.parent)
+        Files.write(userJvmArgsFile, "# user jvm args\n".toByteArray())
+    }
+}
 
 private fun defaultProcessPath(): String = System.getenv("PATH")
     ?.takeIf { it.isNotBlank() }

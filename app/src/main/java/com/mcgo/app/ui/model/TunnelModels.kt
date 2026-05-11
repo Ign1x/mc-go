@@ -238,12 +238,18 @@ fun ServerCardState.startPaperServer(
         MinecraftServerType.Paper -> "paper-$minecraftVersion.jar"
         MinecraftServerType.Purpur -> "purpur-$minecraftVersion.jar"
         MinecraftServerType.Fabric -> "fabric-$minecraftVersion.jar"
+        MinecraftServerType.Forge -> "forge-$minecraftVersion.jar"
+        MinecraftServerType.NeoForge -> "neoforge-$minecraftVersion.jar"
+        MinecraftServerType.Quilt -> "quilt-$minecraftVersion.jar"
     }
     val serverFlavorLabel = when (serverType) {
         MinecraftServerType.Vanilla -> "Vanilla"
         MinecraftServerType.Paper -> "Paper"
         MinecraftServerType.Purpur -> "Purpur"
         MinecraftServerType.Fabric -> "Fabric"
+        MinecraftServerType.Forge -> "Forge"
+        MinecraftServerType.NeoForge -> "NeoForge"
+        MinecraftServerType.Quilt -> "Quilt"
     }
     val plan = PaperLaunchPlan(
         serverJarName = serverJarName,

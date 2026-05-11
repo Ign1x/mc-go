@@ -99,6 +99,19 @@ class ServerModelsTest {
     }
 
     @Test
+    fun createFabricForgeNeoForgeAndQuiltServers_buildExpectedEditions() {
+        val fabric = createFabricServer("Fabric服", "1.21.4", maxPlayers = 20, memoryMb = 2048)
+        val forge = createForgeServer("Forge服", "1.21.4", maxPlayers = 20, memoryMb = 3072)
+        val neoForge = createNeoForgeServer("NeoForge服", "1.21.4", maxPlayers = 20, memoryMb = 3072)
+        val quilt = createQuiltServer("Quilt服", "1.21.4", maxPlayers = 20, memoryMb = 3072)
+
+        assertThat(fabric.edition).isEqualTo("Fabric 1.21.4")
+        assertThat(forge.edition).isEqualTo("Forge 1.21.4")
+        assertThat(neoForge.edition).isEqualTo("NeoForge 1.21.4")
+        assertThat(quilt.edition).isEqualTo("Quilt 1.21.4")
+    }
+
+    @Test
     fun iconDecoderTargetSize_capsLargeModernPhotosAtOrBelow2048px() {
         assertThat(calculateImageDecoderTargetSize(sourceWidth = 2048, sourceHeight = 1536, maxSize = 2048)).isNull()
         assertThat(calculateImageDecoderTargetSize(sourceWidth = 3000, sourceHeight = 2000, maxSize = 2048))

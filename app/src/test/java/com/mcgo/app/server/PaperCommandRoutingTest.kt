@@ -52,8 +52,8 @@ class PaperCommandRoutingTest {
     }
 
     @Test
-    fun serviceIntentRoundTrip_supportsFabricServerType() {
-        val server = decodeServerCardStateExtrasForTest(
+    fun serviceIntentRoundTrip_supportsFabricForgeNeoForgeAndQuiltServerTypes() {
+        val fabricServer = decodeServerCardStateExtrasForTest(
             mapOf(
                 "id" to "server-fabric",
                 "name" to "Fabric服",
@@ -66,11 +66,54 @@ class PaperCommandRoutingTest {
                 "javaMajorVersion" to 21,
             ),
         )
+        val forgeServer = decodeServerCardStateExtrasForTest(
+            mapOf(
+                "id" to "server-forge",
+                "name" to "Forge服",
+                "serverType" to "Forge",
+                "minecraftVersion" to "1.21.4",
+                "maxPlayers" to 20,
+                "memoryMb" to 3072,
+                "port" to 25569,
+                "worldName" to "forge_world",
+                "javaMajorVersion" to 21,
+            ),
+        )
+        val neoForgeServer = decodeServerCardStateExtrasForTest(
+            mapOf(
+                "id" to "server-neoforge",
+                "name" to "NeoForge服",
+                "serverType" to "NeoForge",
+                "minecraftVersion" to "1.21.4",
+                "maxPlayers" to 20,
+                "memoryMb" to 3072,
+                "port" to 25570,
+                "worldName" to "neoforge_world",
+                "javaMajorVersion" to 21,
+            ),
+        )
+        val quiltServer = decodeServerCardStateExtrasForTest(
+            mapOf(
+                "id" to "server-quilt",
+                "name" to "Quilt服",
+                "serverType" to "Quilt",
+                "minecraftVersion" to "1.21.4",
+                "maxPlayers" to 20,
+                "memoryMb" to 3072,
+                "port" to 25571,
+                "worldName" to "quilt_world",
+                "javaMajorVersion" to 21,
+            ),
+        )
 
-        assertThat(server.id).isEqualTo("server-fabric")
-        assertThat(server.serverType.name).isEqualTo("Fabric")
-        assertThat(server.edition).isEqualTo("Fabric 1.21.4")
-        assertThat(server.worldName).isEqualTo("fabric_world")
+        assertThat(fabricServer.serverType.name).isEqualTo("Fabric")
+        assertThat(fabricServer.edition).isEqualTo("Fabric 1.21.4")
+        assertThat(forgeServer.serverType.name).isEqualTo("Forge")
+        assertThat(forgeServer.edition).isEqualTo("Forge 1.21.4")
+        assertThat(neoForgeServer.serverType.name).isEqualTo("NeoForge")
+        assertThat(neoForgeServer.edition).isEqualTo("NeoForge 1.21.4")
+        assertThat(quiltServer.serverType.name).isEqualTo("Quilt")
+        assertThat(quiltServer.edition).isEqualTo("Quilt 1.21.4")
     }
 
     @Test

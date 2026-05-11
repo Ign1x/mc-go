@@ -1,7 +1,10 @@
 package com.mcgo.app.server
 
 import com.google.common.truth.Truth.assertThat
+import com.mcgo.app.ui.model.createFabricServer
+import com.mcgo.app.ui.model.createForgeServer
 import com.mcgo.app.ui.model.createPaperServer
+import com.mcgo.app.ui.model.createQuiltServer
 import java.nio.file.Files
 import kotlin.test.Test
 
@@ -33,6 +36,167 @@ class PaperJvmLaunchConfigTest {
         assertThat(config.environment).contains("TMPDIR=$cacheDir")
         assertThat(config.environment.any { it.startsWith("LD_LIBRARY_PATH=") }).isTrue()
         assertThat(config.environment.joinToString("\n")).doesNotContain("Ter" + "mux")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_usesImportedServerPayloadJarForDirectJarServerTypes() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-imported-payload")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-imported-payload")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createPaperServer("导入服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+        val serverDir = managedPaperServerDirectory(filesDir, server.id)
+        Files.createDirectories(serverDir)
+        val importedJar = serverDir.resolve("server.jar")
+        Files.write(importedJar, "imported-server".toByteArray())
+        Files.write(paperJarSha256File(importedJar), (sha256Hex(importedJar) + "\n").toByteArray())
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("-jar")
+        assertThat(config.arguments).contains(importedJar.toString())
+        assertThat(config.arguments).doesNotContain(config.jarPath.toString())
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_prefersFabricServerLaunchJarForImportedWorkspace() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-imported-fabric")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-imported-fabric")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createFabricServer("Fabric整合服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+        val serverDir = managedPaperServerDirectory(filesDir, server.id)
+        Files.createDirectories(serverDir)
+        val importedJar = serverDir.resolve("server.jar")
+        val launchJar = serverDir.resolve("fabric-server-launch.jar")
+        Files.write(importedJar, "vanilla-server".toByteArray())
+        Files.write(launchJar, "fabric-launcher".toByteArray())
+        Files.write(paperJarSha256File(launchJar), (sha256Hex(launchJar) + "\n").toByteArray())
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("-jar")
+        assertThat(config.arguments).contains(launchJar.toString())
+        assertThat(config.arguments).doesNotContain(importedJar.toString())
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_prefersQuiltServerLaunchJarForImportedWorkspace() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-imported-quilt")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-imported-quilt")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createQuiltServer("Quilt整合服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+        val serverDir = managedPaperServerDirectory(filesDir, server.id)
+        Files.createDirectories(serverDir)
+        val importedJar = serverDir.resolve("server.jar")
+        val launchJar = serverDir.resolve("quilt-server-launch.jar")
+        Files.write(importedJar, "vanilla-server".toByteArray())
+        Files.write(launchJar, "quilt-launcher".toByteArray())
+        Files.write(paperJarSha256File(launchJar), (sha256Hex(launchJar) + "\n").toByteArray())
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("-jar")
+        assertThat(config.arguments).contains(launchJar.toString())
+        assertThat(config.arguments).doesNotContain(importedJar.toString())
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_supportsForgeArgfileLaunchAndQuiltCustomServerLaunchJar() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-modded")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-modded")
+        createRuntime(filesDir, majorVersion = 21)
+        val forgeServer = createForgeServer("Forge服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25569)
+        val quiltServer = createQuiltServer("Quilt服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25570)
+        val forgeDir = managedPaperServerDirectory(filesDir, forgeServer.id)
+        val quiltDir = managedPaperServerDirectory(filesDir, quiltServer.id)
+        Files.createDirectories(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16"))
+        Files.write(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/unix_args.txt"), "--launchTarget forgeserver\n".toByteArray())
+        Files.write(forgeDir.resolve("user_jvm_args.txt"), "# user args\n".toByteArray())
+        Files.createDirectories(quiltDir)
+        Files.write(quiltDir.resolve("quilt-server-launch.jar"), byteArrayOf(1, 2, 3))
+
+        val forgeConfig = buildManagedPaperLaunchConfig(
+            server = forgeServer,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+        val quiltConfig = buildManagedPaperLaunchConfig(
+            server = quiltServer,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(forgeConfig.arguments).contains("@user_jvm_args.txt")
+        assertThat(forgeConfig.arguments.any { it.contains("unix_args.txt") }).isTrue()
+        assertThat(forgeConfig.arguments).doesNotContain("-jar")
+        assertThat(quiltConfig.arguments).contains("-jar")
+        assertThat(quiltConfig.arguments).contains(quiltDir.resolve("quilt-server-launch.jar").toString())
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_createsMissingUserJvmArgsForForgeLaunches() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-forge-user-args")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-forge-user-args")
+        createRuntime(filesDir, majorVersion = 21)
+        val forgeServer = createForgeServer("Forge服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25569)
+        val forgeDir = managedPaperServerDirectory(filesDir, forgeServer.id)
+        Files.createDirectories(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.8"))
+        Files.write(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.8/unix_args.txt"), "--launchTarget forgeserver\n".toByteArray())
+
+        val config = buildManagedPaperLaunchConfig(
+            server = forgeServer,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("@user_jvm_args.txt")
+        assertThat(Files.isRegularFile(forgeDir.resolve("user_jvm_args.txt"))).isTrue()
+        assertThat(String(Files.readAllBytes(forgeDir.resolve("user_jvm_args.txt")))).isEqualTo("# user jvm args\n")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_prefersInstalledForgeArgfilePathWhenPresent() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-forge-installed")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-forge-installed")
+        createRuntime(filesDir, majorVersion = 21)
+        val forgeServer = createForgeServer("Forge服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25569)
+        val forgeDir = managedPaperServerDirectory(filesDir, forgeServer.id)
+        Files.createDirectories(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.8"))
+        Files.write(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.8/unix_args.txt"), "--launchTarget forgeserver\n".toByteArray())
+        Files.write(forgeDir.resolve("user_jvm_args.txt"), "# user args\n".toByteArray())
+
+        val config = buildManagedPaperLaunchConfig(
+            server = forgeServer,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("@libraries/net/minecraftforge/forge/1.21.4-54.1.8/unix_args.txt")
     }
 
     @Test

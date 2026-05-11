@@ -6,8 +6,11 @@ import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.ui.model.PaperDifficulty
 import com.mcgo.app.ui.model.PaperGameMode
 import com.mcgo.app.ui.model.createFabricServer
+import com.mcgo.app.ui.model.createForgeServer
+import com.mcgo.app.ui.model.createNeoForgeServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
+import com.mcgo.app.ui.model.createQuiltServer
 import com.mcgo.app.ui.model.createVanillaServer
 import java.nio.file.Files
 import java.util.zip.ZipEntry
@@ -184,23 +187,32 @@ class PaperServerRuntimeTest {
     }
 
     @Test
-    fun preparePaperServerFiles_usesFabricJarNameAndModInstallerTargetsModsDirectory() {
-        val workDir = Files.createTempDirectory("mcgo-fabric-runtime")
-        val server = createFabricServer("Fabric服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25568)
-        val prepared = preparePaperServerFiles(server, workDir)
+    fun preparePaperServerFiles_usesFabricForgeNeoForgeAndQuiltJarNamesAndModInstallerTargetsModsDirectory() {
+        val workDir = Files.createTempDirectory("mcgo-modded-runtime")
+        val fabricServer = createFabricServer("Fabric服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25568)
+        val forgeServer = createForgeServer("Forge服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25569)
+        val neoForgeServer = createNeoForgeServer("NeoForge服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25570)
+        val quiltServer = createQuiltServer("Quilt服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25571)
+        val fabricPrepared = preparePaperServerFiles(fabricServer, workDir)
+        val forgePrepared = preparePaperServerFiles(forgeServer, workDir)
+        val neoForgePrepared = preparePaperServerFiles(neoForgeServer, workDir)
+        val quiltPrepared = preparePaperServerFiles(quiltServer, workDir)
         val modFile = Files.createTempFile("fabric-api", ".jar")
         Files.write(modFile, "fabric-mod".toByteArray())
 
-        assertThat(prepared.jarPath.fileName.toString()).isEqualTo("fabric-1.21.4.jar")
-        assertThat(String(Files.readAllBytes(prepared.serverPropertiesPath))).contains("server-port=25568")
+        assertThat(fabricPrepared.jarPath.fileName.toString()).isEqualTo("fabric-1.21.4.jar")
+        assertThat(forgePrepared.jarPath.fileName.toString()).isEqualTo("forge-1.21.4.jar")
+        assertThat(neoForgePrepared.jarPath.fileName.toString()).isEqualTo("neoforge-1.21.4.jar")
+        assertThat(quiltPrepared.jarPath.fileName.toString()).isEqualTo("quilt-1.21.4.jar")
+        assertThat(String(Files.readAllBytes(fabricPrepared.serverPropertiesPath))).contains("server-port=25568")
 
-        val installedMod = installManagedServerModFile(modFile, prepared.workDir)
+        val installedMod = installManagedServerModFile(modFile, fabricPrepared.workDir)
         assertThat(installedMod.parent.fileName.toString()).isEqualTo("mods")
         assertThat(installedMod.fileName.toString()).isEqualTo(modFile.fileName.toString())
         assertThat(String(Files.readAllBytes(installedMod))).isEqualTo("fabric-mod")
 
-        val customNamedTarget = installManagedServerModFile(modFile, prepared.workDir, targetFileName = "fabric-api-0.1.0.jar")
-        assertThat(customNamedTarget.fileName.toString()).isEqualTo("fabric-api-0.1.0.jar")
+        val customNamedTarget = installManagedServerModFile(modFile, forgePrepared.workDir, targetFileName = "mod.jar")
+        assertThat(customNamedTarget.fileName.toString()).isEqualTo("mod.jar")
     }
 
     @Test
@@ -235,6 +247,497 @@ class PaperServerRuntimeTest {
         assertThat(properties).doesNotContain("server-port=24444")
     }
 
+    @Test
+    fun importManagedServerModpackArchive_unpacksScriptsAndPreservesServerFiles() {
+        val zipFile = Files.createTempFile("mcgo-modpack", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("run.sh"))
+            zip.write("#!/bin/sh\necho start\n".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry("mods/example.jar"))
+            zip.write(byteArrayOf(1, 2, 3))
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-target")
+
+        importManagedServerModpackArchive(zipFile, targetDir)
+
+        assertThat(Files.isRegularFile(targetDir.resolve("run.sh"))).isTrue()
+        assertThat(Files.isRegularFile(targetDir.resolve("mods/example.jar"))).isTrue()
+        assertThat(targetDir.resolve("run.sh").toFile().canExecute()).isTrue()
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_stripsReservedSetupApprovalMarkersFromArchive() {
+        val zipFile = Files.createTempFile("mcgo-modpack-markers", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("setup.sh"))
+            zip.write("#!/bin/sh\necho hi\n".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry(".mcgo-modpack-setup-approved"))
+            zip.write("approved\n".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry(".mcgo-modpack-setup-complete"))
+            zip.write("done\n".toByteArray())
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-marker-target")
+
+        importManagedServerModpackArchive(zipFile, targetDir)
+
+        assertThat(Files.exists(targetDir.resolve(".mcgo-modpack-setup-approved"))).isFalse()
+        assertThat(Files.exists(targetDir.resolve(".mcgo-modpack-setup-complete"))).isFalse()
+        assertThat(requiresManagedServerSetupApproval(targetDir)?.fileName?.toString()).isEqualTo("setup.sh")
+        approveManagedServerSetupScript(targetDir)
+        assertThat(requiresManagedServerSetupApproval(targetDir)).isNull()
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_doesNotDeleteExistingWorkspaceWhenArchiveIsInvalid() {
+        val zipFile = Files.createTempFile("mcgo-modpack-invalid", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("../escape.txt"))
+            zip.write("boom".toByteArray())
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-existing")
+        Files.write(targetDir.resolve("server.jar"), "keep-me".toByteArray())
+
+        val error = kotlin.runCatching { importManagedServerModpackArchive(zipFile, targetDir) }.exceptionOrNull()
+
+        assertThat(error).isNotNull()
+        assertThat(Files.isRegularFile(targetDir.resolve("server.jar"))).isTrue()
+        assertThat(String(Files.readAllBytes(targetDir.resolve("server.jar")))).isEqualTo("keep-me")
+    }
+
+    @Test
+    fun findManagedServerSetupScript_onlyTreatsOneTimeSetupScriptsAsInstallers() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-detect")
+        Files.write(targetDir.resolve("run.sh"), "#!/system/bin/sh\n".toByteArray())
+        Files.write(targetDir.resolve("start.sh"), "#!/system/bin/sh\n".toByteArray())
+        Files.write(targetDir.resolve("setup.sh"), "#!/system/bin/sh\n".toByteArray())
+
+        assertThat(findManagedServerSetupScript(targetDir)).isEqualTo(targetDir.resolve("setup.sh"))
+    }
+
+    @Test
+    fun runManagedServerSetupScriptIfNeeded_executesOnlyOnceAndCreatesMarker() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-run")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(
+            script,
+            "#!/bin/sh\nif [ -f setup-count.txt ]; then\n  echo 2 > setup-count.txt\nelse\n  echo 1 > setup-count.txt\nfi\necho payload > server.jar\n".toByteArray(),
+        )
+        script.toFile().setExecutable(true, false)
+        approveManagedServerSetupScript(targetDir)
+
+        val firstRun = runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
+        val secondRun = runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
+
+        assertThat(firstRun).isTrue()
+        assertThat(secondRun).isFalse()
+        assertThat(String(Files.readAllBytes(targetDir.resolve("setup-count.txt"))).trim()).isEqualTo("1")
+        assertThat(Files.isRegularFile(targetDir.resolve("server.jar.sha256"))).isTrue()
+        assertThat(Files.isRegularFile(targetDir.resolve(".mcgo-modpack-setup-complete"))).isTrue()
+    }
+
+    @Test
+    fun requiresManagedServerSetupApproval_rejectsStaleApprovalWhenScriptContentsChange() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-stale")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(script, "#!/bin/sh\necho first\n".toByteArray())
+        approveManagedServerSetupScript(targetDir)
+        Files.write(script, "#!/bin/sh\necho second\n".toByteArray())
+
+        assertThat(requiresManagedServerSetupApproval(targetDir)).isEqualTo(script)
+    }
+
+    @Test
+    fun requiresManagedServerSetupApproval_rejectsApprovalWhenHigherPriorityScriptAppears() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-priority")
+        val setup = targetDir.resolve("setup.sh")
+        Files.write(setup, "#!/bin/sh\necho setup\n".toByteArray())
+        approveManagedServerSetupScript(targetDir)
+        val higherPriority = targetDir.resolve("server-setup.sh")
+        Files.write(higherPriority, "#!/bin/sh\necho priority\n".toByteArray())
+
+        assertThat(requiresManagedServerSetupApproval(targetDir)).isEqualTo(higherPriority)
+    }
+
+    @Test
+    fun runManagedServerSetupScriptIfNeeded_requiresApprovalMarkerBeforeExecuting() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-approval")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(
+            script,
+            "#!/bin/sh\necho should-not-run > setup-count.txt\n".toByteArray(),
+        )
+        script.toFile().setExecutable(true, false)
+
+        val error = assertFailsWith<IllegalStateException> {
+            runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
+        }
+
+        assertThat(error).hasMessageThat().contains("请先确认执行整合包安装脚本")
+        assertThat(Files.exists(targetDir.resolve("setup-count.txt"))).isFalse()
+        assertThat(Files.exists(targetDir.resolve(".mcgo-modpack-setup-complete"))).isFalse()
+    }
+
+    @Test
+    fun resolveNeoForgeMinecraftVersions_mapsArtifactPrefixesBackToMinecraftVersions() {
+        val metadata = """
+            <metadata>
+              <versioning>
+                <versions>
+                  <version>21.4.157</version>
+                  <version>20.6.129-beta</version>
+                  <version>26.1.2</version>
+                </versions>
+              </versioning>
+            </metadata>
+        """.trimIndent()
+
+        val versions = resolveNeoForgeMinecraftVersions(
+            metadataXml = metadata,
+            availableMinecraftVersions = listOf("1.21.4", "1.20.6", "26.1.2"),
+        )
+
+        assertThat(versions).containsExactly("1.20.6", "1.21.4", "26.1.2").inOrder()
+    }
+
+    @Test
+    fun markerFileDetection_readsOnlyPrefixWithoutNeedingWholeJarTextDecode() {
+        val marker = Files.createTempFile("mcgo-marker", ".jar")
+        Files.write(marker, "installed\nrest".toByteArray())
+        val realJar = Files.createTempFile("mcgo-real", ".jar")
+        Files.write(realJar, byteArrayOf(0x50, 0x4b, 0x03, 0x04))
+
+        assertThat(isInstalledPayloadMarkerFile(marker)).isTrue()
+        assertThat(isInstalledPayloadMarkerFile(realJar)).isFalse()
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_createsMissingParentDirectoryBeforeStaging() {
+        val zipFile = Files.createTempFile("mcgo-modpack-parent", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("server.jar"))
+            zip.write(byteArrayOf(1, 2, 3))
+            zip.closeEntry()
+        }
+        val rootDir = Files.createTempDirectory("mcgo-modpack-parent-root")
+        val targetDir = rootDir.resolve("servers/demo")
+
+        importManagedServerModpackArchive(zipFile, targetDir)
+
+        assertThat(Files.isRegularFile(targetDir.resolve("server.jar"))).isTrue()
+        assertThat(Files.isRegularFile(targetDir.resolve("server.jar.sha256"))).isTrue()
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_writesShaForResolvedFabricLaunchJar() {
+        val zipFile = Files.createTempFile("mcgo-modpack-fabric-sha", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("server.jar"))
+            zip.write(byteArrayOf(1, 2, 3))
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry("fabric-server-launch.jar"))
+            zip.write(byteArrayOf(4, 5, 6))
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-fabric-target")
+
+        importManagedServerModpackArchive(zipFile, targetDir)
+
+        val launchJar = targetDir.resolve("fabric-server-launch.jar")
+        assertThat(Files.isRegularFile(paperJarSha256File(launchJar))).isTrue()
+        assertThat(Files.exists(targetDir.resolve("server.jar.sha256"))).isFalse()
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_writesShaForResolvedQuiltLaunchJar() {
+        val zipFile = Files.createTempFile("mcgo-modpack-quilt-sha", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("server.jar"))
+            zip.write(byteArrayOf(1, 2, 3))
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry("quilt-server-launch.jar"))
+            zip.write(byteArrayOf(4, 5, 6))
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-quilt-target")
+
+        importManagedServerModpackArchive(zipFile, targetDir)
+
+        val launchJar = targetDir.resolve("quilt-server-launch.jar")
+        assertThat(Files.isRegularFile(paperJarSha256File(launchJar))).isTrue()
+        assertThat(Files.exists(targetDir.resolve("server.jar.sha256"))).isFalse()
+    }
+
+    @Test
+    fun resolveInstalledPayloadJar_supportsQuiltLaunchJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-quilt-payload")
+        val marker = serverWorkDir.resolve("quilt-1.21.4.jar")
+        Files.write(marker, "launcher=quilt-server-launch.jar\n".toByteArray())
+        val launchJar = serverWorkDir.resolve("quilt-server-launch.jar")
+        Files.write(launchJar, byteArrayOf(1, 2, 3))
+
+        assertThat(resolveInstalledPayloadJar(serverWorkDir, marker)).isEqualTo(launchJar)
+    }
+
+    @Test
+    fun resolveInstalledPayloadJar_prefersFabricServerLaunchJarForImportedFabricWorkspace() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-fabric-payload")
+        val marker = serverWorkDir.resolve("fabric-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val serverJar = serverWorkDir.resolve("server.jar")
+        val launchJar = serverWorkDir.resolve("fabric-server-launch.jar")
+        Files.write(serverJar, byteArrayOf(1, 2, 3))
+        Files.write(launchJar, byteArrayOf(4, 5, 6))
+
+        assertThat(resolveInstalledPayloadJar(serverWorkDir, marker)).isEqualTo(launchJar)
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_acceptsResolvedForgePayloadWhenPayloadShaExists() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-payload-reuse-positive")
+        val marker = serverWorkDir.resolve("forge-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val serverJar = serverWorkDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/forge-1.21.4-54.1.16-server.jar")
+        Files.createDirectories(serverJar.parent)
+        Files.write(serverJar, "verified-payload".toByteArray())
+        Files.write(serverWorkDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/unix_args.txt"), "--launchTarget forgeserver\n".toByteArray())
+        Files.write(paperJarSha256File(serverJar), (sha256Hex(serverJar) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, marker)).isTrue()
+    }
+
+    @Test
+    fun resolveInstalledPayloadJar_prefersRealLaunchArtifactsOverMarkerFiles() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-payload-jar")
+        val marker = serverWorkDir.resolve("forge-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val serverJar = serverWorkDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/forge-1.21.4-54.1.16-server.jar")
+        Files.createDirectories(serverJar.parent)
+        Files.write(serverJar, byteArrayOf(1, 2, 3))
+
+        assertThat(resolveInstalledPayloadJar(serverWorkDir, marker)).isEqualTo(serverJar)
+    }
+
+    @Test
+    fun resolveInstalledPayloadJar_prefersForgeServerJarOverRootServerJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-forge-root-server")
+        val marker = serverWorkDir.resolve("forge-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val rootServerJar = serverWorkDir.resolve("server.jar")
+        Files.write(rootServerJar, byteArrayOf(9, 9, 9))
+        val forgeServerJar = serverWorkDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/forge-1.21.4-54.1.16-server.jar")
+        Files.createDirectories(forgeServerJar.parent)
+        Files.write(forgeServerJar, byteArrayOf(1, 2, 3))
+
+        assertThat(resolveInstalledPayloadJar(serverWorkDir, marker)).isEqualTo(forgeServerJar)
+    }
+
+    @Test
+    fun resolveInstalledPayloadJar_prefersForgeServerJarOverRealForgeTargetJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-forge-real-target")
+        val targetJar = serverWorkDir.resolve("forge-1.21.4.jar")
+        Files.write(targetJar, byteArrayOf(7, 7, 7))
+        val forgeServerJar = serverWorkDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/forge-1.21.4-54.1.16-server.jar")
+        Files.createDirectories(forgeServerJar.parent)
+        Files.write(forgeServerJar, byteArrayOf(1, 2, 3))
+
+        assertThat(resolveInstalledPayloadJar(serverWorkDir, targetJar)).isEqualTo(forgeServerJar)
+    }
+
+    @Test
+    fun resolveInstalledPayloadJar_prefersNeoForgeUniversalJarOverRootServerJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-neoforge-root-server")
+        val marker = serverWorkDir.resolve("neoforge-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val rootServerJar = serverWorkDir.resolve("server.jar")
+        Files.write(rootServerJar, byteArrayOf(9, 9, 9))
+        val neoForgeJar = serverWorkDir.resolve("libraries/net/neoforged/neoforge/21.4.157/neoforge-21.4.157-universal.jar")
+        Files.createDirectories(neoForgeJar.parent)
+        Files.write(neoForgeJar, byteArrayOf(1, 2, 3))
+
+        assertThat(resolveInstalledPayloadJar(serverWorkDir, marker)).isEqualTo(neoForgeJar)
+    }
+
+    @Test
+    fun resolveInstalledPayloadJar_prefersNeoForgeUniversalJarOverRealNeoForgeTargetJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-neoforge-real-target")
+        val targetJar = serverWorkDir.resolve("neoforge-1.21.4.jar")
+        Files.write(targetJar, byteArrayOf(7, 7, 7))
+        val neoForgeJar = serverWorkDir.resolve("libraries/net/neoforged/neoforge/21.4.157/neoforge-21.4.157-universal.jar")
+        Files.createDirectories(neoForgeJar.parent)
+        Files.write(neoForgeJar, byteArrayOf(1, 2, 3))
+
+        assertThat(resolveInstalledPayloadJar(serverWorkDir, targetJar)).isEqualTo(neoForgeJar)
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_rejectsForgeWorkspaceWithoutUnixArgsEvenIfPayloadShaExists() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-forge-missing-args")
+        val marker = serverWorkDir.resolve("forge-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val forgeServerJar = serverWorkDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/forge-1.21.4-54.1.16-server.jar")
+        Files.createDirectories(forgeServerJar.parent)
+        Files.write(forgeServerJar, "verified-payload".toByteArray())
+        Files.write(paperJarSha256File(forgeServerJar), (sha256Hex(forgeServerJar) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, marker)).isFalse()
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_rejectsRealForgeTargetJarWithoutUnixArgs() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-forge-real-target-missing-args")
+        val targetJar = serverWorkDir.resolve("forge-1.21.4.jar")
+        Files.write(targetJar, "managed-forge".toByteArray())
+        Files.write(paperJarSha256File(targetJar), (sha256Hex(targetJar) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, targetJar)).isFalse()
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_acceptsNeoForgeWorkspaceWithUniversalJarAndUnixArgs() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-neoforge-reuse-positive")
+        val marker = serverWorkDir.resolve("neoforge-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val rootServerJar = serverWorkDir.resolve("server.jar")
+        Files.write(rootServerJar, "vanilla".toByteArray())
+        val neoForgeJar = serverWorkDir.resolve("libraries/net/neoforged/neoforge/21.4.157/neoforge-21.4.157-universal.jar")
+        Files.createDirectories(neoForgeJar.parent)
+        Files.write(neoForgeJar, "verified-neoforge".toByteArray())
+        Files.write(serverWorkDir.resolve("libraries/net/neoforged/neoforge/21.4.157/unix_args.txt"), "--launchTarget neoforgeserver\n".toByteArray())
+        Files.write(paperJarSha256File(neoForgeJar), (sha256Hex(neoForgeJar) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, marker)).isTrue()
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_rejectsRealNeoForgeTargetJarWithoutUnixArgs() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-neoforge-real-target-missing-args")
+        val targetJar = serverWorkDir.resolve("neoforge-1.21.4.jar")
+        Files.write(targetJar, "managed-neoforge".toByteArray())
+        Files.write(paperJarSha256File(targetJar), (sha256Hex(targetJar) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, targetJar)).isFalse()
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_acceptsDirectManagedFabricJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-fabric-reuse-positive")
+        val targetJar = serverWorkDir.resolve("fabric-1.21.4.jar")
+        Files.write(targetJar, "verified-fabric".toByteArray())
+        Files.write(paperJarSha256File(targetJar), (sha256Hex(targetJar) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, targetJar)).isTrue()
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_rejectsQuiltWorkspaceWithoutLaunchJarEvenIfRootServerJarShaExists() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-quilt-missing-launch")
+        val marker = serverWorkDir.resolve("quilt-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val serverJar = serverWorkDir.resolve("server.jar")
+        Files.write(serverJar, "verified-payload".toByteArray())
+        Files.write(paperJarSha256File(serverJar), (sha256Hex(serverJar) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, marker)).isFalse()
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_rejectsRealQuiltTargetJarWithoutLaunchJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-quilt-real-target-missing-launch")
+        val targetJar = serverWorkDir.resolve("quilt-1.21.4.jar")
+        Files.write(targetJar, "managed-quilt".toByteArray())
+        Files.write(paperJarSha256File(targetJar), (sha256Hex(targetJar) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, targetJar)).isFalse()
+    }
+
+    @Test
+    fun resolveInstalledPayloadJar_prefersQuiltLaunchJarOverRealQuiltTargetJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-quilt-real-target")
+        val targetJar = serverWorkDir.resolve("quilt-1.21.4.jar")
+        Files.write(targetJar, byteArrayOf(7, 7, 7))
+        val quiltLaunchJar = serverWorkDir.resolve("quilt-server-launch.jar")
+        Files.write(quiltLaunchJar, byteArrayOf(1, 2, 3))
+
+        assertThat(resolveInstalledPayloadJar(serverWorkDir, targetJar)).isEqualTo(quiltLaunchJar)
+    }
+
+    @Test
+    fun shouldReuseInstalledServerPayload_rejectsMarkerWithoutRealPayloadJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-payload-reuse")
+        val marker = serverWorkDir.resolve("forge-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        Files.write(paperJarSha256File(marker), (sha256Hex(marker) + "\n").toByteArray())
+
+        assertThat(shouldReuseInstalledServerPayload(serverWorkDir, marker)).isFalse()
+    }
+
+    @Test
+    fun validateBundledAndroidJnaCompatibilityForLaunchTarget_usesResolvedPayloadJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-jna-payload")
+        val marker = serverWorkDir.resolve("forge-1.21.4.jar")
+        Files.write(marker, "installed\n".toByteArray())
+        val payloadJar = createServerJarWithLibrariesList(
+            """
+            deadbeef\tnet.java.dev.jna:jna:5.19.0\tnet/java/dev/jna/jna/5.19.0/jna-5.19.0.jar
+            """.trimIndent(),
+        )
+        val installedJar = serverWorkDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/forge-1.21.4-54.1.16-server.jar")
+        Files.createDirectories(installedJar.parent)
+        Files.copy(payloadJar, installedJar)
+        val server = createForgeServer("Forge服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25569)
+
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            validateBundledAndroidJnaCompatibilityForLaunchTarget(server, serverWorkDir, marker)
+        }
+
+        assertThat(error).hasMessageThat().contains("JNA 5.19.0")
+    }
+
+    @Test
+    fun artifactVersionHelpers_compareNumericallyAndMapNeoForgePrefixes() {
+        assertThat(compareArtifactVersions("1.21.4-54.1.16", "1.21.4-54.1.8")).isGreaterThan(0)
+        assertThat(compareArtifactVersions("21.4.125", "21.4.9")).isGreaterThan(0)
+        assertThat(compareArtifactVersions("26.1.2.43-beta", "26.1.2.9-beta")).isGreaterThan(0)
+        assertThat(neoforgeArtifactPrefixForMinecraftVersion("1.21.4")).isEqualTo("21.4")
+        assertThat(neoforgeArtifactPrefixForMinecraftVersion("1.20.6")).isEqualTo("20.6")
+        assertThat(neoforgeArtifactPrefixForMinecraftVersion("26.1.2")).isEqualTo("26.1.2")
+    }
+
+    @Test
+    fun installerChecksumParsers_extractExpectedHashes() {
+        val neoforgeIndex = """
+            <html><body>
+            <a href="./neoforge-21.4.157-installer.jar.sha1">neoforge-21.4.157-installer.jar.sha1</a>
+            <a href="./neoforge-21.4.157-installer.jar.sha256">neoforge-21.4.157-installer.jar.sha256</a>
+            </body></html>
+        """.trimIndent()
+        val quiltInstallerMeta = """
+            [{"version":"0.12.1","url":"https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/0.12.1/quilt-installer-0.12.1.jar","hashes":{"sha1":"77f7053a2e6a83f902c8b8ad3ca0b71a84893455","sha256":"8b716edc692a2fa1fb78dbc2f432643be1bc6c867e5605f36f691f44257120ca"}}]
+        """.trimIndent()
+
+        assertThat(
+            resolveNeoForgeInstallerChecksumUrl(
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.4.157/neoforge-21.4.157-installer.jar",
+                neoforgeIndex,
+                algorithm = "sha256",
+            ),
+        ).isEqualTo("https://maven.neoforged.net/releases/net/neoforged/neoforge/21.4.157/neoforge-21.4.157-installer.jar.sha256")
+        assertThat(
+            resolveNeoForgeInstallerChecksumUrl(
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.4.157/neoforge-21.4.157-installer.jar",
+                neoforgeIndex,
+                algorithm = "sha1",
+            ),
+        ).isEqualTo("https://maven.neoforged.net/releases/net/neoforged/neoforge/21.4.157/neoforge-21.4.157-installer.jar.sha1")
+        assertThat(parseQuiltInstallerSha256(quiltInstallerMeta, "0.12.1")).isEqualTo("8b716edc692a2fa1fb78dbc2f432643be1bc6c867e5605f36f691f44257120ca")
+        assertThat(parseQuiltInstallerSha1(quiltInstallerMeta, "0.12.1")).isEqualTo("77f7053a2e6a83f902c8b8ad3ca0b71a84893455")
+    }
     @Test
     fun managedPaperServerPaths_useAppPrivateDirectoryAndLogFile() {
         val filesDir = Files.createTempDirectory("mcgo-paper-paths")

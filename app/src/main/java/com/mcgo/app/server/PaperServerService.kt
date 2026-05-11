@@ -23,8 +23,11 @@ import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.TunnelSource
 import com.mcgo.app.ui.model.createFabricServer
+import com.mcgo.app.ui.model.createForgeServer
+import com.mcgo.app.ui.model.createNeoForgeServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
+import com.mcgo.app.ui.model.createQuiltServer
 import com.mcgo.app.ui.model.createVanillaServer
 import com.mcgo.app.ui.storage.ServerProfileStore
 import com.mcgo.app.ui.storage.TunnelProfileStore
@@ -153,7 +156,7 @@ open class PaperServerService : Service() {
                         serverId = server.id,
                         targetWorkspaceDir = managedPaperServerDirectory(filesDir.toPath(), server.id),
                     )
-                    val config = buildManagedPaperLaunchConfig(
+                    val runtimeContext = prepareManagedPaperRuntimeContext(
                         server = server,
                         filesDir = filesDir.toPath(),
                         cacheDir = cacheDir.toPath(),
@@ -166,12 +169,23 @@ open class PaperServerService : Service() {
                         com.mcgo.app.ui.model.MinecraftServerType.Paper -> "Paper"
                         com.mcgo.app.ui.model.MinecraftServerType.Purpur -> "Purpur"
                         com.mcgo.app.ui.model.MinecraftServerType.Fabric -> "Fabric"
+                        com.mcgo.app.ui.model.MinecraftServerType.Forge -> "Forge"
+                        com.mcgo.app.ui.model.MinecraftServerType.NeoForge -> "NeoForge"
+                        com.mcgo.app.ui.model.MinecraftServerType.Quilt -> "Quilt"
                     }
                     publish(server.id, PaperServerEventStatus.Launching, 26, "正在解析 ${serverFlavorLabel} ${server.minecraftVersion} 下载信息")
-                    if (!shouldReusePaperJar(config.jarPath)) {
+                    val setupScriptExecuted = runManagedServerSetupScriptIfNeeded(
+                        serverWorkDir = runtimeContext.workingDirectory,
+                        targetJar = runtimeContext.jarPath,
+                        environment = runtimeContext.environment,
+                    )
+                    if (setupScriptExecuted) {
+                        publish(server.id, PaperServerEventStatus.Launching, 34, "已执行整合包安装脚本，继续准备 ${serverFlavorLabel}")
+                    }
+                    if (!shouldReuseInstalledServerPayload(runtimeContext.workingDirectory, runtimeContext.jarPath)) {
                         publish(server.id, PaperServerEventStatus.Launching, 42, "正在下载 ${serverFlavorLabel} ${server.minecraftVersion}")
                         when (server.serverType) {
-                            com.mcgo.app.ui.model.MinecraftServerType.Vanilla -> downloadVanillaServerJar(server.minecraftVersion, config.jarPath) { progress ->
+                            com.mcgo.app.ui.model.MinecraftServerType.Vanilla -> downloadVanillaServerJar(server.minecraftVersion, runtimeContext.jarPath) { progress ->
                                 ensureLaunchNotCancelled()
                                 publish(
                                     server.id,
@@ -180,7 +194,7 @@ open class PaperServerService : Service() {
                                     "正在下载 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
                                 )
                             }
-                            com.mcgo.app.ui.model.MinecraftServerType.Paper -> downloadLatestPaperJar(server.minecraftVersion, config.jarPath) { progress ->
+                            com.mcgo.app.ui.model.MinecraftServerType.Paper -> downloadLatestPaperJar(server.minecraftVersion, runtimeContext.jarPath) { progress ->
                                 ensureLaunchNotCancelled()
                                 publish(
                                     server.id,
@@ -189,7 +203,7 @@ open class PaperServerService : Service() {
                                     "正在下载 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
                                 )
                             }
-                            com.mcgo.app.ui.model.MinecraftServerType.Purpur -> downloadPurpurServerJar(server.minecraftVersion, config.jarPath) { progress ->
+                            com.mcgo.app.ui.model.MinecraftServerType.Purpur -> downloadPurpurServerJar(server.minecraftVersion, runtimeContext.jarPath) { progress ->
                                 ensureLaunchNotCancelled()
                                 publish(
                                     server.id,
@@ -198,7 +212,7 @@ open class PaperServerService : Service() {
                                     "正在下载 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
                                 )
                             }
-                            com.mcgo.app.ui.model.MinecraftServerType.Fabric -> downloadFabricServerJar(server.minecraftVersion, config.jarPath) { progress ->
+                            com.mcgo.app.ui.model.MinecraftServerType.Fabric -> downloadFabricServerJar(server.minecraftVersion, runtimeContext.jarPath) { progress ->
                                 ensureLaunchNotCancelled()
                                 publish(
                                     server.id,
@@ -206,13 +220,43 @@ open class PaperServerService : Service() {
                                     42 + ((progress.coerceIn(0, 100) * 34) / 100),
                                     "正在下载 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%",
                                 )
+                            }
+                            com.mcgo.app.ui.model.MinecraftServerType.Forge -> installForgeServer(
+                                version = server.minecraftVersion,
+                                serverWorkDir = runtimeContext.workingDirectory,
+                                targetJar = runtimeContext.jarPath,
+                                javaBinary = runtimeContext.javaBinary,
+                                environment = runtimeContext.environment,
+                            ) { progress ->
+                                ensureLaunchNotCancelled()
+                                publish(server.id, PaperServerEventStatus.Launching, 42 + ((progress.coerceIn(0, 100) * 34) / 100), "正在安装 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%")
+                            }
+                            com.mcgo.app.ui.model.MinecraftServerType.NeoForge -> installNeoForgeServer(
+                                version = server.minecraftVersion,
+                                serverWorkDir = runtimeContext.workingDirectory,
+                                targetJar = runtimeContext.jarPath,
+                                javaBinary = runtimeContext.javaBinary,
+                                environment = runtimeContext.environment,
+                            ) { progress ->
+                                ensureLaunchNotCancelled()
+                                publish(server.id, PaperServerEventStatus.Launching, 42 + ((progress.coerceIn(0, 100) * 34) / 100), "正在安装 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%")
+                            }
+                            com.mcgo.app.ui.model.MinecraftServerType.Quilt -> installQuiltServer(
+                                version = server.minecraftVersion,
+                                serverWorkDir = runtimeContext.workingDirectory,
+                                targetJar = runtimeContext.jarPath,
+                                javaBinary = runtimeContext.javaBinary,
+                                environment = runtimeContext.environment,
+                            ) { progress ->
+                                ensureLaunchNotCancelled()
+                                publish(server.id, PaperServerEventStatus.Launching, 42 + ((progress.coerceIn(0, 100) * 34) / 100), "正在安装 ${serverFlavorLabel} ${server.minecraftVersion} · ${progress.coerceIn(0, 100)}%")
                             }
                         }
                         ensureLaunchNotCancelled()
                     } else {
-                        publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 ${serverFlavorLabel} 包：${config.jarPath.fileName}")
+                        publish(server.id, PaperServerEventStatus.Launching, 58, "复用本地 ${serverFlavorLabel} 包：${runtimeContext.jarPath.fileName}")
                     }
-                    validateBundledAndroidJnaCompatibility(server, config.jarPath)
+                    validateBundledAndroidJnaCompatibilityForLaunchTarget(server, runtimeContext.workingDirectory, runtimeContext.jarPath)
                     ensureLaunchNotCancelled()
                     val tunnelPlans = tunnelRuntimePlansForStart(
                         filesDir = filesDir.toPath(),
@@ -256,11 +300,18 @@ open class PaperServerService : Service() {
                     if (stopRequested) {
                         PaperJvmLauncher.queueStopRequest()
                     }
+                    val launchConfig = buildManagedPaperLaunchConfig(
+                        server = server,
+                        filesDir = filesDir.toPath(),
+                        cacheDir = cacheDir.toPath(),
+                        nativeLibraryDir = applicationInfo.nativeLibraryDir,
+                        is64BitProcess = android.os.Process.is64Bit(),
+                    )
                     publish(server.id, PaperServerEventStatus.Launching, 78, "正在通过内置 HotSpot 启动 ${serverFlavorLabel}")
-                    startRuntimeMonitors(server, config.logFile)
-                    val exitCode = PaperJvmLauncher.launch(config)
+                    startRuntimeMonitors(server, launchConfig.logFile)
+                    val exitCode = PaperJvmLauncher.launch(launchConfig)
                     lastLaunchedJavaMajorVersion = server.javaMajorVersion
-                    publishEvent(runtimeExitEvent(server.id, exitCode, stopRequested && stopSignalDelivered, config.logFile))
+                    publishEvent(runtimeExitEvent(server.id, exitCode, stopRequested && stopSignalDelivered, launchConfig.logFile))
                 }
                 stopRuntimeMonitors()
                 stopFrpcProcesses()
@@ -942,6 +993,48 @@ private fun decodeServerCardStateExtras(extras: Map<String, Any?>): ServerCardSt
             serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
         )
         com.mcgo.app.ui.model.MinecraftServerType.Fabric -> createFabricServer(
+            name = extras["name"] as? String ?: "",
+            minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
+            maxPlayers = extras["maxPlayers"] as? Int ?: 20,
+            memoryMb = extras["memoryMb"] as? Int ?: 2048,
+            port = extras["port"] as? Int ?: 25565,
+            worldName = extras["worldName"] as? String ?: "world",
+            tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
+            gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
+            difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
+            onlineMode = extras["onlineMode"] as? Boolean ?: true,
+            pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
+            serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
+        )
+        com.mcgo.app.ui.model.MinecraftServerType.Forge -> createForgeServer(
+            name = extras["name"] as? String ?: "",
+            minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
+            maxPlayers = extras["maxPlayers"] as? Int ?: 20,
+            memoryMb = extras["memoryMb"] as? Int ?: 2048,
+            port = extras["port"] as? Int ?: 25565,
+            worldName = extras["worldName"] as? String ?: "world",
+            tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
+            gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
+            difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
+            onlineMode = extras["onlineMode"] as? Boolean ?: true,
+            pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
+            serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
+        )
+        com.mcgo.app.ui.model.MinecraftServerType.NeoForge -> createNeoForgeServer(
+            name = extras["name"] as? String ?: "",
+            minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
+            maxPlayers = extras["maxPlayers"] as? Int ?: 20,
+            memoryMb = extras["memoryMb"] as? Int ?: 2048,
+            port = extras["port"] as? Int ?: 25565,
+            worldName = extras["worldName"] as? String ?: "world",
+            tunnelRemotePort = (extras["tunnelRemotePort"] as? Int)?.takeIf { it > 0 },
+            gameMode = (extras["gameMode"] as? String)?.let(PaperGameMode::valueOf) ?: PaperGameMode.Survival,
+            difficulty = (extras["difficulty"] as? String)?.let(PaperDifficulty::valueOf) ?: PaperDifficulty.Normal,
+            onlineMode = extras["onlineMode"] as? Boolean ?: true,
+            pvpEnabled = extras["pvpEnabled"] as? Boolean ?: true,
+            serverPropertiesOverride = extras["serverPropertiesOverride"] as? String,
+        )
+        com.mcgo.app.ui.model.MinecraftServerType.Quilt -> createQuiltServer(
             name = extras["name"] as? String ?: "",
             minecraftVersion = extras["minecraftVersion"] as? String ?: "1.21.4",
             maxPlayers = extras["maxPlayers"] as? Int ?: 20,

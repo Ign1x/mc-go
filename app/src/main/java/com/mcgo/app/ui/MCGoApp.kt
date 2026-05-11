@@ -181,7 +181,10 @@ import com.mcgo.app.server.fallbackPurpurVersions
 import com.mcgo.app.server.fallbackVanillaVersions
 import com.mcgo.app.server.fallbackFabricVersions
 import com.mcgo.app.server.fetchFabricVersions
+import com.mcgo.app.server.fetchForgeVersions
+import com.mcgo.app.server.fetchNeoForgeVersions
 import com.mcgo.app.server.fetchPaperVersions
+import com.mcgo.app.server.fetchQuiltVersions
 import com.mcgo.app.server.deleteManagedServerIcon
 import com.mcgo.app.server.writeManagedServerIcon
 import com.mcgo.app.server.fetchProvisionableMinecraftVersions
@@ -191,6 +194,9 @@ import com.mcgo.app.server.filterProvisionablePaperVersions
 import com.mcgo.app.server.installManagedServerModFile
 import com.mcgo.app.server.installPojavRuntimeFromApk
 import com.mcgo.app.server.importManagedServerWorldArchive
+import com.mcgo.app.server.approveManagedServerSetupScript
+import com.mcgo.app.server.findManagedServerSetupScript
+import com.mcgo.app.server.importManagedServerModpackArchive
 import com.mcgo.app.server.installRuntimeFromTarXz
 import com.mcgo.app.server.installRuntimeWithStaging
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
@@ -198,6 +204,7 @@ import com.mcgo.app.server.managedPaperServerLogFile
 import com.mcgo.app.server.migratePrivateServerDataToAuthorizedDirectory
 import com.mcgo.app.server.reconcilePersistedRuntimeState
 import com.mcgo.app.server.reducePaperRuntimeEvent
+import com.mcgo.app.server.requiresManagedServerSetupApproval
 import com.mcgo.app.server.resolvePojavRuntimeComponent
 import com.mcgo.app.server.restoreManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.restoreManagedServerIconFromAuthorizedDirectory
@@ -302,6 +309,12 @@ private data class PendingStartRequest(
 private data class PendingManagedRuntimeStart(
     val request: PendingStartRequest,
     val javaMajorVersion: Int,
+)
+
+private data class PendingModpackSetupApproval(
+    val request: PendingStartRequest,
+    val serverName: String,
+    val scriptName: String,
 )
 
 sealed interface PendingServerIconChange {
@@ -514,6 +527,15 @@ fun MCGoApp() {
             val fabricVersions by produceState(initialValue = fallbackFabricVersions()) {
                 value = withContext(Dispatchers.IO) { fetchFabricVersions() }
             }
+            val forgeVersions by produceState(initialValue = fallbackVanillaVersions()) {
+                value = withContext(Dispatchers.IO) { fetchForgeVersions() }
+            }
+            val neoForgeVersions by produceState(initialValue = fallbackVanillaVersions()) {
+                value = withContext(Dispatchers.IO) { fetchNeoForgeVersions() }
+            }
+            val quiltVersions by produceState(initialValue = fallbackVanillaVersions()) {
+                value = withContext(Dispatchers.IO) { fetchQuiltVersions() }
+            }
 
             McGoTheme(appearancePreferences = appearancePreferences) {
                 MCGoAppScaffold(
@@ -524,6 +546,9 @@ fun MCGoApp() {
                     paperVersions = paperVersions,
                     purpurVersions = purpurVersions,
                     fabricVersions = fabricVersions,
+                    forgeVersions = forgeVersions,
+                    neoForgeVersions = neoForgeVersions,
+                    quiltVersions = quiltVersions,
                     supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                     appEntryElapsedRealtimeMillis = appEntryElapsedRealtimeMillis,
                     statusMonitor = statusMonitor,
@@ -568,6 +593,9 @@ private fun MCGoAppScaffold(
     paperVersions: List<String>,
     purpurVersions: List<String>,
     fabricVersions: List<String>,
+    forgeVersions: List<String>,
+    neoForgeVersions: List<String>,
+    quiltVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
     appEntryElapsedRealtimeMillis: Long,
     statusMonitor: DevicePerformanceMonitor,
@@ -648,6 +676,7 @@ private fun MCGoAppScaffold(
     var pendingServerDirectoryAction by remember { mutableStateOf<PendingServerDirectoryAction?>(null) }
     var pendingStartRequest by remember { mutableStateOf<PendingStartRequest?>(null) }
     var pendingManagedRuntimeStarts by remember { mutableStateOf<List<PendingManagedRuntimeStart>>(emptyList()) }
+    var pendingModpackSetupApproval by remember { mutableStateOf<PendingModpackSetupApproval?>(null) }
     val latestServers by rememberUpdatedState(servers)
     fun persistServerDirectoryUri(uri: Uri?) {
         serverDirectoryUriText = uri?.toString()
@@ -782,6 +811,16 @@ private fun MCGoAppScaffold(
         }
         if (!canStartServerFromUi(targetServer)) {
             scope.launch { snackbarHostState.showSnackbar("${targetServer.name} 已在启动或运行中") }
+            return
+        }
+        val workDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), request.serverId)
+        val pendingSetupScript = requiresManagedServerSetupApproval(workDir)
+        if (pendingSetupScript != null) {
+            pendingModpackSetupApproval = PendingModpackSetupApproval(
+                request = request,
+                serverName = targetServer.name,
+                scriptName = pendingSetupScript.fileName.toString(),
+            )
             return
         }
         val selectedTunnels = request.tunnelSelections.mapNotNull { selection ->
@@ -1091,6 +1130,48 @@ private fun MCGoAppScaffold(
                         )
                     }
                 }
+                pendingModpackSetupApproval?.let { pendingApproval ->
+                    AlertDialog(
+                        onDismissRequest = { pendingModpackSetupApproval = null },
+                        title = { Text("执行整合包安装脚本？") },
+                        text = {
+                            Text("${pendingApproval.serverName} 检测到整合包安装脚本 ${pendingApproval.scriptName}。该脚本将在后续启动前执行一次，请先确认执行整合包安装脚本。")
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        runCatching {
+                                            withContext(Dispatchers.IO) {
+                                                val workDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), pendingApproval.request.serverId)
+                                                approveManagedServerSetupScript(workDir)
+                                                syncManagedServerWorkspaceToAuthorizedDirectory(
+                                                    context = appContext,
+                                                    authorizedDirectoryUri = serverDirectoryUriText,
+                                                    serverId = pendingApproval.request.serverId,
+                                                    sourceWorkspaceDir = workDir,
+                                                )
+                                            }
+                                        }.onSuccess {
+                                            val approvedRequest = pendingApproval.request
+                                            pendingModpackSetupApproval = null
+                                            startServerNow(approvedRequest)
+                                        }.onFailure {
+                                            snackbarHostState.showSnackbar(it.message ?: "确认整合包安装脚本失败")
+                                        }
+                                    }
+                                },
+                            ) {
+                                Text("确认并启动")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { pendingModpackSetupApproval = null }) {
+                                Text("取消")
+                            }
+                        },
+                    )
+                }
                 AnimatedContent(targetState = destination, label = "appDestination") { animatedDestination ->
                     when (animatedDestination) {
                     McGoDestination.Status -> StatusScreen(
@@ -1105,6 +1186,9 @@ private fun MCGoAppScaffold(
                         paperVersions = paperVersions,
                         purpurVersions = purpurVersions,
                         fabricVersions = fabricVersions,
+                        forgeVersions = forgeVersions,
+                        neoForgeVersions = neoForgeVersions,
+                        quiltVersions = quiltVersions,
                         serverDirectoryUri = serverDirectoryUriText,
                         dynamicBackground = appearancePreferences.dynamicBackground,
                         supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
@@ -1167,8 +1251,11 @@ private fun MCGoAppScaffold(
                         },
                         onImportModFile = { serverId, modUri ->
                             val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen
-                            if (targetServer.serverType != MinecraftServerType.Fabric) {
-                                scope.launch { snackbarHostState.showSnackbar("当前只有 Fabric 服务器支持安装模组") }
+                            if (targetServer.serverType != MinecraftServerType.Fabric &&
+                                targetServer.serverType != MinecraftServerType.Forge &&
+                                targetServer.serverType != MinecraftServerType.NeoForge &&
+                                targetServer.serverType != MinecraftServerType.Quilt) {
+                                scope.launch { snackbarHostState.showSnackbar("当前只有 Fabric / Forge / NeoForge / Quilt 服务器支持安装模组") }
                                 return@ServersScreen
                             }
                             if (targetServer.isRuntimeBusy()) {
@@ -1204,6 +1291,57 @@ private fun MCGoAppScaffold(
                                     snackbarHostState.showSnackbar("已为 ${targetServer.name} 安装模组")
                                 }.onFailure {
                                     snackbarHostState.showSnackbar("安装模组失败：${it.message ?: "未知错误"}")
+                                }
+                            }
+                        },
+                        onImportModpackArchive = { serverId, archiveUri ->
+                            val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen
+                            if (targetServer.serverType != MinecraftServerType.Fabric &&
+                                targetServer.serverType != MinecraftServerType.Forge &&
+                                targetServer.serverType != MinecraftServerType.NeoForge &&
+                                targetServer.serverType != MinecraftServerType.Quilt) {
+                                scope.launch { snackbarHostState.showSnackbar("当前仅 Fabric / Forge / NeoForge / Quilt 服务器支持导入整合包") }
+                                return@ServersScreen
+                            }
+                            if (targetServer.isRuntimeBusy()) {
+                                scope.launch { snackbarHostState.showSnackbar("请先停止 ${targetServer.name}，再导入整合包") }
+                                return@ServersScreen
+                            }
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        val tempPack = Files.createTempFile("mcgo-modpack-", ".zip")
+                                        appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
+                                            Files.newOutputStream(tempPack).use { output -> input.copyTo(output) }
+                                        } ?: error("无法读取整合包文件")
+                                        try {
+                                            val workDir = com.mcgo.app.server.managedPaperServerDirectory(appContext.filesDir.toPath(), targetServer.id)
+                                            importManagedServerModpackArchive(
+                                                archiveFile = tempPack,
+                                                serverWorkDir = workDir,
+                                                targetJar = com.mcgo.app.server.managedServerTargetJarPath(
+                                                    serverWorkDir = workDir,
+                                                    serverTypeName = targetServer.serverType.name,
+                                                    minecraftVersion = targetServer.minecraftVersion,
+                                                ),
+                                            )
+                                            val setupScript = findManagedServerSetupScript(workDir)
+                                            syncManagedServerWorkspaceToAuthorizedDirectory(
+                                                context = appContext,
+                                                authorizedDirectoryUri = serverDirectoryUriText,
+                                                serverId = targetServer.id,
+                                                sourceWorkspaceDir = workDir,
+                                            )
+                                            setupScript?.fileName?.toString()
+                                        } finally {
+                                            Files.deleteIfExists(tempPack)
+                                        }
+                                    }
+                                }.onSuccess { setupScriptName ->
+                                    val suffix = if (setupScriptName != null) "；整合包包含安装脚本 ${setupScriptName}，请先确认执行整合包安装脚本后再启动" else ""
+                                    snackbarHostState.showSnackbar("已导入 ${targetServer.name} 的整合包${suffix}")
+                                }.onFailure {
+                                    snackbarHostState.showSnackbar("导入整合包失败：${it.message ?: "未知错误"}")
                                 }
                             }
                         },
@@ -1344,6 +1482,9 @@ private fun MCGoAppScaffold(
                     paperVersions = paperVersions,
                     purpurVersions = purpurVersions,
                     fabricVersions = fabricVersions,
+                    forgeVersions = forgeVersions,
+                    neoForgeVersions = neoForgeVersions,
+                    quiltVersions = quiltVersions,
                     supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
                     dynamicBackground = appearancePreferences.dynamicBackground,
                     serverDirectoryUri = serverDirectoryUriText,
@@ -2065,13 +2206,16 @@ private fun EditPaperServerDialog(
     paperVersions: List<String>,
     purpurVersions: List<String>,
     fabricVersions: List<String>,
+    forgeVersions: List<String>,
+    neoForgeVersions: List<String>,
+    quiltVersions: List<String>,
     supportedProvisionableJavaVersions: Set<Int>,
     dynamicBackground: Boolean,
     serverDirectoryUri: String?,
     onDismiss: () -> Unit,
     onSave: (ServerCardState) -> Unit,
 ) {
-    val baseVersionOptions: List<String> = remember(server.serverType, vanillaVersions, paperVersions, purpurVersions, fabricVersions, supportedProvisionableJavaVersions) {
+    val baseVersionOptions: List<String> = remember(server.serverType, vanillaVersions, paperVersions, purpurVersions, fabricVersions, forgeVersions, neoForgeVersions, quiltVersions, supportedProvisionableJavaVersions) {
         when (server.serverType) {
             MinecraftServerType.Vanilla -> vanillaVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
             MinecraftServerType.Paper -> com.mcgo.app.server.resolveProvisionablePaperVersionOptions(
@@ -2080,6 +2224,9 @@ private fun EditPaperServerDialog(
             )
             MinecraftServerType.Purpur -> purpurVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
             MinecraftServerType.Fabric -> fabricVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+            MinecraftServerType.Forge -> forgeVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+            MinecraftServerType.NeoForge -> neoForgeVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+            MinecraftServerType.Quilt -> quiltVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
         }
     }
     val versionOptions: List<String> = remember(baseVersionOptions, server.minecraftVersion) {

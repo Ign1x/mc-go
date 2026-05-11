@@ -110,8 +110,11 @@ import com.mcgo.app.ui.model.effectiveTunnelBindings
 import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.connectionAddresses
 import com.mcgo.app.ui.model.createFabricServer
+import com.mcgo.app.ui.model.createForgeServer
+import com.mcgo.app.ui.model.createNeoForgeServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createPurpurServer
+import com.mcgo.app.ui.model.createQuiltServer
 import com.mcgo.app.ui.model.createVanillaServer
 import com.mcgo.app.ui.model.pickAvailableManagedServerPort
 import com.mcgo.app.ui.model.formatPlayerCapacity
@@ -131,6 +134,9 @@ fun ServersScreen(
     paperVersions: List<String>,
     purpurVersions: List<String>,
     fabricVersions: List<String>,
+    forgeVersions: List<String>,
+    neoForgeVersions: List<String>,
+    quiltVersions: List<String>,
     serverDirectoryUri: String? = null,
     dynamicBackground: Boolean = true,
     supportedProvisionableJavaVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
@@ -142,6 +148,7 @@ fun ServersScreen(
     onImportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onExportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onImportModFile: (String, android.net.Uri) -> Unit = { _, _ -> },
+    onImportModpackArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onStartServer: (serverId: String, startupPort: Int, tunnelSelections: List<TunnelLaunchSelection>) -> Unit,
     onStopServer: (serverId: String) -> Unit,
     onDeleteServer: (serverId: String) -> Unit,
@@ -158,6 +165,9 @@ fun ServersScreen(
             paperVersions = paperVersions,
             purpurVersions = purpurVersions,
             fabricVersions = fabricVersions,
+            forgeVersions = forgeVersions,
+            neoForgeVersions = neoForgeVersions,
+            quiltVersions = quiltVersions,
             serverDirectoryUri = serverDirectoryUri,
             dynamicBackground = dynamicBackground,
             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
@@ -203,6 +213,7 @@ fun ServersScreen(
                 onImportWorldArchive = { uri -> onImportWorldArchive(server.id, uri) },
                 onExportWorldArchive = { uri -> onExportWorldArchive(server.id, uri) },
                 onImportModFile = { uri -> onImportModFile(server.id, uri) },
+                onImportModpackArchive = { uri -> onImportModpackArchive(server.id, uri) },
                 onOpenConsole = { onOpenConsole(server.id) },
                 onEditServer = { onEditServer(server.id) },
                 onStartClick = { pendingStartServer = server },
@@ -221,6 +232,7 @@ private fun ServerCard(
     onImportWorldArchive: (android.net.Uri) -> Unit,
     onExportWorldArchive: (android.net.Uri) -> Unit,
     onImportModFile: (android.net.Uri) -> Unit,
+    onImportModpackArchive: (android.net.Uri) -> Unit,
     onOpenConsole: () -> Unit,
     onEditServer: () -> Unit,
     onStartClick: () -> Unit,
@@ -243,6 +255,11 @@ private fun ServerCard(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) onImportModFile(uri)
+    }
+    val modpackImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) onImportModpackArchive(uri)
     }
     val statusColor = when (server.launchStatus) {
         ServerLaunchStatus.Running -> MaterialTheme.colorScheme.secondary
@@ -382,10 +399,24 @@ private fun ServerCard(
                     )
                     DropdownMenuItem(
                         text = { Text("安装模组") },
-                        enabled = server.serverType == MinecraftServerType.Fabric && !server.isRuntimeBusy(),
+                        enabled = (server.serverType == MinecraftServerType.Fabric ||
+                            server.serverType == MinecraftServerType.Forge ||
+                            server.serverType == MinecraftServerType.NeoForge ||
+                            server.serverType == MinecraftServerType.Quilt) && !server.isRuntimeBusy(),
                         onClick = {
                             fileMenuExpanded = false
                             modImportLauncher.launch(arrayOf("application/java-archive", "application/octet-stream", "*/*"))
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导入整合包") },
+                        enabled = (server.serverType == MinecraftServerType.Fabric ||
+                            server.serverType == MinecraftServerType.Forge ||
+                            server.serverType == MinecraftServerType.NeoForge ||
+                            server.serverType == MinecraftServerType.Quilt) && !server.isRuntimeBusy(),
+                        onClick = {
+                            fileMenuExpanded = false
+                            modpackImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                         },
                     )
                 }
@@ -523,6 +554,9 @@ private fun CreateServerDialog(
     paperVersions: List<String>,
     purpurVersions: List<String>,
     fabricVersions: List<String>,
+    forgeVersions: List<String>,
+    neoForgeVersions: List<String>,
+    quiltVersions: List<String>,
     serverDirectoryUri: String?,
     dynamicBackground: Boolean,
     supportedProvisionableJavaVersions: Set<Int>,
@@ -542,6 +576,15 @@ private fun CreateServerDialog(
     }
     val fabricVersionOptions = remember(fabricVersions, supportedProvisionableJavaVersions) {
         fabricVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+    }
+    val forgeVersionOptions = remember(forgeVersions, supportedProvisionableJavaVersions) {
+        forgeVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+    }
+    val neoForgeVersionOptions = remember(neoForgeVersions, supportedProvisionableJavaVersions) {
+        neoForgeVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
+    }
+    val quiltVersionOptions = remember(quiltVersions, supportedProvisionableJavaVersions) {
+        quiltVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
     }
     var selectedServerType by remember { mutableStateOf(MinecraftServerType.Paper) }
     var name by remember { mutableStateOf("Paper 服务器") }
@@ -581,18 +624,24 @@ private fun CreateServerDialog(
             MinecraftServerType.Paper -> "Paper 服务器"
             MinecraftServerType.Purpur -> "Purpur 服务器"
             MinecraftServerType.Fabric -> "Fabric 服务器"
+            MinecraftServerType.Forge -> "Forge 服务器"
+            MinecraftServerType.NeoForge -> "NeoForge 服务器"
+            MinecraftServerType.Quilt -> "Quilt 服务器"
         }
         if (name.isBlank() || name == lastAutoGeneratedName) {
             name = defaultName
         }
         lastAutoGeneratedName = defaultName
     }
-    LaunchedEffect(selectedServerType, vanillaVersionOptions, paperVersionOptions, purpurVersionOptions, fabricVersionOptions) {
+    LaunchedEffect(selectedServerType, vanillaVersionOptions, paperVersionOptions, purpurVersionOptions, fabricVersionOptions, forgeVersionOptions, neoForgeVersionOptions, quiltVersionOptions) {
         val versionOptions = when (selectedServerType) {
             MinecraftServerType.Vanilla -> vanillaVersionOptions
             MinecraftServerType.Paper -> paperVersionOptions
             MinecraftServerType.Purpur -> purpurVersionOptions
             MinecraftServerType.Fabric -> fabricVersionOptions
+            MinecraftServerType.Forge -> forgeVersionOptions
+            MinecraftServerType.NeoForge -> neoForgeVersionOptions
+            MinecraftServerType.Quilt -> quiltVersionOptions
         }
         if (minecraftVersion !in versionOptions || versionWasAutoSelected) {
             minecraftVersion = versionOptions.lastOrNull().orEmpty()
@@ -630,6 +679,33 @@ private fun CreateServerDialog(
         MinecraftServerType.Fabric -> createFabricServer(
             name = name,
             minecraftVersion = minecraftVersion.ifBlank { fabricVersionOptions.lastOrNull().orEmpty() },
+            maxPlayers = resolvedMaxPlayers,
+            memoryMb = resolvedMemoryMb,
+            port = resolvedPort,
+            javaMajorVersion = selectedJavaMajorVersion,
+            javaSelectionMode = javaSelectionMode,
+        )
+        MinecraftServerType.Forge -> createForgeServer(
+            name = name,
+            minecraftVersion = minecraftVersion.ifBlank { forgeVersionOptions.lastOrNull().orEmpty() },
+            maxPlayers = resolvedMaxPlayers,
+            memoryMb = resolvedMemoryMb,
+            port = resolvedPort,
+            javaMajorVersion = selectedJavaMajorVersion,
+            javaSelectionMode = javaSelectionMode,
+        )
+        MinecraftServerType.NeoForge -> createNeoForgeServer(
+            name = name,
+            minecraftVersion = minecraftVersion.ifBlank { neoForgeVersionOptions.lastOrNull().orEmpty() },
+            maxPlayers = resolvedMaxPlayers,
+            memoryMb = resolvedMemoryMb,
+            port = resolvedPort,
+            javaMajorVersion = selectedJavaMajorVersion,
+            javaSelectionMode = javaSelectionMode,
+        )
+        MinecraftServerType.Quilt -> createQuiltServer(
+            name = name,
+            minecraftVersion = minecraftVersion.ifBlank { quiltVersionOptions.lastOrNull().orEmpty() },
             maxPlayers = resolvedMaxPlayers,
             memoryMb = resolvedMemoryMb,
             port = resolvedPort,
@@ -677,6 +753,33 @@ private fun CreateServerDialog(
                                 javaSelectionMode = javaSelectionMode,
                             )
                             MinecraftServerType.Fabric -> createFabricServer(
+                                name = name,
+                                minecraftVersion = minecraftVersion,
+                                maxPlayers = resolvedMaxPlayers,
+                                memoryMb = resolvedMemoryMb,
+                                port = resolvedPort,
+                                javaMajorVersion = selectedJavaMajorVersion,
+                                javaSelectionMode = javaSelectionMode,
+                            )
+                            MinecraftServerType.Forge -> createForgeServer(
+                                name = name,
+                                minecraftVersion = minecraftVersion,
+                                maxPlayers = resolvedMaxPlayers,
+                                memoryMb = resolvedMemoryMb,
+                                port = resolvedPort,
+                                javaMajorVersion = selectedJavaMajorVersion,
+                                javaSelectionMode = javaSelectionMode,
+                            )
+                            MinecraftServerType.NeoForge -> createNeoForgeServer(
+                                name = name,
+                                minecraftVersion = minecraftVersion,
+                                maxPlayers = resolvedMaxPlayers,
+                                memoryMb = resolvedMemoryMb,
+                                port = resolvedPort,
+                                javaMajorVersion = selectedJavaMajorVersion,
+                                javaSelectionMode = javaSelectionMode,
+                            )
+                            MinecraftServerType.Quilt -> createQuiltServer(
                                 name = name,
                                 minecraftVersion = minecraftVersion,
                                 maxPlayers = resolvedMaxPlayers,
@@ -733,6 +836,9 @@ private fun CreateServerDialog(
                         MinecraftServerType.Paper -> paperVersionOptions
                         MinecraftServerType.Purpur -> purpurVersionOptions
                         MinecraftServerType.Fabric -> fabricVersionOptions
+                        MinecraftServerType.Forge -> forgeVersionOptions
+                        MinecraftServerType.NeoForge -> neoForgeVersionOptions
+                        MinecraftServerType.Quilt -> quiltVersionOptions
                     }
                     OutlinedTextField(
                         value = minecraftVersion,
@@ -749,6 +855,9 @@ private fun CreateServerDialog(
                                     MinecraftServerType.Paper -> "从 Paper 官方版本列表选择"
                                     MinecraftServerType.Purpur -> "从 Purpur 官方版本列表选择"
                                     MinecraftServerType.Fabric -> "从 Fabric 官方版本列表选择"
+                                    MinecraftServerType.Forge -> "从 Forge 官方版本列表选择"
+                                    MinecraftServerType.NeoForge -> "从 NeoForge 官方版本列表选择"
+                                    MinecraftServerType.Quilt -> "从 Quilt 官方版本列表选择"
                                 },
                             )
                         },
