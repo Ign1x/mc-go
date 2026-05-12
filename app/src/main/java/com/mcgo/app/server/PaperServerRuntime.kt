@@ -1052,6 +1052,12 @@ private data class ManagedServerSetupApprovalRecord(
     val scriptSha256: String,
 )
 
+internal data class ImportedModpackServerMetadata(
+    val serverType: com.mcgo.app.ui.model.MinecraftServerType,
+    val minecraftVersion: String,
+    val javaMajorVersion: Int,
+)
+
 private fun readManagedServerSetupApprovalRecord(serverWorkDir: Path): ManagedServerSetupApprovalRecord? {
     val marker = managedServerSetupApprovalMarker(serverWorkDir)
     if (!Files.isRegularFile(marker)) return null
@@ -1315,6 +1321,70 @@ internal fun resolveLatestForgeArtifactVersion(version: String): String =
         .map { it.groupValues[1] }
         .maxWithOrNull(::compareArtifactVersions)
         ?: error("Forge 安装器版本缺失：$version")
+
+internal fun detectImportedModpackServerMetadata(serverWorkDir: Path): ImportedModpackServerMetadata {
+    fun build(serverType: com.mcgo.app.ui.model.MinecraftServerType, minecraftVersion: String): ImportedModpackServerMetadata =
+        ImportedModpackServerMetadata(
+            serverType = serverType,
+            minecraftVersion = minecraftVersion,
+            javaMajorVersion = com.mcgo.app.ui.model.recommendedJavaMajorVersion(minecraftVersion),
+        )
+
+    fun findVersionFromPaths(): String? {
+        val versionRegex = Regex("""/(?:server|minecraftforge/forge|neoforge)/((?:1\.)?\d+\.\d+(?:\.\d+)?)(?:-|/)""")
+        val jarVersions = Files.walk(serverWorkDir).use { paths ->
+            paths.iterator().asSequence()
+                .map { path -> path.toString().replace('\\', '/') }
+                .mapNotNull { rawPath ->
+                    versionRegex.find(rawPath)
+                        ?.groupValues
+                        ?.getOrNull(1)
+                }
+                .filter { version -> validatePaperVersionOrNull(version) != null }
+                .toList()
+        }
+        return jarVersions.maxWithOrNull(::compareMinecraftVersions)
+    }
+
+    if (Files.isRegularFile(serverWorkDir.resolve("fabric-server-launch.jar"))) {
+        return build(com.mcgo.app.ui.model.MinecraftServerType.Fabric, findVersionFromPaths() ?: "1.21.4")
+    }
+    if (Files.isRegularFile(serverWorkDir.resolve("quilt-server-launch.jar"))) {
+        return build(com.mcgo.app.ui.model.MinecraftServerType.Quilt, findVersionFromPaths() ?: "1.21.4")
+    }
+    Files.walk(serverWorkDir).use { paths ->
+        paths.filter { path ->
+            Files.isRegularFile(path) && path.fileName.toString() == "unix_args.txt" && path.toString().contains("/net/minecraftforge/forge/")
+        }.findFirst().orElse(null)
+    }?.let { argsPath ->
+        val version = Regex("""/forge/((?:1\.)?\d+\.\d+(?:\.\d+)?)-""")
+            .find(argsPath.toString().replace('\\', '/'))
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: "1.20.1"
+        return build(com.mcgo.app.ui.model.MinecraftServerType.Forge, version)
+    }
+    Files.walk(serverWorkDir).use { paths ->
+        paths.filter { path ->
+            Files.isRegularFile(path) && path.fileName.toString() == "unix_args.txt" && path.toString().contains("/net/neoforged/neoforge/")
+        }.findFirst().orElse(null)
+    }?.let { argsPath ->
+        val rawVersion = Regex("""/neoforge/((?:1\.)?\d+\.\d+(?:\.\d+)?)(?:[./])""")
+            .find(argsPath.toString().replace('\\', '/'))
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: "1.21.4"
+        val version = rawVersion.split('.').let { parts ->
+            when {
+                rawVersion.startsWith("1.") -> rawVersion
+                parts.size >= 3 && parts[0].toIntOrNull() ?: 0 < 26 -> "1.${parts[0]}.${parts[1]}"
+                else -> rawVersion
+            }
+        }
+        return build(com.mcgo.app.ui.model.MinecraftServerType.NeoForge, version)
+    }
+    return build(com.mcgo.app.ui.model.MinecraftServerType.Paper, findVersionFromPaths() ?: "1.21.4")
+}
 
 fun resolveInstalledPayloadJar(serverWorkDir: Path, targetJar: Path): Path? {
     val targetName = targetJar.fileName.toString().lowercase()

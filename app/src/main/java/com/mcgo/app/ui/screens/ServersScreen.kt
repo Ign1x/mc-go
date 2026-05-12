@@ -138,6 +138,7 @@ fun ServersScreen(
     neoForgeVersions: List<String>,
     quiltVersions: List<String>,
     serverDirectoryUri: String? = null,
+    currentModpackImportServerIds: Set<String> = emptySet(),
     dynamicBackground: Boolean = true,
     supportedProvisionableJavaVersions: Set<Int> = setOf(8, 11, 17, 21, 25),
     modifier: Modifier = Modifier,
@@ -145,10 +146,10 @@ fun ServersScreen(
     showCreateServer: Boolean = false,
     onDismissCreateServer: () -> Unit = {},
     onCreateServer: (ServerCardState) -> Unit = {},
+    onCreateServerFromModpack: (ServerCardState, android.net.Uri) -> Unit = { _, _ -> },
     onImportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onExportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onImportModFile: (String, android.net.Uri) -> Unit = { _, _ -> },
-    onImportModpackArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onStartServer: (serverId: String, startupPort: Int, tunnelSelections: List<TunnelLaunchSelection>) -> Unit,
     onStopServer: (serverId: String) -> Unit,
     onDeleteServer: (serverId: String) -> Unit,
@@ -173,6 +174,7 @@ fun ServersScreen(
             supportedProvisionableJavaVersions = supportedProvisionableJavaVersions,
             onDismiss = onDismissCreateServer,
             onCreate = onCreateServer,
+            onCreateFromModpack = onCreateServerFromModpack,
         )
     }
 
@@ -224,7 +226,7 @@ fun ServersScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "添加后的服务器都可以继续启动、编辑、导入整合包或删除。",
+                        text = "添加后的服务器都可以继续启动、编辑或删除。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -235,10 +237,10 @@ fun ServersScreen(
                 ServerCard(
                     server = server,
                     modifier = Modifier.padding(horizontal = 20.dp),
+                    currentModpackImportServerIds = currentModpackImportServerIds,
                     onImportWorldArchive = { uri -> onImportWorldArchive(server.id, uri) },
                     onExportWorldArchive = { uri -> onExportWorldArchive(server.id, uri) },
                     onImportModFile = { uri -> onImportModFile(server.id, uri) },
-                    onImportModpackArchive = { uri -> onImportModpackArchive(server.id, uri) },
                     onOpenConsole = { onOpenConsole(server.id) },
                     onEditServer = { onEditServer(server.id) },
                     onStartClick = { pendingStartServer = server },
@@ -254,11 +256,11 @@ fun ServersScreen(
 @Composable
 private fun ServerCard(
     server: ServerCardState,
+    currentModpackImportServerIds: Set<String> = emptySet(),
     modifier: Modifier = Modifier,
     onImportWorldArchive: (android.net.Uri) -> Unit,
     onExportWorldArchive: (android.net.Uri) -> Unit,
     onImportModFile: (android.net.Uri) -> Unit,
-    onImportModpackArchive: (android.net.Uri) -> Unit,
     onOpenConsole: () -> Unit,
     onEditServer: () -> Unit,
     onStartClick: () -> Unit,
@@ -282,11 +284,6 @@ private fun ServerCard(
     ) { uri ->
         if (uri != null) onImportModFile(uri)
     }
-    val modpackImportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) onImportModpackArchive(uri)
-    }
     val statusColor = when (server.launchStatus) {
         ServerLaunchStatus.Running -> MaterialTheme.colorScheme.secondary
         ServerLaunchStatus.Launching -> MaterialTheme.colorScheme.primary
@@ -294,6 +291,7 @@ private fun ServerCard(
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val animatedStatusColor = animateColorAsState(statusColor, label = "serverStatusColor")
+    val modpackImportInProgress = currentModpackImportServerIds.contains(server.id)
     val connectionAddresses = server.connectionAddresses()
     val connectionAddress = connectionAddresses.firstOrNull() ?: server.port.let { "127.0.0.1:$it" }
     val tunnelLabels = server.activeTunnelLabels()
@@ -398,10 +396,10 @@ private fun ServerCard(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val startEnabled = canStartServerFromUi(server)
-            val stopEnabled = server.isRuntimeBusy()
+            val startEnabled = canStartServerFromUi(server) && !modpackImportInProgress
+            val stopEnabled = server.isRuntimeBusy() && !modpackImportInProgress
             Box {
-                IconButton(onClick = { fileMenuExpanded = true }) {
+                IconButton(onClick = { fileMenuExpanded = true }, enabled = !modpackImportInProgress) {
                     Icon(Icons.Outlined.Folder, contentDescription = "文件管理")
                 }
                 DropdownMenu(
@@ -434,20 +432,9 @@ private fun ServerCard(
                             modImportLauncher.launch(arrayOf("application/java-archive", "application/octet-stream", "*/*"))
                         },
                     )
-                    DropdownMenuItem(
-                        text = { Text("导入整合包") },
-                        enabled = (server.serverType == MinecraftServerType.Fabric ||
-                            server.serverType == MinecraftServerType.Forge ||
-                            server.serverType == MinecraftServerType.NeoForge ||
-                            server.serverType == MinecraftServerType.Quilt) && !server.isRuntimeBusy(),
-                        onClick = {
-                            fileMenuExpanded = false
-                            modpackImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
-                        },
-                    )
                 }
             }
-            IconButton(onClick = onOpenConsole) {
+            IconButton(onClick = onOpenConsole, enabled = !modpackImportInProgress) {
                 Icon(Icons.Outlined.Terminal, contentDescription = stringResource(R.string.server_action_console))
             }
             IconButton(
@@ -469,10 +456,10 @@ private fun ServerCard(
                     )
                 }
             }
-            IconButton(onClick = onEditServer) {
+            IconButton(onClick = onEditServer, enabled = !modpackImportInProgress) {
                 Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.server_action_edit))
             }
-            IconButton(onClick = onDeleteClick) {
+            IconButton(onClick = onDeleteClick, enabled = !modpackImportInProgress) {
                 Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.server_action_delete))
             }
         }
@@ -588,9 +575,18 @@ private fun CreateServerDialog(
     supportedProvisionableJavaVersions: Set<Int>,
     onDismiss: () -> Unit,
     onCreate: (ServerCardState) -> Unit,
+    onCreateFromModpack: (ServerCardState, android.net.Uri) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pendingModpackImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val modpackImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            pendingModpackImportUri = uri
+        }
+    }
     val vanillaVersionOptions = remember(vanillaVersions, supportedProvisionableJavaVersions) {
         vanillaVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
     }
@@ -741,7 +737,23 @@ private fun CreateServerDialog(
     }.copy(
         id = previewServerId,
     )
-    val canCreate = name.isNotBlank() && minecraftVersion.isNotBlank()
+    val modpackPreviewServer = createFabricServer(
+        name = name.ifBlank { "整合包服务器" },
+        minecraftVersion = "1.21.4",
+        maxPlayers = resolvedMaxPlayers,
+        memoryMb = resolvedMemoryMb,
+        port = resolvedPort,
+        javaMajorVersion = 21,
+        javaSelectionMode = JavaSelectionMode.Recommended,
+    ).copy(
+        id = previewServerId,
+        edition = "整合包 导入后自动识别",
+    )
+    val canCreate = if (pendingModpackImportUri != null) {
+        name.isNotBlank()
+    } else {
+        name.isNotBlank() && minecraftVersion.isNotBlank()
+    }
 
     AlertDialog(
         onDismissRequest = {},
@@ -750,78 +762,84 @@ private fun CreateServerDialog(
                 enabled = canCreate,
                 onClick = {
                     scope.launch {
-                        val server = when (selectedServerType) {
-                            MinecraftServerType.Vanilla -> createVanillaServer(
-                                name = name,
-                                minecraftVersion = minecraftVersion,
-                                maxPlayers = resolvedMaxPlayers,
-                                memoryMb = resolvedMemoryMb,
-                                port = resolvedPort,
-                                javaMajorVersion = selectedJavaMajorVersion,
-                                javaSelectionMode = javaSelectionMode,
+                        if (pendingModpackImportUri != null) {
+                            onCreateFromModpack(modpackPreviewServer.copy(name = name.ifBlank { modpackPreviewServer.name }), pendingModpackImportUri!!)
+                            pendingModpackImportUri = null
+                            onDismiss()
+                        } else {
+                            val server = when (selectedServerType) {
+                                MinecraftServerType.Vanilla -> createVanillaServer(
+                                    name = name,
+                                    minecraftVersion = minecraftVersion,
+                                    maxPlayers = resolvedMaxPlayers,
+                                    memoryMb = resolvedMemoryMb,
+                                    port = resolvedPort,
+                                    javaMajorVersion = selectedJavaMajorVersion,
+                                    javaSelectionMode = javaSelectionMode,
+                                )
+                                MinecraftServerType.Paper -> createPaperServer(
+                                    name = name,
+                                    minecraftVersion = minecraftVersion,
+                                    maxPlayers = resolvedMaxPlayers,
+                                    memoryMb = resolvedMemoryMb,
+                                    port = resolvedPort,
+                                    javaMajorVersion = selectedJavaMajorVersion,
+                                    javaSelectionMode = javaSelectionMode,
+                                )
+                                MinecraftServerType.Purpur -> createPurpurServer(
+                                    name = name,
+                                    minecraftVersion = minecraftVersion,
+                                    maxPlayers = resolvedMaxPlayers,
+                                    memoryMb = resolvedMemoryMb,
+                                    port = resolvedPort,
+                                    javaMajorVersion = selectedJavaMajorVersion,
+                                    javaSelectionMode = javaSelectionMode,
+                                )
+                                MinecraftServerType.Fabric -> createFabricServer(
+                                    name = name,
+                                    minecraftVersion = minecraftVersion,
+                                    maxPlayers = resolvedMaxPlayers,
+                                    memoryMb = resolvedMemoryMb,
+                                    port = resolvedPort,
+                                    javaMajorVersion = selectedJavaMajorVersion,
+                                    javaSelectionMode = javaSelectionMode,
+                                )
+                                MinecraftServerType.Forge -> createForgeServer(
+                                    name = name,
+                                    minecraftVersion = minecraftVersion,
+                                    maxPlayers = resolvedMaxPlayers,
+                                    memoryMb = resolvedMemoryMb,
+                                    port = resolvedPort,
+                                    javaMajorVersion = selectedJavaMajorVersion,
+                                    javaSelectionMode = javaSelectionMode,
+                                )
+                                MinecraftServerType.NeoForge -> createNeoForgeServer(
+                                    name = name,
+                                    minecraftVersion = minecraftVersion,
+                                    maxPlayers = resolvedMaxPlayers,
+                                    memoryMb = resolvedMemoryMb,
+                                    port = resolvedPort,
+                                    javaMajorVersion = selectedJavaMajorVersion,
+                                    javaSelectionMode = javaSelectionMode,
+                                )
+                                MinecraftServerType.Quilt -> createQuiltServer(
+                                    name = name,
+                                    minecraftVersion = minecraftVersion,
+                                    maxPlayers = resolvedMaxPlayers,
+                                    memoryMb = resolvedMemoryMb,
+                                    port = resolvedPort,
+                                    javaMajorVersion = selectedJavaMajorVersion,
+                                    javaSelectionMode = javaSelectionMode,
+                                )
+                            }.copy(
                             )
-                            MinecraftServerType.Paper -> createPaperServer(
-                                name = name,
-                                minecraftVersion = minecraftVersion,
-                                maxPlayers = resolvedMaxPlayers,
-                                memoryMb = resolvedMemoryMb,
-                                port = resolvedPort,
-                                javaMajorVersion = selectedJavaMajorVersion,
-                                javaSelectionMode = javaSelectionMode,
-                            )
-                            MinecraftServerType.Purpur -> createPurpurServer(
-                                name = name,
-                                minecraftVersion = minecraftVersion,
-                                maxPlayers = resolvedMaxPlayers,
-                                memoryMb = resolvedMemoryMb,
-                                port = resolvedPort,
-                                javaMajorVersion = selectedJavaMajorVersion,
-                                javaSelectionMode = javaSelectionMode,
-                            )
-                            MinecraftServerType.Fabric -> createFabricServer(
-                                name = name,
-                                minecraftVersion = minecraftVersion,
-                                maxPlayers = resolvedMaxPlayers,
-                                memoryMb = resolvedMemoryMb,
-                                port = resolvedPort,
-                                javaMajorVersion = selectedJavaMajorVersion,
-                                javaSelectionMode = javaSelectionMode,
-                            )
-                            MinecraftServerType.Forge -> createForgeServer(
-                                name = name,
-                                minecraftVersion = minecraftVersion,
-                                maxPlayers = resolvedMaxPlayers,
-                                memoryMb = resolvedMemoryMb,
-                                port = resolvedPort,
-                                javaMajorVersion = selectedJavaMajorVersion,
-                                javaSelectionMode = javaSelectionMode,
-                            )
-                            MinecraftServerType.NeoForge -> createNeoForgeServer(
-                                name = name,
-                                minecraftVersion = minecraftVersion,
-                                maxPlayers = resolvedMaxPlayers,
-                                memoryMb = resolvedMemoryMb,
-                                port = resolvedPort,
-                                javaMajorVersion = selectedJavaMajorVersion,
-                                javaSelectionMode = javaSelectionMode,
-                            )
-                            MinecraftServerType.Quilt -> createQuiltServer(
-                                name = name,
-                                minecraftVersion = minecraftVersion,
-                                maxPlayers = resolvedMaxPlayers,
-                                memoryMb = resolvedMemoryMb,
-                                port = resolvedPort,
-                                javaMajorVersion = selectedJavaMajorVersion,
-                                javaSelectionMode = javaSelectionMode,
-                            )
-                        }.copy(
-                        )
-                        onCreate(server)
-                        onDismiss()
+                            onCreate(server)
+                            onDismiss()
+                        }
                     }
                 },
             ) {
-                Text("创建服务器")
+                Text(if (pendingModpackImportUri != null) "导入整合包" else "创建服务器")
             }
         },
         dismissButton = {
@@ -829,145 +847,268 @@ private fun CreateServerDialog(
         },
         title = { Text("创建服务器") },
         text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    MinecraftServerType.entries.forEach { type ->
-                        FilterChip(
-                            selected = selectedServerType == type,
-                            onClick = { selectedServerType = type },
-                            label = { Text(type.label) },
-                        )
-                    }
-                }
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("服务器名称") },
-                    singleLine = true,
+            if (pendingModpackImportUri != null) {
+                CreateServerModpackContent(
+                    name = name,
+                    maxPlayers = maxPlayers,
+                    memoryMb = memoryMb,
+                    onNameChange = { name = it },
+                    onMaxPlayersChange = { maxPlayers = it.filter(Char::isDigit) },
+                    onMemoryMbChange = { memoryMb = it.filter(Char::isDigit) },
+                    onLaunchPicker = {
+                        modpackImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                    },
                 )
-                ExposedDropdownMenuBox(
-                    expanded = versionMenuExpanded,
-                    onExpandedChange = { versionMenuExpanded = !versionMenuExpanded },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    val versionOptions = when (selectedServerType) {
-                        MinecraftServerType.Vanilla -> vanillaVersionOptions
-                        MinecraftServerType.Paper -> paperVersionOptions
-                        MinecraftServerType.Purpur -> purpurVersionOptions
-                        MinecraftServerType.Fabric -> fabricVersionOptions
-                        MinecraftServerType.Forge -> forgeVersionOptions
-                        MinecraftServerType.NeoForge -> neoForgeVersionOptions
-                        MinecraftServerType.Quilt -> quiltVersionOptions
-                    }
-                    OutlinedTextField(
-                        value = minecraftVersion,
-                        onValueChange = {},
-                        modifier = Modifier
-                            .menuAnchor()
-                            .fillMaxWidth(),
-                        readOnly = true,
-                        label = { Text("Minecraft 版本") },
-                        supportingText = {
-                            Text(
-                                when (selectedServerType) {
-                                    MinecraftServerType.Vanilla -> "从 Vanilla 官方版本列表选择"
-                                    MinecraftServerType.Paper -> "从 Paper 官方版本列表选择"
-                                    MinecraftServerType.Purpur -> "从 Purpur 官方版本列表选择"
-                                    MinecraftServerType.Fabric -> "从 Fabric 官方版本列表选择"
-                                    MinecraftServerType.Forge -> "从 Forge 官方版本列表选择"
-                                    MinecraftServerType.NeoForge -> "从 NeoForge 官方版本列表选择"
-                                    MinecraftServerType.Quilt -> "从 Quilt 官方版本列表选择"
-                                },
-                            )
-                        },
-                        singleLine = true,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = versionMenuExpanded) },
-                    )
-                    ExposedDropdownMenu(
-                        expanded = versionMenuExpanded,
-                        onDismissRequest = { versionMenuExpanded = false },
-                    ) {
-                        versionOptions.asReversed().forEach { version ->
-                            DropdownMenuItem(
-                                text = { Text(version) },
-                                onClick = {
-                                    minecraftVersion = version
-                                    versionWasAutoSelected = false
-                                    versionMenuExpanded = false
-                                },
-                            )
-                        }
-                    }
-                }
-                ExposedDropdownMenuBox(
-                    expanded = javaVersionMenuExpanded,
-                    onExpandedChange = { javaVersionMenuExpanded = !javaVersionMenuExpanded },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    OutlinedTextField(
-                        value = if (javaSelectionMode == JavaSelectionMode.Recommended) {
-                            "自动"
-                        } else {
-                            "Java $selectedJavaMajorVersion"
-                        },
-                        onValueChange = {},
-                        modifier = Modifier
-                            .menuAnchor()
-                            .fillMaxWidth(),
-                        readOnly = true,
-                        label = { Text("运行时 Java") },
-                        supportingText = {
-                            Text("当前推荐：Java $recommendedJava")
-                        },
-                        singleLine = true,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = javaVersionMenuExpanded) },
-                    )
-                    ExposedDropdownMenu(
-                        expanded = javaVersionMenuExpanded,
-                        onDismissRequest = { javaVersionMenuExpanded = false },
-                    ) {
-                        val javaMenuOptions = listOf<String>("自动") + javaVersionOptions.map { "Java $it" }
-                        javaMenuOptions.forEach { selected ->
-                            DropdownMenuItem(
-                                text = { Text(selected) },
-                                onClick = {
-                                    if (selected == "自动") {
-                                        javaSelectionMode = JavaSelectionMode.Recommended
-                                        selectedJavaMajorVersion = recommendedJava
-                                    } else {
-                                        javaSelectionMode = JavaSelectionMode.Manual
-                                        selectedJavaMajorVersion = selected.removePrefix("Java ").toIntOrNull() ?: selectedJavaMajorVersion
-                                    }
-                                    javaVersionMenuExpanded = false
-                                },
-                            )
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = maxPlayers,
-                    onValueChange = { maxPlayers = it.filter(Char::isDigit) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("最大玩家数") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = memoryMb,
-                    onValueChange = { memoryMb = it.filter(Char::isDigit) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("内存 MB") },
-                    singleLine = true,
+            } else {
+                CreateServerStandardContent(
+                    selectedServerType = selectedServerType,
+                    onSelectServerType = { selectedServerType = it },
+                    name = name,
+                    onNameChange = { name = it },
+                    minecraftVersion = minecraftVersion,
+                    versionMenuExpanded = versionMenuExpanded,
+                    onVersionMenuExpandedChange = { versionMenuExpanded = it },
+                    javaSelectionMode = javaSelectionMode,
+                    javaVersionMenuExpanded = javaVersionMenuExpanded,
+                    onJavaVersionMenuExpandedChange = { javaVersionMenuExpanded = it },
+                    selectedJavaMajorVersion = selectedJavaMajorVersion,
+                    recommendedJava = recommendedJava,
+                    javaVersionOptions = javaVersionOptions,
+                    onAutoJavaSelected = {
+                        javaSelectionMode = JavaSelectionMode.Recommended
+                        selectedJavaMajorVersion = recommendedJava
+                    },
+                    onManualJavaSelected = { version ->
+                        javaSelectionMode = JavaSelectionMode.Manual
+                        selectedJavaMajorVersion = version
+                    },
+                    maxPlayers = maxPlayers,
+                    memoryMb = memoryMb,
+                    onMaxPlayersChange = { maxPlayers = it.filter(Char::isDigit) },
+                    onMemoryMbChange = { memoryMb = it.filter(Char::isDigit) },
+                    vanillaVersionOptions = vanillaVersionOptions,
+                    paperVersionOptions = paperVersionOptions,
+                    purpurVersionOptions = purpurVersionOptions,
+                    fabricVersionOptions = fabricVersionOptions,
+                    forgeVersionOptions = forgeVersionOptions,
+                    neoForgeVersionOptions = neoForgeVersionOptions,
+                    quiltVersionOptions = quiltVersionOptions,
+                    onVersionSelected = { version ->
+                        minecraftVersion = version
+                        versionWasAutoSelected = false
+                        versionMenuExpanded = false
+                    },
+                    onLaunchModpackPicker = {
+                        modpackImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                    },
                 )
             }
         },
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreateServerStandardContent(
+    selectedServerType: MinecraftServerType,
+    onSelectServerType: (MinecraftServerType) -> Unit,
+    name: String,
+    onNameChange: (String) -> Unit,
+    minecraftVersion: String,
+    versionMenuExpanded: Boolean,
+    onVersionMenuExpandedChange: (Boolean) -> Unit,
+    javaSelectionMode: JavaSelectionMode,
+    javaVersionMenuExpanded: Boolean,
+    onJavaVersionMenuExpandedChange: (Boolean) -> Unit,
+    selectedJavaMajorVersion: Int,
+    recommendedJava: Int,
+    javaVersionOptions: List<Int>,
+    onAutoJavaSelected: () -> Unit,
+    onManualJavaSelected: (Int) -> Unit,
+    maxPlayers: String,
+    memoryMb: String,
+    onMaxPlayersChange: (String) -> Unit,
+    onMemoryMbChange: (String) -> Unit,
+    vanillaVersionOptions: List<String>,
+    paperVersionOptions: List<String>,
+    purpurVersionOptions: List<String>,
+    fabricVersionOptions: List<String>,
+    forgeVersionOptions: List<String>,
+    neoForgeVersionOptions: List<String>,
+    quiltVersionOptions: List<String>,
+    onVersionSelected: (String) -> Unit,
+    onLaunchModpackPicker: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        TextButton(onClick = onLaunchModpackPicker) {
+            Text("导入整合包")
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            MinecraftServerType.entries.forEach { type ->
+                FilterChip(
+                    selected = selectedServerType == type,
+                    onClick = { onSelectServerType(type) },
+                    label = { Text(type.label) },
+                )
+            }
+        }
+        OutlinedTextField(
+            value = name,
+            onValueChange = onNameChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("服务器名称") },
+            singleLine = true,
+        )
+        ExposedDropdownMenuBox(
+            expanded = versionMenuExpanded,
+            onExpandedChange = { onVersionMenuExpandedChange(!versionMenuExpanded) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            val versionOptions = when (selectedServerType) {
+                MinecraftServerType.Vanilla -> vanillaVersionOptions
+                MinecraftServerType.Paper -> paperVersionOptions
+                MinecraftServerType.Purpur -> purpurVersionOptions
+                MinecraftServerType.Fabric -> fabricVersionOptions
+                MinecraftServerType.Forge -> forgeVersionOptions
+                MinecraftServerType.NeoForge -> neoForgeVersionOptions
+                MinecraftServerType.Quilt -> quiltVersionOptions
+            }
+            OutlinedTextField(
+                value = minecraftVersion,
+                onValueChange = {},
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth(),
+                readOnly = true,
+                label = { Text("Minecraft 版本") },
+                supportingText = {
+                    Text(
+                        when (selectedServerType) {
+                            MinecraftServerType.Vanilla -> "从 Vanilla 官方版本列表选择"
+                            MinecraftServerType.Paper -> "从 Paper 官方版本列表选择"
+                            MinecraftServerType.Purpur -> "从 Purpur 官方版本列表选择"
+                            MinecraftServerType.Fabric -> "从 Fabric 官方版本列表选择"
+                            MinecraftServerType.Forge -> "从 Forge 官方版本列表选择"
+                            MinecraftServerType.NeoForge -> "从 NeoForge 官方版本列表选择"
+                            MinecraftServerType.Quilt -> "从 Quilt 官方版本列表选择"
+                        },
+                    )
+                },
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = versionMenuExpanded) },
+            )
+            ExposedDropdownMenu(
+                expanded = versionMenuExpanded,
+                onDismissRequest = { onVersionMenuExpandedChange(false) },
+            ) {
+                versionOptions.asReversed().forEach { version ->
+                    DropdownMenuItem(
+                        text = { Text(version) },
+                        onClick = { onVersionSelected(version) },
+                    )
+                }
+            }
+        }
+        ExposedDropdownMenuBox(
+            expanded = javaVersionMenuExpanded,
+            onExpandedChange = { onJavaVersionMenuExpandedChange(!javaVersionMenuExpanded) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            OutlinedTextField(
+                value = if (javaSelectionMode == JavaSelectionMode.Recommended) "自动" else "Java $selectedJavaMajorVersion",
+                onValueChange = {},
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth(),
+                readOnly = true,
+                label = { Text("运行时 Java") },
+                supportingText = { Text("当前推荐：Java $recommendedJava") },
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = javaVersionMenuExpanded) },
+            )
+            ExposedDropdownMenu(
+                expanded = javaVersionMenuExpanded,
+                onDismissRequest = { onJavaVersionMenuExpandedChange(false) },
+            ) {
+                val javaMenuOptions = listOf<String>("自动") + javaVersionOptions.map { "Java $it" }
+                javaMenuOptions.forEach { selected ->
+                    DropdownMenuItem(
+                        text = { Text(selected) },
+                        onClick = {
+                            if (selected == "自动") onAutoJavaSelected() else onManualJavaSelected(selected.removePrefix("Java ").toIntOrNull() ?: selectedJavaMajorVersion)
+                            onJavaVersionMenuExpandedChange(false)
+                        },
+                    )
+                }
+            }
+        }
+        OutlinedTextField(
+            value = maxPlayers,
+            onValueChange = onMaxPlayersChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("最大玩家数") },
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = memoryMb,
+            onValueChange = onMemoryMbChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("内存 MB") },
+            singleLine = true,
+        )
+    }
+}
+
+@Composable
+private fun CreateServerModpackContent(
+    name: String,
+    maxPlayers: String,
+    memoryMb: String,
+    onNameChange: (String) -> Unit,
+    onMaxPlayersChange: (String) -> Unit,
+    onMemoryMbChange: (String) -> Unit,
+    onLaunchPicker: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        TextButton(onClick = onLaunchPicker) {
+            Text("导入整合包")
+        }
+        Text(
+            text = "已选择整合包。此模式下不手动指定 Minecraft 版本、Mod Loader 或运行时 Java，后续按导入内容继续处理。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = name,
+            onValueChange = onNameChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("服务器名称") },
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = maxPlayers,
+            onValueChange = onMaxPlayersChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("最大玩家数") },
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = memoryMb,
+            onValueChange = onMemoryMbChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("内存 MB") },
+            singleLine = true,
+        )
+    }
 }
 
 @Composable

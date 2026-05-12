@@ -474,6 +474,88 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun detectImportedModpackServerMetadata_prefersFabricLaunchJarAndRecommendedJava() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-detect-fabric")
+        Files.write(serverWorkDir.resolve("fabric-server-launch.jar"), byteArrayOf(1, 2, 3))
+        val clueJar = serverWorkDir.resolve("libraries/net/minecraft/server/1.18.2/server-1.18.2.jar")
+        Files.createDirectories(clueJar.parent)
+        Files.write(clueJar, byteArrayOf(4, 5, 6))
+
+        val metadata = detectImportedModpackServerMetadata(serverWorkDir)
+
+        assertThat(metadata.serverType).isEqualTo(com.mcgo.app.ui.model.MinecraftServerType.Fabric)
+        assertThat(metadata.minecraftVersion).isEqualTo("1.18.2")
+        assertThat(metadata.javaMajorVersion).isEqualTo(17)
+    }
+
+    @Test
+    fun detectImportedModpackServerMetadata_detectsQuiltLaunchJar() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-detect-quilt")
+        Files.write(serverWorkDir.resolve("quilt-server-launch.jar"), byteArrayOf(1, 2, 3))
+        val clueJar = serverWorkDir.resolve("libraries/net/minecraft/server/1.20.6/server-1.20.6.jar")
+        Files.createDirectories(clueJar.parent)
+        Files.write(clueJar, byteArrayOf(4, 5, 6))
+
+        val metadata = detectImportedModpackServerMetadata(serverWorkDir)
+
+        assertThat(metadata.serverType).isEqualTo(com.mcgo.app.ui.model.MinecraftServerType.Quilt)
+        assertThat(metadata.minecraftVersion).isEqualTo("1.20.6")
+        assertThat(metadata.javaMajorVersion).isEqualTo(21)
+    }
+
+    @Test
+    fun detectImportedModpackServerMetadata_detectsForgeUnixArgsVersion() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-detect-forge")
+        val argsFile = serverWorkDir.resolve("libraries/net/minecraftforge/forge/1.20.1-47.3.0/unix_args.txt")
+        Files.createDirectories(argsFile.parent)
+        Files.write(argsFile, "--launchTarget forgeserver\n".toByteArray())
+
+        val metadata = detectImportedModpackServerMetadata(serverWorkDir)
+
+        assertThat(metadata.serverType).isEqualTo(com.mcgo.app.ui.model.MinecraftServerType.Forge)
+        assertThat(metadata.minecraftVersion).isEqualTo("1.20.1")
+        assertThat(metadata.javaMajorVersion).isEqualTo(21)
+    }
+
+    @Test
+    fun detectImportedModpackServerMetadata_detectsNeoForgeUnixArgsVersion() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-detect-neoforge")
+        val argsFile = serverWorkDir.resolve("libraries/net/neoforged/neoforge/21.4.157/unix_args.txt")
+        Files.createDirectories(argsFile.parent)
+        Files.write(argsFile, "--launchTarget neoforgeserver\n".toByteArray())
+
+        val metadata = detectImportedModpackServerMetadata(serverWorkDir)
+
+        assertThat(metadata.serverType).isEqualTo(com.mcgo.app.ui.model.MinecraftServerType.NeoForge)
+        assertThat(metadata.minecraftVersion).isEqualTo("1.21.4")
+        assertThat(metadata.javaMajorVersion).isEqualTo(21)
+    }
+
+    @Test
+    fun detectImportedModpackServerMetadata_preservesNeoForgeModernVersionNumbering() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-detect-neoforge-modern")
+        val argsFile = serverWorkDir.resolve("libraries/net/neoforged/neoforge/26.1.2/unix_args.txt")
+        Files.createDirectories(argsFile.parent)
+        Files.write(argsFile, "--launchTarget neoforgeserver\n".toByteArray())
+
+        val metadata = detectImportedModpackServerMetadata(serverWorkDir)
+
+        assertThat(metadata.serverType).isEqualTo(com.mcgo.app.ui.model.MinecraftServerType.NeoForge)
+        assertThat(metadata.minecraftVersion).isEqualTo("26.1.2")
+        assertThat(metadata.javaMajorVersion).isEqualTo(25)
+    }
+
+    @Test
+    fun detectImportedModpackServerMetadata_fallsBackToPaperWhenNoLoaderArtifactsFound() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-detect-paper")
+        Files.write(serverWorkDir.resolve("server.jar"), byteArrayOf(1, 2, 3))
+
+        val metadata = detectImportedModpackServerMetadata(serverWorkDir)
+
+        assertThat(metadata.serverType).isEqualTo(com.mcgo.app.ui.model.MinecraftServerType.Paper)
+    }
+
+    @Test
     fun resolveInstalledPayloadJar_supportsQuiltLaunchJar() {
         val serverWorkDir = Files.createTempDirectory("mcgo-quilt-payload")
         val marker = serverWorkDir.resolve("quilt-1.21.4.jar")
