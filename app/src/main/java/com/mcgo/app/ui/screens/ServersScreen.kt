@@ -206,20 +206,46 @@ fun ServersScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item { Spacer(modifier = Modifier.height(6.dp)) }
-        items(items = servers, key = { it.id }) { server ->
-            ServerCard(
-                server = server,
-                modifier = Modifier.padding(horizontal = 20.dp),
-                onImportWorldArchive = { uri -> onImportWorldArchive(server.id, uri) },
-                onExportWorldArchive = { uri -> onExportWorldArchive(server.id, uri) },
-                onImportModFile = { uri -> onImportModFile(server.id, uri) },
-                onImportModpackArchive = { uri -> onImportModpackArchive(server.id, uri) },
-                onOpenConsole = { onOpenConsole(server.id) },
-                onEditServer = { onEditServer(server.id) },
-                onStartClick = { pendingStartServer = server },
-                onStopClick = { onStopServer(server.id) },
-                onDeleteClick = { pendingDeleteServer = server },
-            )
+        if (servers.isEmpty()) {
+            item {
+                GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = "还没有服务器", style = MaterialTheme.typography.titleMedium)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "默认先留空。你可以先创建原版 / Paper / Purpur / Fabric / Forge / NeoForge / Quilt 服务器。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "添加后的服务器都可以继续启动、编辑、导入整合包或删除。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            items(items = servers, key = { it.id }) { server ->
+                ServerCard(
+                    server = server,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                    onImportWorldArchive = { uri -> onImportWorldArchive(server.id, uri) },
+                    onExportWorldArchive = { uri -> onExportWorldArchive(server.id, uri) },
+                    onImportModFile = { uri -> onImportModFile(server.id, uri) },
+                    onImportModpackArchive = { uri -> onImportModpackArchive(server.id, uri) },
+                    onOpenConsole = { onOpenConsole(server.id) },
+                    onEditServer = { onEditServer(server.id) },
+                    onStartClick = { pendingStartServer = server },
+                    onStopClick = { onStopServer(server.id) },
+                    onDeleteClick = { pendingDeleteServer = server },
+                )
+            }
         }
         item { Spacer(modifier = Modifier.height(96.dp + bottomContentPadding)) }
     }
