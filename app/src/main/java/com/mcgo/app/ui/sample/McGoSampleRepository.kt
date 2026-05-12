@@ -79,6 +79,12 @@ object McGoSampleRepository {
             icon = SettingsCategoryIcon.JavaRuntime,
         ),
         SettingsSectionState(
+            title = "服务器目录",
+            subtitle = "选择、重连与找回外部服务器数据目录",
+            highlight = "可随时重新选择",
+            icon = SettingsCategoryIcon.Storage,
+        ),
+        SettingsSectionState(
             title = "运行权限",
             subtitle = "通知、目录、唤醒与后台权限",
             highlight = "查看状态并申请",

@@ -128,6 +128,7 @@ fun SettingsScreen(
     }
     val appearanceSection = settingsSections.first { it.icon == SettingsCategoryIcon.Appearance }
     val javaManagementSection = settingsSections.first { it.icon == SettingsCategoryIcon.JavaRuntime }
+    val serverDirectorySection = settingsSections.first { it.icon == SettingsCategoryIcon.Storage }
     val runtimePermissionSection = settingsSections.first { it.icon == SettingsCategoryIcon.RuntimePermissions }
     val helpAndDebugSection = settingsSections.first { it.icon == SettingsCategoryIcon.Diagnostics }
     val context = LocalContext.current
@@ -210,6 +211,7 @@ fun SettingsScreen(
             sections = settingsSections,
             onOpenAppearance = { onSettingsDestinationChange(navigationState.openAppearance().destination) },
             onOpenJavaManagement = { onSettingsDestinationChange(navigationState.openJavaManagement().destination) },
+            onOpenServerDirectory = { onSettingsDestinationChange(navigationState.openServerDirectory().destination) },
             onOpenRuntimePermissions = { onSettingsDestinationChange(navigationState.openRuntimePermissions().destination) },
             onOpenHelpAndDebug = { onSettingsDestinationChange(navigationState.openHelpAndDebug().destination) },
         )
@@ -231,6 +233,14 @@ fun SettingsScreen(
             onDownloadJava = onDownloadJava,
             onImportJava = requestJavaArchive,
             onDeleteJava = onDeleteJava,
+        )
+        SettingsDestination.ServerDirectory -> ServerDirectoryDetailScreen(
+            modifier = modifier,
+            bottomContentPadding = bottomContentPadding,
+            section = serverDirectorySection,
+            serverDirectoryUri = serverDirectoryUri,
+            onNavigateBack = { onSettingsDestinationChange(navigationState.navigateBack().destination) },
+            onRequestServerDirectory = onRequestServerDirectory,
         )
         SettingsDestination.RuntimePermissions -> RuntimePermissionDetailScreen(
             modifier = modifier,
@@ -255,6 +265,7 @@ private fun SettingsOverview(
     sections: List<SettingsSectionState>,
     onOpenAppearance: () -> Unit,
     onOpenJavaManagement: () -> Unit,
+    onOpenServerDirectory: () -> Unit,
     onOpenRuntimePermissions: () -> Unit,
     onOpenHelpAndDebug: () -> Unit,
     modifier: Modifier = Modifier,
@@ -273,6 +284,7 @@ private fun SettingsOverview(
                     onSectionClick = when (section.icon) {
                         SettingsCategoryIcon.Appearance -> onOpenAppearance
                         SettingsCategoryIcon.JavaRuntime -> onOpenJavaManagement
+                        SettingsCategoryIcon.Storage -> onOpenServerDirectory
                         SettingsCategoryIcon.RuntimePermissions -> onOpenRuntimePermissions
                         SettingsCategoryIcon.Diagnostics -> onOpenHelpAndDebug
                         else -> onOpenAppearance
@@ -407,6 +419,89 @@ private fun JavaManagementDetailScreen(
                 onDelete = onDeleteJava,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
+        }
+        item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
+    }
+}
+
+@Composable
+private fun ServerDirectoryDetailScreen(
+    section: SettingsSectionState,
+    serverDirectoryUri: String?,
+    onNavigateBack: () -> Unit,
+    onRequestServerDirectory: () -> Unit,
+    modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = 0.dp,
+) {
+    val detailChrome = SettingsDetailChrome.forDestination(SettingsDestination.ServerDirectory)
+    val colors = screenTextColors(LocalMcGoVisualTokens.current)
+
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+        item {
+            AppearanceDetailHeader(
+                title = section.title,
+                subtitle = section.subtitle,
+                chrome = detailChrome,
+                onNavigateBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+        }
+        item {
+            GlassCard(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Text(
+                    text = "服务器目录",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.primary,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = if (serverDirectoryUri != null) {
+                        "当前已连接外部服务器目录。清除应用数据后，也可以从这里直接重新选择同一目录，把以前的服务器数据接回来。"
+                    } else {
+                        "这里可以直接设置服务器目录，不需要先新建服务器。清除应用数据后，也可以从这里重新选择之前的目录。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "当前目录",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.secondary,
+                        )
+                        Text(
+                            text = serverDirectoryUri ?: "未选择",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.primary,
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(onClick = onRequestServerDirectory) {
+                    Icon(Icons.Outlined.Folder, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("选择目录")
+                }
+                Text(
+                    text = "重新授权同一目录后，MC-GO 会尝试恢复之前同步到该目录的服务器资料与数据。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
+            }
         }
         item { Spacer(modifier = Modifier.height(24.dp + bottomContentPadding)) }
     }

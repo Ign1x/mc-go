@@ -12,6 +12,13 @@ class MCGoSettingsHelpContractTest {
 
     @Test
     fun settingsHelpSection_offersSupportInfoAboutCardAndExportLogsAction() {
+        assertThat(settingsScreenSource).contains("SettingsDestination.ServerDirectory")
+        assertThat(settingsScreenSource).contains("onOpenServerDirectory")
+        assertThat(settingsScreenSource).contains("ServerDirectoryDetailScreen(")
+        assertThat(settingsScreenSource).contains("text = \"服务器目录\"")
+        assertThat(settingsScreenSource).contains("Text(\"选择目录\")")
+        assertThat(settingsScreenSource).contains("onRequestServerDirectory")
+        assertThat(settingsScreenSource).contains("重新授权同一目录")
         assertThat(settingsScreenSource).contains("SettingsDestination.HelpAndDebug")
         assertThat(settingsScreenSource).contains("onOpenHelpAndDebug")
         assertThat(settingsScreenSource).contains("HelpAndDebugDetailScreen(")

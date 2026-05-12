@@ -15,6 +15,7 @@ object SettingsDetailChrome {
         SettingsDestination.Overview -> SettingsDetailChromeState()
         SettingsDestination.Appearance,
         SettingsDestination.JavaManagement,
+        SettingsDestination.ServerDirectory,
         SettingsDestination.RuntimePermissions,
         SettingsDestination.HelpAndDebug -> SettingsDetailChromeState(
             backActionPlacement = SettingsBackActionPlacement.TopRight,

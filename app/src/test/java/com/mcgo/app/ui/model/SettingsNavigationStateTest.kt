@@ -31,6 +31,14 @@ class SettingsNavigationStateTest {
 
 
     @Test
+    fun openServerDirectory_movesIntoServerDirectoryDetailPage() {
+        val state = SettingsNavigationState().openServerDirectory()
+
+        assertThat(state.destination).isEqualTo(SettingsDestination.ServerDirectory)
+        assertThat(state.canNavigateBack).isTrue()
+    }
+
+    @Test
     fun openRuntimePermissions_movesIntoPermissionDetailPage() {
         val state = SettingsNavigationState().openRuntimePermissions()
 

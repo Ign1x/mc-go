@@ -23,6 +23,14 @@ class SettingsDetailChromeTest {
 
 
     @Test
+    fun serverDirectoryDetail_placesBackActionAtTopRight() {
+        val chrome = SettingsDetailChrome.forDestination(SettingsDestination.ServerDirectory)
+
+        assertThat(chrome.backActionPlacement).isEqualTo(SettingsBackActionPlacement.TopRight)
+        assertThat(chrome.usesCompactActionButton).isTrue()
+    }
+
+    @Test
     fun runtimePermissionsDetail_placesBackActionAtTopRight() {
         val chrome = SettingsDetailChrome.forDestination(SettingsDestination.RuntimePermissions)
 
