@@ -87,6 +87,42 @@ class AuthorizedServerDirectoryWorkspaceRoutingTest {
     }
 
     @Test
+    fun resolveNewModpackServerImportFailureRecovery_rollsBackFreshServerWhenImportNeverFinished() {
+        val recovery = resolveNewModpackServerImportFailureRecovery(
+            workspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
+            importCompleted = false,
+        )
+
+        assertThat(recovery.keepServerEntry).isEqualTo(false)
+        assertThat(recovery.deletePrivateWorkspace).isEqualTo(true)
+        assertThat(recovery.deleteAuthorizedWorkspace).isEqualTo(true)
+    }
+
+    @Test
+    fun resolveNewModpackServerImportFailureRecovery_keepsServerWhenImportedWorkspaceNeedsFailedSyncBack() {
+        val recovery = resolveNewModpackServerImportFailureRecovery(
+            workspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
+            importCompleted = true,
+        )
+
+        assertThat(recovery.keepServerEntry).isEqualTo(true)
+        assertThat(recovery.deletePrivateWorkspace).isEqualTo(false)
+        assertThat(recovery.deleteAuthorizedWorkspace).isEqualTo(true)
+    }
+
+    @Test
+    fun resolveNewModpackServerImportFailureRecovery_keepsDirectExternalWorkspaceAfterPostImportFailure() {
+        val recovery = resolveNewModpackServerImportFailureRecovery(
+            workspaceMode = ManagedServerWorkspaceMode.DirectExternal,
+            importCompleted = true,
+        )
+
+        assertThat(recovery.keepServerEntry).isEqualTo(true)
+        assertThat(recovery.deletePrivateWorkspace).isEqualTo(false)
+        assertThat(recovery.deleteAuthorizedWorkspace).isEqualTo(false)
+    }
+
+    @Test
     fun resolveAuthorizedDirectoryPathFromTreeDocumentId_supportsPrimaryTreePaths() {
         val externalRoot = Files.createTempDirectory("mcgo-primary-root")
         val rootPath = resolveAuthorizedDirectoryPathFromTreeDocumentId(

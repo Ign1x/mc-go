@@ -60,6 +60,10 @@ class MCGoServerFileManagementContractTest {
         assertThat(serverCardSource).contains("val stopEnabled = server.isRuntimeBusy() && !modpackImportInProgress")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds + server.id")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds - server.id")
+        assertThat(appSource).contains("resolveNewModpackServerImportFailureRecovery(")
+        assertThat(appSource).contains("if (recovery.keepServerEntry)")
+        assertThat(appSource).contains("recoveredImportedServer")
+        assertThat(appSource).contains("markModpackImportRecoveredAfterSyncFailure(")
     }
 
     @Test

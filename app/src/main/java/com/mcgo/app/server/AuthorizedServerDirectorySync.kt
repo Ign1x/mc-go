@@ -47,6 +47,33 @@ data class ManagedServerWorkspaceAccess(
         get() = mode == ManagedServerWorkspaceMode.PrivateEphemeralMirror
 }
 
+internal data class NewModpackServerImportFailureRecovery(
+    val keepServerEntry: Boolean,
+    val deletePrivateWorkspace: Boolean,
+    val deleteAuthorizedWorkspace: Boolean,
+)
+
+internal fun resolveNewModpackServerImportFailureRecovery(
+    workspaceMode: ManagedServerWorkspaceMode,
+    importCompleted: Boolean,
+): NewModpackServerImportFailureRecovery = when {
+    !importCompleted -> NewModpackServerImportFailureRecovery(
+        keepServerEntry = false,
+        deletePrivateWorkspace = workspaceMode != ManagedServerWorkspaceMode.DirectExternal,
+        deleteAuthorizedWorkspace = true,
+    )
+    workspaceMode == ManagedServerWorkspaceMode.DirectExternal -> NewModpackServerImportFailureRecovery(
+        keepServerEntry = true,
+        deletePrivateWorkspace = false,
+        deleteAuthorizedWorkspace = false,
+    )
+    else -> NewModpackServerImportFailureRecovery(
+        keepServerEntry = true,
+        deletePrivateWorkspace = false,
+        deleteAuthorizedWorkspace = true,
+    )
+}
+
 internal fun shouldPersistManagedServerWorkspaceAfterLaunchAttempt(
     workspaceMode: ManagedServerWorkspaceMode,
     runtimeLaunchSubmitted: Boolean,

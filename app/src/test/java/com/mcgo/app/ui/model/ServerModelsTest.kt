@@ -166,6 +166,25 @@ class ServerModelsTest {
     }
 
     @Test
+    fun markModpackImportRecoveredAfterSyncFailure_preservesDetectedMetadataWhileMarkingServerFailed() {
+        val detected = createForgeServer(
+            name = "ATM10",
+            minecraftVersion = "1.21.1",
+            maxPlayers = 20,
+            memoryMb = 6144,
+        )
+
+        val recovered = detected.markModpackImportRecoveredAfterSyncFailure("同步服务器目录到已授权位置失败")
+
+        assertThat(recovered.serverType).isEqualTo(MinecraftServerType.Forge)
+        assertThat(recovered.minecraftVersion).isEqualTo("1.21.1")
+        assertThat(recovered.javaMajorVersion).isEqualTo(detected.javaMajorVersion)
+        assertThat(recovered.launchStatus).isEqualTo(ServerLaunchStatus.Failed)
+        assertThat(recovered.runtimeLogs.last()).contains("导入整合包后同步失败")
+        assertThat(canStartServerFromUi(recovered)).isTrue()
+    }
+
+    @Test
     fun markAwaitingManagedRuntimeInstall_keepsServerInLaunchingStateUntilAutoInstallCompletes() {
         val server = createPaperServer(
             name = "生存服",

@@ -547,6 +547,18 @@ fun ServerCardState.markLaunchFailed(error: String): ServerCardState = clearTunn
     runtimeSlot = null,
 )
 
+fun ServerCardState.markModpackImportRecoveredAfterSyncFailure(error: String): ServerCardState = clearTunnelRuntimeBindings().copy(
+    isOnline = false,
+    onlinePlayers = 0,
+    port = defaultPort,
+    activeTunnelLabel = null,
+    runtimeAddress = null,
+    launchStatus = ServerLaunchStatus.Failed,
+    launchProgress = 0,
+    runtimeLogs = (runtimeLogs + "导入整合包后同步失败：$error").takeLast(12),
+    runtimeSlot = null,
+)
+
 fun ServerCardState.isRuntimeBusy(): Boolean =
     isOnline || launchStatus == ServerLaunchStatus.Launching || launchStatus == ServerLaunchStatus.Stopping || launchStatus == ServerLaunchStatus.Running
 
