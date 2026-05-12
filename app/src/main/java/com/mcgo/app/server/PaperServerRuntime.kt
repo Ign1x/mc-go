@@ -1040,6 +1040,42 @@ internal fun findManagedServerSetupScript(serverWorkDir: Path): Path? =
     listOf("server-setup.sh", "setup.sh", "install.sh")
         .map(serverWorkDir::resolve)
         .firstOrNull { Files.isRegularFile(it) }
+        ?: serverWorkDir.resolve("startserver.sh")
+            .takeIf { Files.isRegularFile(it) && isInstallerBootstrapScript(it, serverWorkDir) }
+
+internal fun isInstallerBootstrapScript(script: Path, serverWorkDir: Path): Boolean {
+    if (!Files.isRegularFile(script)) return false
+    val content = runCatching { String(Files.readAllBytes(script)) }.getOrDefault("")
+    if (!content.contains("-installServer", ignoreCase = true)) return false
+    if (!content.contains("installer", ignoreCase = true) && !content.contains("libraries", ignoreCase = true)) return false
+    return detectInstallerPackMetadata(serverWorkDir) != null
+}
+
+internal fun detectInstallerPackMetadata(serverWorkDir: Path): ImportedModpackServerMetadata? {
+    val installerPattern = Regex("neoforge-(\\d+\\.\\d+\\.\\d+)-installer\\.jar", RegexOption.IGNORE_CASE)
+    val neoforgeInstaller = Files.list(serverWorkDir).use { children ->
+        children.iterator().asSequence().firstOrNull { child ->
+            Files.isRegularFile(child) && installerPattern.matches(child.fileName.toString())
+        }
+    } ?: return null
+    val artifactVersion = installerPattern
+        .find(neoforgeInstaller.fileName.toString())
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: return null
+    val minecraftVersion = artifactVersion.split('.').let { parts ->
+        when {
+            artifactVersion.startsWith("1.") -> artifactVersion
+            parts.size >= 3 && parts[0].toIntOrNull() ?: 0 < 26 -> "1.${parts[0]}.${parts[1]}"
+            else -> artifactVersion
+        }
+    }
+    return ImportedModpackServerMetadata(
+        serverType = com.mcgo.app.ui.model.MinecraftServerType.NeoForge,
+        minecraftVersion = minecraftVersion,
+        javaMajorVersion = com.mcgo.app.ui.model.recommendedJavaMajorVersion(minecraftVersion),
+    )
+}
 
 internal fun managedServerSetupApprovalMarker(serverWorkDir: Path): Path =
     serverWorkDir.resolve(".mcgo-modpack-setup-approved")
@@ -1105,14 +1141,26 @@ fun runManagedServerSetupScriptIfNeeded(
         "检测到整合包安装脚本 ${script.fileName}，请先确认执行整合包安装脚本后再启动"
     }
     script.toFile().setExecutable(true, false)
+    val baseEnvironment = environment.associate { entry ->
+        val separator = entry.indexOf('=')
+        if (separator <= 0) entry to "" else entry.substring(0, separator) to entry.substring(separator + 1)
+    }
+    val scriptEnvironment = baseEnvironment.toMutableMap().apply {
+        if (isInstallerBootstrapScript(script, serverWorkDir)) {
+            put("ATM10_INSTALL_ONLY", "true")
+            put("ATM10_RESTART", "false")
+            get("JAVA_HOME")
+                ?.let { javaHome -> java.nio.file.Paths.get(javaHome).resolve("bin/java").toString() }
+                ?.let { javaBinary ->
+                    put("ATM10_JAVA", javaBinary)
+                }
+        }
+    }
     val process = ProcessBuilder(shellBinary, script.toString())
         .directory(serverWorkDir.toFile())
         .redirectErrorStream(true)
         .apply {
-            environment().putAll(environment.associate { entry ->
-                val separator = entry.indexOf('=')
-                if (separator <= 0) entry to "" else entry.substring(0, separator) to entry.substring(separator + 1)
-            })
+            environment().putAll(scriptEnvironment)
         }
         .start()
     process.inputStream.bufferedReader().useLines { lines -> lines.forEach { _ -> } }
@@ -1323,6 +1371,8 @@ internal fun resolveLatestForgeArtifactVersion(version: String): String =
         ?: error("Forge 安装器版本缺失：$version")
 
 internal fun detectImportedModpackServerMetadata(serverWorkDir: Path): ImportedModpackServerMetadata {
+    detectInstallerPackMetadata(serverWorkDir)?.let { return it }
+
     fun build(serverType: com.mcgo.app.ui.model.MinecraftServerType, minecraftVersion: String): ImportedModpackServerMetadata =
         ImportedModpackServerMetadata(
             serverType = serverType,

@@ -123,6 +123,34 @@ class AuthorizedServerDirectoryWorkspaceRoutingTest {
     }
 
     @Test
+    fun shouldSyncImportedModpackWorkspaceImmediately_skipsSafMirrorForInstallerBootstrapPacks() {
+        assertThat(
+            shouldSyncImportedModpackWorkspaceImmediately(
+                workspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
+                containsInstallerBootstrap = true,
+            ),
+        ).isFalse()
+        assertThat(
+            shouldSyncImportedModpackWorkspaceImmediately(
+                workspaceMode = ManagedServerWorkspaceMode.PrivatePersistentFallback,
+                containsInstallerBootstrap = true,
+            ),
+        ).isFalse()
+        assertThat(
+            shouldSyncImportedModpackWorkspaceImmediately(
+                workspaceMode = ManagedServerWorkspaceMode.DirectExternal,
+                containsInstallerBootstrap = true,
+            ),
+        ).isTrue()
+        assertThat(
+            shouldSyncImportedModpackWorkspaceImmediately(
+                workspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
+                containsInstallerBootstrap = false,
+            ),
+        ).isTrue()
+    }
+
+    @Test
     fun resolveAuthorizedDirectoryPathFromTreeDocumentId_supportsPrimaryTreePaths() {
         val externalRoot = Files.createTempDirectory("mcgo-primary-root")
         val rootPath = resolveAuthorizedDirectoryPathFromTreeDocumentId(

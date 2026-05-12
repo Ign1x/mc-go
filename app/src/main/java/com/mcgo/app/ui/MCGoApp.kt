@@ -192,12 +192,13 @@ import com.mcgo.app.server.fetchProvisionableMinecraftVersions
 import com.mcgo.app.server.fetchPurpurVersions
 import com.mcgo.app.server.fetchVanillaVersions
 import com.mcgo.app.server.filterProvisionablePaperVersions
-import com.mcgo.app.server.installManagedServerModFile
-import com.mcgo.app.server.installPojavRuntimeFromApk
-import com.mcgo.app.server.importManagedServerWorldArchive
-import com.mcgo.app.server.approveManagedServerSetupScript
-import com.mcgo.app.server.findManagedServerSetupScript
 import com.mcgo.app.server.importManagedServerModpackArchive
+import com.mcgo.app.server.importManagedServerWorldArchive
+import com.mcgo.app.server.isInstallerBootstrapScript
+import com.mcgo.app.server.installManagedServerModFile
+import com.mcgo.app.server.approveManagedServerSetupScript
+import com.mcgo.app.server.installPojavRuntimeFromApk
+import com.mcgo.app.server.findManagedServerSetupScript
 import com.mcgo.app.server.detectImportedModpackServerMetadata
 import com.mcgo.app.server.managedServerTargetJarPath
 import com.mcgo.app.server.writeManagedServerPayloadSha
@@ -212,6 +213,7 @@ import com.mcgo.app.server.releaseManagedServerWorkspaceAfterForegroundAccess
 import com.mcgo.app.server.resolveAuthorizedServersRootPath
 import com.mcgo.app.server.resolveManagedServerWorkspaceDirectory
 import com.mcgo.app.server.resolveNewModpackServerImportFailureRecovery
+import com.mcgo.app.server.shouldSyncImportedModpackWorkspaceImmediately
 import com.mcgo.app.server.migratePrivateServerDataToAuthorizedDirectory
 import com.mcgo.app.server.reconcilePersistedRuntimeState
 import com.mcgo.app.server.reducePaperRuntimeEvent
@@ -328,6 +330,7 @@ private data class PendingModpackSetupApproval(
     val serverName: String,
     val scriptName: String,
     val workspaceMode: ManagedServerWorkspaceMode,
+    val containsInstallerBootstrap: Boolean = false,
 )
 
 private data class PendingCreateServerFromModpack(
@@ -931,6 +934,7 @@ private fun MCGoAppScaffold(
                 serverName = targetServer.name,
                 scriptName = pendingSetupScript.fileName.toString(),
                 workspaceMode = workspaceMode,
+                containsInstallerBootstrap = isInstallerBootstrapScript(pendingSetupScript, workDir),
             )
             return
         }
@@ -1276,8 +1280,30 @@ private fun MCGoAppScaffold(
                                     scope.launch {
                                         runCatching {
                                             withContext(Dispatchers.IO) {
-                                                withPreparedManagedServerWorkspace(pendingApproval.request.serverId) { workDir ->
-                                                    approveManagedServerSetupScript(workDir)
+                                                val filesDir = appContext.filesDir.toPath()
+                                                val workspaceAccess = prepareManagedServerWorkspaceAccess(
+                                                    context = appContext,
+                                                    authorizedDirectoryUri = serverDirectoryUriText,
+                                                    filesDir = filesDir,
+                                                    serverId = pendingApproval.request.serverId,
+                                                )
+                                                approveManagedServerSetupScript(workspaceAccess.path)
+                                                if (
+                                                    workspaceAccess.mode.shouldSyncBack &&
+                                                    shouldSyncImportedModpackWorkspaceImmediately(
+                                                        workspaceMode = workspaceAccess.mode,
+                                                        containsInstallerBootstrap = pendingApproval.containsInstallerBootstrap,
+                                                    )
+                                                ) {
+                                                    check(
+                                                        releaseManagedServerWorkspaceAfterForegroundAccess(
+                                                            context = appContext,
+                                                            authorizedDirectoryUri = serverDirectoryUriText,
+                                                            filesDir = filesDir,
+                                                            serverId = pendingApproval.request.serverId,
+                                                            workspaceMode = workspaceAccess.mode,
+                                                        ),
+                                                    ) { "确认整合包安装脚本后同步服务器目录失败" }
                                                 }
                                             }
                                         }.onSuccess {
@@ -1386,7 +1412,11 @@ private fun MCGoAppScaffold(
                                                 ).markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
                                                 recoveredImportedServer = updatedServer
                                                 operationSucceeded = true
-                                                if (workspaceAccess.mode.shouldSyncBack) {
+                                                val shouldSyncImportedWorkspaceImmediately = shouldSyncImportedModpackWorkspaceImmediately(
+                                                    workspaceMode = workspaceAccess.mode,
+                                                    containsInstallerBootstrap = setupScriptName != null,
+                                                )
+                                                if (workspaceAccess.mode.shouldSyncBack && shouldSyncImportedWorkspaceImmediately) {
                                                     check(
                                                         releaseManagedServerWorkspaceAfterForegroundAccess(
                                                             context = appContext,

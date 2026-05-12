@@ -321,6 +321,23 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun findManagedServerSetupScript_recognizesCurseforgeStyleStartserverInstallerScripts() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-startserver-detect")
+        Files.write(
+            targetDir.resolve("startserver.sh"),
+            """#!/bin/sh
+INSTALLER="neoforge-21.1.224-installer.jar"
+if [ ! -d libraries ]; then
+  java -jar "${'$'}INSTALLER" -installServer
+fi
+""".toByteArray(),
+        )
+        Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
+
+        assertThat(findManagedServerSetupScript(targetDir)).isEqualTo(targetDir.resolve("startserver.sh"))
+    }
+
+    @Test
     fun runManagedServerSetupScriptIfNeeded_executesOnlyOnceAndCreatesMarker() {
         val targetDir = Files.createTempDirectory("mcgo-modpack-setup-run")
         val script = targetDir.resolve("setup.sh")
@@ -381,6 +398,31 @@ class PaperServerRuntimeTest {
         assertThat(error).hasMessageThat().contains("请先确认执行整合包安装脚本")
         assertThat(Files.exists(targetDir.resolve("setup-count.txt"))).isFalse()
         assertThat(Files.exists(targetDir.resolve(".mcgo-modpack-setup-complete"))).isFalse()
+    }
+
+    @Test
+    fun runManagedServerSetupScriptIfNeeded_marksCurseforgeStartserverAsInstallOnly() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-startserver-run")
+        val script = targetDir.resolve("startserver.sh")
+        Files.write(
+            script,
+            """#!/bin/sh
+# bootstrap neoforge installer -installServer
+printf '%s\n' "ATM10_INSTALL_ONLY=${'$'}{ATM10_INSTALL_ONLY:-missing}" > install-env.txt
+printf '%s\n' "ATM10_RESTART=${'$'}{ATM10_RESTART:-missing}" >> install-env.txt
+echo payload > server.jar
+exit 0
+""".toByteArray(),
+        )
+        Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
+        script.toFile().setExecutable(true, false)
+        approveManagedServerSetupScript(targetDir)
+
+        val executed = runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
+
+        assertThat(executed).isTrue()
+        assertThat(String(Files.readAllBytes(targetDir.resolve("install-env.txt")))).contains("ATM10_INSTALL_ONLY=true")
+        assertThat(String(Files.readAllBytes(targetDir.resolve("install-env.txt")))).contains("ATM10_RESTART=false")
     }
 
     @Test
@@ -543,6 +585,28 @@ class PaperServerRuntimeTest {
         assertThat(metadata.serverType).isEqualTo(com.mcgo.app.ui.model.MinecraftServerType.NeoForge)
         assertThat(metadata.minecraftVersion).isEqualTo("26.1.2")
         assertThat(metadata.javaMajorVersion).isEqualTo(25)
+    }
+
+    @Test
+    fun detectImportedModpackServerMetadata_detectsCurseforgeNeoForgeInstallerPackBeforeLibrariesExist() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-detect-neoforge-installer-pack")
+        Files.write(
+            serverWorkDir.resolve("startserver.sh"),
+            """#!/bin/sh
+NEOFORGE_VERSION=21.1.224
+INSTALLER="neoforge-${'$'}NEOFORGE_VERSION-installer.jar"
+if [ ! -d libraries ]; then
+  java -jar "${'$'}INSTALLER" -installServer
+fi
+""".toByteArray(),
+        )
+        Files.write(serverWorkDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
+
+        val metadata = detectImportedModpackServerMetadata(serverWorkDir)
+
+        assertThat(metadata.serverType).isEqualTo(com.mcgo.app.ui.model.MinecraftServerType.NeoForge)
+        assertThat(metadata.minecraftVersion).isEqualTo("1.21.1")
+        assertThat(metadata.javaMajorVersion).isEqualTo(21)
     }
 
     @Test
