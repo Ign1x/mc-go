@@ -123,19 +123,19 @@ class AuthorizedServerDirectoryWorkspaceRoutingTest {
     }
 
     @Test
-    fun shouldSyncImportedModpackWorkspaceImmediately_skipsSafMirrorForInstallerBootstrapPacks() {
+    fun shouldSyncImportedModpackWorkspaceImmediately_keepsAuthorizedCopiesForInstallerBootstrapPacks() {
         assertThat(
             shouldSyncImportedModpackWorkspaceImmediately(
                 workspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
                 containsInstallerBootstrap = true,
             ),
-        ).isFalse()
+        ).isTrue()
         assertThat(
             shouldSyncImportedModpackWorkspaceImmediately(
                 workspaceMode = ManagedServerWorkspaceMode.PrivatePersistentFallback,
                 containsInstallerBootstrap = true,
             ),
-        ).isFalse()
+        ).isTrue()
         assertThat(
             shouldSyncImportedModpackWorkspaceImmediately(
                 workspaceMode = ManagedServerWorkspaceMode.DirectExternal,

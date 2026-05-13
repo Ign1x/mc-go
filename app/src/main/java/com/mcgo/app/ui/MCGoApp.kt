@@ -1338,7 +1338,7 @@ private fun MCGoAppScaffold(
                         },
                         title = { Text("执行整合包安装脚本？") },
                         text = {
-                            Text("${pendingApproval.serverName} 检测到整合包安装脚本 ${pendingApproval.scriptName}。该脚本将在后续启动前执行一次；安装完成后，请再次点击启动服务器。")
+                            Text("${pendingApproval.serverName} 检测到整合包安装脚本 ${pendingApproval.scriptName}。确认后立即执行安装脚本，并继续启动服务器。")
                         },
                         confirmButton = {
                             TextButton(
@@ -1374,14 +1374,15 @@ private fun MCGoAppScaffold(
                                             }
                                         }.onSuccess {
                                             pendingModpackSetupApproval = null
-                                            snackbarHostState.showSnackbar("已确认安装脚本；安装完成后，请再次点击启动服务器")
+                                            snackbarHostState.showSnackbar("已确认安装脚本并继续启动")
+                                            startServerNow(pendingApproval.request)
                                         }.onFailure {
                                             snackbarHostState.showSnackbar(it.message ?: "确认整合包安装脚本失败")
                                         }
                                     }
                                 },
                             ) {
-                                Text("确认安装")
+                                Text("确认安装并启动")
                             }
                         },
                         dismissButton = {

@@ -69,15 +69,15 @@ class MCGoServerFileManagementContractTest {
     }
 
     @Test
-    fun modpackSetupApprovalDialog_onlyConfirmsInstallationAndDoesNotAutoStart() {
+    fun modpackSetupApprovalDialog_confirmsAndContinuesStartingImmediately() {
         val approvalDialogSource = appSource
             .substringAfter("pendingModpackSetupApproval?.let { pendingApproval ->")
             .substringBefore("AnimatedContent(targetState = destination, label = \"appDestination\")")
 
-        assertThat(approvalDialogSource).contains("安装完成后，请再次点击启动服务器")
-        assertThat(approvalDialogSource).contains("Text(\"确认安装\")")
-        assertThat(approvalDialogSource).doesNotContain("Text(\"确认并启动\")")
-        assertThat(approvalDialogSource).doesNotContain("startServerNow(approvedRequest)")
+        assertThat(approvalDialogSource).doesNotContain("安装完成后，请再次点击启动服务器")
+        assertThat(approvalDialogSource).contains("Text(\"确认安装并启动\")")
+        assertThat(approvalDialogSource).contains("startServerNow(pendingApproval.request)")
+        assertThat(approvalDialogSource).contains("已确认安装脚本并继续启动")
     }
 
     @Test

@@ -77,7 +77,7 @@ internal fun resolveNewModpackServerImportFailureRecovery(
 internal fun shouldSyncImportedModpackWorkspaceImmediately(
     workspaceMode: ManagedServerWorkspaceMode,
     containsInstallerBootstrap: Boolean,
-): Boolean = !containsInstallerBootstrap || workspaceMode == ManagedServerWorkspaceMode.DirectExternal
+): Boolean = true
 
 internal fun shouldPersistManagedServerWorkspaceAfterLaunchAttempt(
     workspaceMode: ManagedServerWorkspaceMode,
