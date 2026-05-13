@@ -1151,16 +1151,11 @@ fun runManagedServerSetupScriptIfNeeded(
         if (isInstallerBootstrapScript(script, serverWorkDir)) {
             put("ATM10_INSTALL_ONLY", "true")
             put("ATM10_RESTART", "false")
-            get("MCGO_JAVA_WRAPPER")
-                ?.takeIf { it.isNotBlank() }
-                ?.let { wrapper ->
-                    put("ATM10_JAVA", wrapper)
-                    put("JAVACMD", wrapper)
-                }
         }
     }
+    val effectiveScript = rewriteManagedInstallerBootstrapScriptForAndroid(script, scriptEnvironment) ?: script
     Files.createDirectories(logFile.parent)
-    val process = ProcessBuilder(shellBinary, script.toString())
+    val process = ProcessBuilder(shellBinary, effectiveScript.toString())
         .directory(serverWorkDir.toFile())
         .redirectErrorStream(true)
         .apply {
@@ -1606,20 +1601,20 @@ private fun installModdedServerViaInstaller(
     )
     moveDownloadedPaperJar(tempJar, installerJar)
     onProgress(32)
-    val command = buildList {
-        add(javaBinary)
-        add("-jar")
-        add(installerJar.toString())
-        addAll(customInstallCommand ?: listOf("--installServer", serverWorkDir.toString()))
-    }
+    val command = buildManagedJavaProcessCommand(
+        fallbackJavaBinary = javaBinary,
+        environment = environment,
+        javaArguments = buildList {
+            add("-jar")
+            add(installerJar.toString())
+            addAll(customInstallCommand ?: listOf("--installServer", serverWorkDir.toString()))
+        },
+    )
     val process = ProcessBuilder(command)
         .directory(serverWorkDir.toFile())
         .redirectErrorStream(true)
         .apply {
-            environment().putAll(environment.associate { entry ->
-                val separator = entry.indexOf('=')
-                if (separator <= 0) entry to "" else entry.substring(0, separator) to entry.substring(separator + 1)
-            })
+            environment().putAll(environmentMap(environment))
         }
         .start()
     process.inputStream.bufferedReader().useLines { lines ->
@@ -1644,6 +1639,43 @@ private fun installModdedServerViaInstaller(
     Files.write(paperJarSha256File(payloadJar), (sha256Hex(payloadJar) + "\n").toByteArray())
     onProgress(76)
 }
+
+private fun rewriteManagedInstallerBootstrapScriptForAndroid(
+    script: Path,
+    environment: Map<String, String>,
+): Path? {
+    val appProcess = environment["MCGO_JAVA_APP_PROCESS"]?.takeIf { it.isNotBlank() } ?: return null
+    val mainClass = environment["MCGO_JAVA_MAIN_CLASS"]?.takeIf { it.isNotBlank() } ?: return null
+    val classpath = environment["MCGO_JAVA_CLASSPATH"]?.takeIf { it.isNotBlank() }
+        ?: environment["CLASSPATH"]?.takeIf { it.isNotBlank() }
+        ?: return null
+    val javaHome = environment["MCGO_JAVA_HOME"]?.takeIf { it.isNotBlank() } ?: return null
+    val launcherLib = environment["MCGO_JAVA_NATIVE_LAUNCHER_LIB"]?.takeIf { it.isNotBlank() } ?: return null
+    val original = String(Files.readAllBytes(script))
+    val managedJavaCommand = buildString {
+        append("CLASSPATH=")
+        append(shellSingleQuote(classpath))
+        append(' ')
+        append(shellSingleQuote(appProcess))
+        append(" -Dmcgo.paperJvmLauncher.absoluteLibPath=")
+        append(shellSingleQuote(launcherLib))
+        append(" /system/bin ")
+        append(shellSingleQuote(mainClass))
+        append(' ')
+        append(shellSingleQuote(javaHome))
+    }
+    val commandProbe = "command -v \"${'$'}{ATM10_JAVA:-java}\" >/dev/null 2>&1"
+    val invocationToken = "\"${'$'}{ATM10_JAVA:-java}\""
+    val rewritten = original
+        .replace(commandProbe, "command -v ${shellSingleQuote(appProcess)} >/dev/null 2>&1")
+        .replace(invocationToken, managedJavaCommand)
+    if (rewritten == original) return null
+    val tempScript = Files.createTempFile(script.parent, script.fileName.toString() + ".mcgo-android-", ".sh")
+    Files.write(tempScript, rewritten.toByteArray())
+    return tempScript
+}
+
+private fun shellSingleQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
 
 private fun clearManagedServerImportTarget(targetDir: Path) {
     if (!Files.exists(targetDir)) return

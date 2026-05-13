@@ -482,16 +482,18 @@ exit 0
     }
 
     @Test
-    fun runManagedServerSetupScriptIfNeeded_injectsManagedJavaWrapperIntoInstallerBootstrapEnvWhenAvailable() {
+    fun runManagedServerSetupScriptIfNeeded_rewritesInstallerBootstrapJavaInvocationsToAppProcessManagedLaunch() {
         val targetDir = Files.createTempDirectory("mcgo-modpack-setup-java-wrapper-env")
         val script = targetDir.resolve("startserver.sh")
         Files.write(
             script,
             """#!/bin/sh
 # bootstrap neoforge installer -installServer
-printf '%s\n' "ATM10_JAVA=${'$'}{ATM10_JAVA:-missing}" > install-java.txt
-printf '%s\n' "JAVACMD=${'$'}{JAVACMD:-missing}" >> install-java.txt
-printf '%s\n' "PATH=${'$'}PATH" >> install-java.txt
+if ! command -v "${'$'}{ATM10_JAVA:-java}" >/dev/null 2>&1; then
+  echo missing-java > install-java.txt
+  exit 9
+fi
+"${'$'}{ATM10_JAVA:-java}" -jar neoforge-21.1.224-installer.jar -installServer > install-java.txt
 echo payload > server.jar
 exit 0
 """.toByteArray(),
@@ -499,53 +501,52 @@ exit 0
         Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
         script.toFile().setExecutable(true, false)
         approveManagedServerSetupScript(targetDir)
-        val wrapperPath = "/data/user/0/com.mcgo.app/files/runtime-tools/java-wrapper/bin/java"
 
         runManagedServerSetupScriptIfNeeded(
             serverWorkDir = targetDir,
             shellBinary = "/bin/sh",
             environment = listOf(
+                "CLASSPATH=/data/app/com.mcgo.app/base.apk",
                 "JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21",
-                "MCGO_JAVA_WRAPPER=$wrapperPath",
-                "PATH=/data/user/0/com.mcgo.app/files/runtime-tools/java-wrapper/bin:/system/bin",
+                "MCGO_JAVA_APP_PROCESS=/bin/echo",
+                "MCGO_JAVA_MAIN_CLASS=com.mcgo.app.server.ManagedJavaCli",
+                "MCGO_JAVA_CLASSPATH=/data/app/com.mcgo.app/base.apk",
+                "MCGO_JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21",
+                "MCGO_JAVA_NATIVE_LAUNCHER_LIB=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so",
+                "PATH=/system/bin",
             ),
         )
 
         val envText = String(Files.readAllBytes(targetDir.resolve("install-java.txt")))
-        assertThat(envText).contains("ATM10_JAVA=$wrapperPath")
-        assertThat(envText).contains("JAVACMD=$wrapperPath")
-        assertThat(envText).contains("PATH=/data/user/0/com.mcgo.app/files/runtime-tools/java-wrapper/bin:/system/bin")
+        assertThat(envText).contains("-Dmcgo.paperJvmLauncher.absoluteLibPath=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so")
+        assertThat(envText).contains("/system/bin com.mcgo.app.server.ManagedJavaCli /data/user/0/com.mcgo.app/files/jre/java-21 -jar neoforge-21.1.224-installer.jar -installServer")
+        assertThat(envText).doesNotContain("missing-java")
     }
 
     @Test
-    fun prepareManagedPaperRuntimeContext_exposesWrapperForInstallerApisInsteadOfRawBinJava() {
-        val filesDir = Files.createTempDirectory("mcgo-runtime-context-installers-files")
-        val cacheDir = Files.createTempDirectory("mcgo-runtime-context-installers-cache")
-        val javaHome = filesDir.resolve("jre/java-21")
-        Files.createDirectories(javaHome.resolve("bin"))
-        Files.write(javaHome.resolve("bin/java"), byteArrayOf(1))
-        javaHome.resolve("bin/java").toFile().setExecutable(true, false)
-        Files.write(javaHome.resolve("release"), "OS_ARCH=\"aarch64\"\nJAVA_VERSION=\"21.0.6\"\n".toByteArray())
-        Files.createDirectories(javaHome.resolve("lib/server"))
-        Files.write(javaHome.resolve("lib/libjli.so"), byteArrayOf(1))
-        Files.write(javaHome.resolve("lib/server/libjvm.so"), byteArrayOf(1))
-        Files.write(javaHome.resolve("lib/libverify.so"), byteArrayOf(1))
-        Files.write(javaHome.resolve("lib/libjava.so"), byteArrayOf(1))
-        Files.write(javaHome.resolve("lib/libnet.so"), byteArrayOf(1))
-        Files.write(javaHome.resolve("lib/libnio.so"), byteArrayOf(1))
-        val server = com.mcgo.app.ui.model.createNeoForgeServer("NeoForge整合服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
-
-        val context = prepareManagedPaperRuntimeContext(
-            server = server,
-            filesDir = filesDir,
-            cacheDir = cacheDir,
-            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
-            is64BitProcess = true,
-            applicationSourceDir = "/data/app/com.mcgo.app/base.apk",
+    fun buildManagedJavaProcessCommand_prefersAppProcessManagedLaunchMetadataOverRawBinJava() {
+        val command = buildManagedJavaProcessCommand(
+            fallbackJavaBinary = "/data/user/0/com.mcgo.app/files/jre/java-21/bin/java",
+            environment = listOf(
+                "MCGO_JAVA_APP_PROCESS=/system/bin/app_process",
+                "MCGO_JAVA_MAIN_CLASS=com.mcgo.app.server.ManagedJavaCli",
+                "MCGO_JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21",
+                "MCGO_JAVA_NATIVE_LAUNCHER_LIB=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so",
+            ),
+            javaArguments = listOf("-jar", "installer.jar", "--installServer"),
         )
 
-        assertThat(context.javaBinary).isEqualTo(filesDir.resolve("runtime-tools/java-wrapper/bin/java").toString())
-        assertThat(context.javaBinary).isNotEqualTo(javaHome.resolve("bin/java").toString())
+        assertThat(command).containsAtLeast(
+            "/system/bin/app_process",
+            "-Dmcgo.paperJvmLauncher.absoluteLibPath=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so",
+            "/system/bin",
+            "com.mcgo.app.server.ManagedJavaCli",
+            "/data/user/0/com.mcgo.app/files/jre/java-21",
+            "-jar",
+            "installer.jar",
+            "--installServer",
+        )
+        assertThat(command.first() == "/data/user/0/com.mcgo.app/files/jre/java-21/bin/java").isFalse()
     }
 
     @Test

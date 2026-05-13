@@ -538,7 +538,7 @@ class PaperJvmLaunchConfigTest {
     }
 
     @Test
-    fun prepareManagedPaperRuntimeContext_usesAppProcessWrapperForInstallerAndScriptJavaCommands() {
+    fun prepareManagedPaperRuntimeContext_exportsAppProcessLaunchMetadataWithoutPrivateExecutableWrapper() {
         val filesDir = Files.createTempDirectory("mcgo-runtime-context-wrapper-files")
         val cacheDir = Files.createTempDirectory("mcgo-runtime-context-wrapper-cache")
         createRuntime(filesDir, majorVersion = 21)
@@ -553,17 +553,14 @@ class PaperJvmLaunchConfigTest {
             applicationSourceDir = "/data/app/com.mcgo.app/base.apk",
         )
 
-        val wrapperPath = java.nio.file.Path.of(context.javaBinary)
-        assertThat(wrapperPath).isNotEqualTo(filesDir.resolve("jre/java-21/bin/java"))
-        assertThat(wrapperPath.toString()).contains("runtime-tools/java-wrapper/bin/java")
-        assertThat(Files.isRegularFile(wrapperPath)).isTrue()
-        assertThat(wrapperPath.toFile().canExecute()).isTrue()
-        val wrapperText = String(Files.readAllBytes(wrapperPath))
-        assertThat(wrapperText).contains("/system/bin/app_process")
-        assertThat(wrapperText).contains("com.mcgo.app.server.ManagedJavaCli")
-        assertThat(wrapperText).contains("/data/app/com.mcgo.app/base.apk")
-        assertThat(context.environment).contains("MCGO_JAVA_WRAPPER=$wrapperPath")
-        assertThat(context.environment.single { it.startsWith("PATH=") }).contains("${wrapperPath.parent}:")
+        assertThat(context.javaBinary).isEqualTo("/system/bin/app_process")
+        assertThat(context.environment).contains("MCGO_JAVA_APP_PROCESS=/system/bin/app_process")
+        assertThat(context.environment).contains("MCGO_JAVA_MAIN_CLASS=com.mcgo.app.server.ManagedJavaCli")
+        assertThat(context.environment).contains("MCGO_JAVA_CLASSPATH=/data/app/com.mcgo.app/base.apk")
+        assertThat(context.environment).contains("MCGO_JAVA_HOME=${filesDir.resolve("jre/java-21")}")
+        assertThat(context.environment).contains("MCGO_JAVA_NATIVE_LAUNCHER_LIB=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so")
+        assertThat(context.environment.joinToString("\n")).doesNotContain("MCGO_JAVA_WRAPPER=")
+        assertThat(context.environment.single { it.startsWith("PATH=") }).doesNotContain("runtime-tools/java-wrapper")
     }
 
     private fun createRuntime(
