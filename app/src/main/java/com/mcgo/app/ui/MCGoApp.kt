@@ -207,6 +207,7 @@ import com.mcgo.app.server.installRuntimeWithStaging
 import com.mcgo.app.server.javaRuntimeArchiveTempSuffix
 import com.mcgo.app.server.managedPaperServerLogFile
 import com.mcgo.app.server.ManagedServerWorkspaceMode
+import com.mcgo.app.server.discardManagedServerWorkspaceAfterForegroundAccess
 import com.mcgo.app.server.prepareManagedServerWorkspaceAccess
 import com.mcgo.app.server.prepareManagedServerWorkspaceForForegroundAccess
 import com.mcgo.app.server.releaseManagedServerWorkspaceAfterForegroundAccess
@@ -704,6 +705,7 @@ private fun MCGoAppScaffold(
     var pendingCreateServerFromModpack by remember { mutableStateOf<PendingCreateServerFromModpack?>(null) }
     var currentModpackImportServerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingStartRequest by remember { mutableStateOf<PendingStartRequest?>(null) }
+    var pendingStartServerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingManagedRuntimeStarts by remember { mutableStateOf<List<PendingManagedRuntimeStart>>(emptyList()) }
     var pendingModpackSetupApproval by remember { mutableStateOf<PendingModpackSetupApproval?>(null) }
     val latestServers by rememberUpdatedState(servers)
@@ -885,187 +887,234 @@ private fun MCGoAppScaffold(
         }
     }
     fun startServerNow(request: PendingStartRequest) {
-        val currentServers = latestServers
-        val targetServer = currentServers.firstOrNull { it.id == request.serverId }
-        if (targetServer == null) {
-            scope.launch { snackbarHostState.showSnackbar("未找到服务器") }
-            return
-        }
-        if (!canStartServerFromUi(targetServer)) {
-            scope.launch { snackbarHostState.showSnackbar("${targetServer.name} 已在启动或运行中") }
-            return
-        }
-        val filesDir = appContext.filesDir.toPath()
-        val authorizedServersRoot = resolveAuthorizedServersRootPath(appContext, serverDirectoryUriText)
-        val workspaceAccess = runCatching {
-            prepareManagedServerWorkspaceAccess(
-                context = appContext,
-                authorizedDirectoryUri = serverDirectoryUriText,
-                filesDir = filesDir,
-                serverId = request.serverId,
-            )
-        }.getOrElse { error ->
-            scope.launch { snackbarHostState.showSnackbar(error.message ?: "准备服务器目录失败") }
-            return
-        }
-        val workspaceMode = workspaceAccess.mode
-        val workDir = workspaceAccess.path
-        fun releasePreparedWorkspaceIfNeeded() {
-            if (workspaceMode.shouldSyncBack) {
-                runCatching {
-                    check(
-                        releaseManagedServerWorkspaceAfterForegroundAccess(
+        scope.launch {
+            val initialServers = latestServers
+            val initialTargetServer = initialServers.firstOrNull { it.id == request.serverId }
+            if (initialTargetServer == null) {
+                snackbarHostState.showSnackbar("未找到服务器")
+                return@launch
+            }
+            if (request.serverId in pendingStartServerIds) {
+                snackbarHostState.showSnackbar("${initialTargetServer.name} 正在准备启动，请稍候")
+                return@launch
+            }
+            if (!canStartServerFromUi(initialTargetServer)) {
+                snackbarHostState.showSnackbar("${initialTargetServer.name} 已在启动或运行中")
+                return@launch
+            }
+            pendingStartServerIds = pendingStartServerIds + request.serverId
+            try {
+                val filesDir = appContext.filesDir.toPath()
+                val workspaceAccess = runCatching {
+                    withContext(Dispatchers.IO) {
+                        prepareManagedServerWorkspaceAccess(
                             context = appContext,
                             authorizedDirectoryUri = serverDirectoryUriText,
                             filesDir = filesDir,
                             serverId = request.serverId,
-                            workspaceMode = workspaceMode,
-                        ),
-                    ) { "清理临时服务器目录失败" }
-                }.onFailure { cleanupError ->
-                    scope.launch { snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败") }
+                        )
+                    }
+                }.getOrElse { error ->
+                    snackbarHostState.showSnackbar(error.message ?: "准备服务器目录失败")
+                    return@launch
                 }
-            }
-        }
-        val pendingSetupScript = requiresManagedServerSetupApproval(workDir)
-        if (pendingSetupScript != null) {
-            pendingModpackSetupApproval = PendingModpackSetupApproval(
-                request = request,
-                serverName = targetServer.name,
-                scriptName = pendingSetupScript.fileName.toString(),
-                workspaceMode = workspaceMode,
-                containsInstallerBootstrap = isInstallerBootstrapScript(pendingSetupScript, workDir),
-            )
-            return
-        }
-        val selectedTunnels = request.tunnelSelections.mapNotNull { selection ->
-            tunnels.firstOrNull { it.id == selection.tunnelId }?.let { tunnel -> selection to tunnel }
-        }
-        if (selectedTunnels.size != request.tunnelSelections.size) {
-            releasePreparedWorkspaceIfNeeded()
-            scope.launch { snackbarHostState.showSnackbar("部分隧道已不存在，请重新选择") }
-            return
-        }
-        val resolvedStartupPorts = selectedTunnels.map { (_, tunnel) ->
-            tunnel.resolveStartupPort(targetServer.defaultPort, request.startupPort)
-        }.distinct()
-        if (resolvedStartupPorts.size > 1) {
-            releasePreparedWorkspaceIfNeeded()
-            scope.launch { snackbarHostState.showSnackbar("所选隧道要求的本地端口不一致，请改为兼容的隧道组合") }
-            return
-        }
-        val resolvedPort = resolvedStartupPorts.singleOrNull() ?: request.startupPort
-        val runtimeAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
-        if (selectedTunnels.any { (_, tunnel) -> tunnel.kind != com.mcgo.app.ui.model.TunnelKind.Frp }) {
-            releasePreparedWorkspaceIfNeeded()
-            scope.launch { snackbarHostState.showSnackbar("当前仅支持 FRP 隧道真启动；请先取消非 FRP 隧道") }
-            return
-        }
-        if (selectedTunnels.isNotEmpty() && runtimeAbi != "arm64-v8a") {
-            releasePreparedWorkspaceIfNeeded()
-            scope.launch { snackbarHostState.showSnackbar("当前设备 ABI 为 $runtimeAbi，暂不支持内置 FRP 客户端") }
-            return
-        }
-        if (currentServers.any { it.id != request.serverId && it.isRuntimeBusy() && it.port == resolvedPort }) {
-            releasePreparedWorkspaceIfNeeded()
-            scope.launch { snackbarHostState.showSnackbar("端口 $resolvedPort 已被其他运行中的服务器占用") }
-            return
-        }
-        val allocatedSlot = allocateRuntimeSlot(
-            servers = currentServers,
-            targetServerId = request.serverId,
-            maxSlots = MaxPaperRuntimeSlots,
-        ) ?: run {
-            releasePreparedWorkspaceIfNeeded()
-            scope.launch { snackbarHostState.showSnackbar("同时运行的服务器已达到上限（$MaxPaperRuntimeSlots）") }
-            return
-        }
-        if (targetServer.javaMajorVersion !in installedJavaVersions) {
-            if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
-                releasePreparedWorkspaceIfNeeded()
-                pendingManagedRuntimeStarts = pendingManagedRuntimeStarts + PendingManagedRuntimeStart(request, targetServer.javaMajorVersion)
-                val awaitingInstallServers = currentServers.map { server ->
-                    if (server.id == request.serverId) {
-                        server.markAwaitingManagedRuntimeInstall(targetServer.javaMajorVersion)
-                    } else {
-                        server
+                val workspaceMode = workspaceAccess.mode
+                val workDir = workspaceAccess.path
+                suspend fun releasePreparedWorkspaceIfNeeded() {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            check(
+                                discardManagedServerWorkspaceAfterForegroundAccess(
+                                    context = appContext,
+                                    authorizedDirectoryUri = serverDirectoryUriText,
+                                    filesDir = filesDir,
+                                    serverId = request.serverId,
+                                    workspaceMode = workspaceMode,
+                                ),
+                            ) { "清理临时服务器目录失败" }
+                        }
+                    } catch (cleanupError: Throwable) {
+                        snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败")
                     }
                 }
-                onServersChange(awaitingInstallServers)
-                syncServerProfilesToAuthorizedDirectoryNow(awaitingInstallServers)
-                onDownloadJava(targetServer.javaMajorVersion)
-                scope.launch {
-                    snackbarHostState.showSnackbar("未检测到 Java ${targetServer.javaMajorVersion}，已开始自动安装")
+                val currentServers = latestServers
+                val targetServer = currentServers.firstOrNull { it.id == request.serverId }
+                if (targetServer == null) {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            check(
+                                discardManagedServerWorkspaceAfterForegroundAccess(
+                                    context = appContext,
+                                    authorizedDirectoryUri = serverDirectoryUriText,
+                                    filesDir = filesDir,
+                                    serverId = request.serverId,
+                                    workspaceMode = workspaceMode,
+                                ),
+                            ) { "清理临时服务器目录失败" }
+                        }
+                    } catch (cleanupError: Throwable) {
+                        snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败")
+                    }
+                    snackbarHostState.showSnackbar("未找到服务器")
+                    return@launch
                 }
-                return
-            }
-            releasePreparedWorkspaceIfNeeded()
-            val guidance = "当前版本暂不提供 Java ${targetServer.javaMajorVersion} 托管运行时；该 Minecraft 版本暂不支持一键开服"
-            val failedServers = currentServers.map { server ->
-                if (server.id == request.serverId) {
-                    server.markLaunchFailed(guidance)
-                } else {
-                    server
+                if (!canStartServerFromUi(targetServer)) {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            check(
+                                discardManagedServerWorkspaceAfterForegroundAccess(
+                                    context = appContext,
+                                    authorizedDirectoryUri = serverDirectoryUriText,
+                                    filesDir = filesDir,
+                                    serverId = request.serverId,
+                                    workspaceMode = workspaceMode,
+                                ),
+                            ) { "清理临时服务器目录失败" }
+                        }
+                    } catch (cleanupError: Throwable) {
+                        snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败")
+                    }
+                    snackbarHostState.showSnackbar("${targetServer.name} 已在启动或运行中")
+                    return@launch
                 }
-            }
-            onServersChange(failedServers)
-            syncServerProfilesToAuthorizedDirectoryNow(failedServers)
-            scope.launch {
-                snackbarHostState.showSnackbar("当前暂不支持该 Minecraft 版本所需的 Java ${targetServer.javaMajorVersion} 运行时")
-            }
-            return
-        }
-        val selectedTunnelsWithPorts = runCatching {
-            selectedTunnels.map { (selection, tunnel) ->
-                tunnel.copy(
-                    remotePort = assignTunnelRemotePort(
-                        server = targetServer,
-                        tunnel = tunnel,
-                        requestedRemotePort = selection.remotePort,
-                        servers = currentServers,
-                    ),
-                )
-            }
-        }.getOrElse { error ->
-            releasePreparedWorkspaceIfNeeded()
-            scope.launch { snackbarHostState.showSnackbar(error.message ?: "隧道远端端口分配失败") }
-            return
-        }
-        val runtimeLogPath = managedPaperServerLogFile(appContext.filesDir.toPath(), request.serverId).toString()
-        val updatedServers = currentServers.map { server ->
-            if (server.id != request.serverId) {
-                server
-            } else {
-                server
-                    .startWithTunnels(tunnels = selectedTunnelsWithPorts, startupPort = resolvedPort)
-                    .copy(
-                        runtimeLogPath = runtimeLogPath,
-                        runtimeSlot = allocatedSlot,
+                val currentTunnels = latestTunnels
+                val pendingSetupScript = requiresManagedServerSetupApproval(workDir)
+                if (pendingSetupScript != null) {
+                    pendingModpackSetupApproval = PendingModpackSetupApproval(
+                        request = request,
+                        serverName = targetServer.name,
+                        scriptName = pendingSetupScript.fileName.toString(),
+                        workspaceMode = workspaceMode,
+                        containsInstallerBootstrap = isInstallerBootstrapScript(pendingSetupScript, workDir),
                     )
-                    .withLaunchProgress(8, "已提交启动任务，准备使用内置 HotSpot 运行")
+                    return@launch
+                }
+                val selectedTunnels = request.tunnelSelections.mapNotNull { selection ->
+                    currentTunnels.firstOrNull { it.id == selection.tunnelId }?.let { tunnel -> selection to tunnel }
+                }
+                if (selectedTunnels.size != request.tunnelSelections.size) {
+                    releasePreparedWorkspaceIfNeeded()
+                    snackbarHostState.showSnackbar("部分隧道已不存在，请重新选择")
+                    return@launch
+                }
+                val resolvedStartupPorts = selectedTunnels.map { (_, tunnel) ->
+                    tunnel.resolveStartupPort(targetServer.defaultPort, request.startupPort)
+                }.distinct()
+                if (resolvedStartupPorts.size > 1) {
+                    releasePreparedWorkspaceIfNeeded()
+                    snackbarHostState.showSnackbar("所选隧道要求的本地端口不一致，请改为兼容的隧道组合")
+                    return@launch
+                }
+                val resolvedPort = resolvedStartupPorts.singleOrNull() ?: request.startupPort
+                val runtimeAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
+                if (selectedTunnels.any { (_, tunnel) -> tunnel.kind != com.mcgo.app.ui.model.TunnelKind.Frp }) {
+                    releasePreparedWorkspaceIfNeeded()
+                    snackbarHostState.showSnackbar("当前仅支持 FRP 隧道真启动；请先取消非 FRP 隧道")
+                    return@launch
+                }
+                if (selectedTunnels.isNotEmpty() && runtimeAbi != "arm64-v8a") {
+                    releasePreparedWorkspaceIfNeeded()
+                    snackbarHostState.showSnackbar("当前设备 ABI 为 $runtimeAbi，暂不支持内置 FRP 客户端")
+                    return@launch
+                }
+                if (currentServers.any { it.id != request.serverId && it.isRuntimeBusy() && it.port == resolvedPort }) {
+                    releasePreparedWorkspaceIfNeeded()
+                    snackbarHostState.showSnackbar("端口 $resolvedPort 已被其他运行中的服务器占用")
+                    return@launch
+                }
+                val allocatedSlot = allocateRuntimeSlot(
+                    servers = currentServers,
+                    targetServerId = request.serverId,
+                    maxSlots = MaxPaperRuntimeSlots,
+                ) ?: run {
+                    releasePreparedWorkspaceIfNeeded()
+                    snackbarHostState.showSnackbar("同时运行的服务器已达到上限（$MaxPaperRuntimeSlots）")
+                    return@launch
+                }
+                if (targetServer.javaMajorVersion !in installedJavaVersions) {
+                    if (isManagedRuntimeProvisioningAvailable(targetServer.javaMajorVersion, supportedProvisionableJavaVersions)) {
+                        releasePreparedWorkspaceIfNeeded()
+                        pendingManagedRuntimeStarts = pendingManagedRuntimeStarts + PendingManagedRuntimeStart(request, targetServer.javaMajorVersion)
+                        val awaitingInstallServers = currentServers.map { server ->
+                            if (server.id == request.serverId) {
+                                server.markAwaitingManagedRuntimeInstall(targetServer.javaMajorVersion)
+                            } else {
+                                server
+                            }
+                        }
+                        onServersChange(awaitingInstallServers)
+                        syncServerProfilesToAuthorizedDirectoryNow(awaitingInstallServers)
+                        onDownloadJava(targetServer.javaMajorVersion)
+                        snackbarHostState.showSnackbar("未检测到 Java ${targetServer.javaMajorVersion}，已开始自动安装")
+                        return@launch
+                    }
+                    releasePreparedWorkspaceIfNeeded()
+                    val guidance = "当前版本暂不提供 Java ${targetServer.javaMajorVersion} 托管运行时；该 Minecraft 版本暂不支持一键开服"
+                    val failedServers = currentServers.map { server ->
+                        if (server.id == request.serverId) {
+                            server.markLaunchFailed(guidance)
+                        } else {
+                            server
+                        }
+                    }
+                    onServersChange(failedServers)
+                    syncServerProfilesToAuthorizedDirectoryNow(failedServers)
+                    snackbarHostState.showSnackbar("当前暂不支持该 Minecraft 版本所需的 Java ${targetServer.javaMajorVersion} 运行时")
+                    return@launch
+                }
+                val selectedTunnelsWithPorts = runCatching {
+                    selectedTunnels.map { (selection, tunnel) ->
+                        tunnel.copy(
+                            remotePort = assignTunnelRemotePort(
+                                server = targetServer,
+                                tunnel = tunnel,
+                                requestedRemotePort = selection.remotePort,
+                                servers = currentServers,
+                            ),
+                        )
+                    }
+                }.getOrElse { error ->
+                    releasePreparedWorkspaceIfNeeded()
+                    snackbarHostState.showSnackbar(error.message ?: "隧道远端端口分配失败")
+                    return@launch
+                }
+                val runtimeLogPath = managedPaperServerLogFile(appContext.filesDir.toPath(), request.serverId).toString()
+                val updatedServers = currentServers.map { server ->
+                    if (server.id != request.serverId) {
+                        server
+                    } else {
+                        server
+                            .startWithTunnels(tunnels = selectedTunnelsWithPorts, startupPort = resolvedPort)
+                            .copy(
+                                runtimeLogPath = runtimeLogPath,
+                                runtimeSlot = allocatedSlot,
+                            )
+                            .withLaunchProgress(8, "已提交启动任务，准备使用内置 HotSpot 运行")
+                    }
+                }
+                onServersChange(updatedServers)
+                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+                updatedServers.firstOrNull { it.id == request.serverId }?.let {
+                    PaperServerService.start(
+                        appContext,
+                        it,
+                        selectedTunnelsWithPorts,
+                        workspacePath = workDir.toString(),
+                        workspaceMode = workspaceMode,
+                    )
+                    // keep legacy literal for source-contract tests:
+                    // PaperServerService.start(appContext, it, selectedTunnelsWithPorts)
+                }
+                snackbarHostState.showSnackbar(
+                    if (selectedTunnelsWithPorts.isNotEmpty()) {
+                        "${targetServer.name} 已通过 ${selectedTunnelsWithPorts.joinToString("、") { it.name }} 开始启动"
+                    } else {
+                        "${targetServer.name} 开始启动"
+                    },
+                )
+            } finally {
+                pendingStartServerIds = pendingStartServerIds - request.serverId
             }
-        }
-        onServersChange(updatedServers)
-        syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-        updatedServers.firstOrNull { it.id == request.serverId }?.let {
-            PaperServerService.start(
-                appContext,
-                it,
-                selectedTunnelsWithPorts,
-                workspacePath = workDir.toString(),
-                workspaceMode = workspaceMode,
-            )
-            // keep legacy literal for source-contract tests:
-            // PaperServerService.start(appContext, it, selectedTunnelsWithPorts)
-        }
-        scope.launch {
-            snackbarHostState.showSnackbar(
-                if (selectedTunnelsWithPorts.isNotEmpty()) {
-                    "${targetServer.name} 已通过 ${selectedTunnelsWithPorts.joinToString("、") { it.name }} 开始启动"
-                } else {
-                    "${targetServer.name} 开始启动"
-                },
-            )
         }
     }
     val queuedStartRequest = pendingStartRequest
@@ -1267,12 +1316,29 @@ private fun MCGoAppScaffold(
                 pendingModpackSetupApproval?.let { pendingApproval ->
                     AlertDialog(
                         onDismissRequest = {
-                            cleanupPreparedManagedServerWorkspace(pendingApproval.request.serverId, pendingApproval.workspaceMode)
-                            pendingModpackSetupApproval = null
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        check(
+                                            discardManagedServerWorkspaceAfterForegroundAccess(
+                                                context = appContext,
+                                                authorizedDirectoryUri = serverDirectoryUriText,
+                                                filesDir = appContext.filesDir.toPath(),
+                                                serverId = pendingApproval.request.serverId,
+                                                workspaceMode = pendingApproval.workspaceMode,
+                                            ),
+                                        ) { "清理临时服务器目录失败" }
+                                    }
+                                } catch (cleanupError: Throwable) {
+                                    snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败")
+                                } finally {
+                                    pendingModpackSetupApproval = null
+                                }
+                            }
                         },
                         title = { Text("执行整合包安装脚本？") },
                         text = {
-                            Text("${pendingApproval.serverName} 检测到整合包安装脚本 ${pendingApproval.scriptName}。该脚本将在后续启动前执行一次，请先确认执行整合包安装脚本。")
+                            Text("${pendingApproval.serverName} 检测到整合包安装脚本 ${pendingApproval.scriptName}。该脚本将在后续启动前执行一次；安装完成后，请再次点击启动服务器。")
                         },
                         confirmButton = {
                             TextButton(
@@ -1307,22 +1373,38 @@ private fun MCGoAppScaffold(
                                                 }
                                             }
                                         }.onSuccess {
-                                            val approvedRequest = pendingApproval.request
                                             pendingModpackSetupApproval = null
-                                            startServerNow(approvedRequest)
+                                            snackbarHostState.showSnackbar("已确认安装脚本；安装完成后，请再次点击启动服务器")
                                         }.onFailure {
                                             snackbarHostState.showSnackbar(it.message ?: "确认整合包安装脚本失败")
                                         }
                                     }
                                 },
                             ) {
-                                Text("确认并启动")
+                                Text("确认安装")
                             }
                         },
                         dismissButton = {
                             TextButton(onClick = {
-                                cleanupPreparedManagedServerWorkspace(pendingApproval.request.serverId, pendingApproval.workspaceMode)
-                                pendingModpackSetupApproval = null
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            check(
+                                                discardManagedServerWorkspaceAfterForegroundAccess(
+                                                    context = appContext,
+                                                    authorizedDirectoryUri = serverDirectoryUriText,
+                                                    filesDir = appContext.filesDir.toPath(),
+                                                    serverId = pendingApproval.request.serverId,
+                                                    workspaceMode = pendingApproval.workspaceMode,
+                                                ),
+                                            ) { "清理临时服务器目录失败" }
+                                        }
+                                    } catch (cleanupError: Throwable) {
+                                        snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败")
+                                    } finally {
+                                        pendingModpackSetupApproval = null
+                                    }
+                                }
                             }) {
                                 Text("取消")
                             }

@@ -109,13 +109,13 @@ fun buildManagedPaperLaunchConfig(
         add("-Duser.home=${preparedFiles.workDir}")
         when (server.serverType) {
             com.mcgo.app.ui.model.MinecraftServerType.Forge -> {
-                ensureManagedUserJvmArgsFile(preparedFiles.workDir)
+                ensureManagedUserJvmArgsFile(preparedFiles.workDir, server)
                 add("@user_jvm_args.txt")
                 val installedArgs = resolveInstalledForgeUnixArgsRelativePath(preparedFiles.workDir, server.minecraftVersion)
                 add("@${installedArgs ?: "libraries/net/minecraftforge/forge/${resolveLatestForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"}")
             }
             com.mcgo.app.ui.model.MinecraftServerType.NeoForge -> {
-                ensureManagedUserJvmArgsFile(preparedFiles.workDir)
+                ensureManagedUserJvmArgsFile(preparedFiles.workDir, server)
                 add("@user_jvm_args.txt")
                 val installedArgs = resolveInstalledNeoForgeUnixArgsRelativePath(preparedFiles.workDir, server.minecraftVersion)
                 add("@${installedArgs ?: "libraries/net/neoforged/neoforge/${resolveLatestNeoForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"}")
@@ -221,12 +221,32 @@ fun sanitizeManagedServerId(serverId: String): String =
         .trim('-', '.')
         .ifBlank { "paper-server" }
 
-private fun ensureManagedUserJvmArgsFile(serverWorkDir: Path) {
+private fun ensureManagedUserJvmArgsFile(serverWorkDir: Path, server: ServerCardState? = null) {
     val userJvmArgsFile = serverWorkDir.resolve("user_jvm_args.txt")
     if (!Files.exists(userJvmArgsFile)) {
         Files.createDirectories(userJvmArgsFile.parent)
         Files.write(userJvmArgsFile, "# user jvm args\n".toByteArray())
     }
+    server?.let { sanitizeManagedUserJvmArgsFileForAndroid(userJvmArgsFile, it.memoryMb) }
+}
+
+private fun sanitizeManagedUserJvmArgsFileForAndroid(userJvmArgsFile: Path, memoryMb: Int) {
+    if (!Files.isRegularFile(userJvmArgsFile)) return
+    val preservedLines = Files.readAllLines(userJvmArgsFile)
+        .map(String::trim)
+        .filter { line ->
+            line.isNotEmpty() &&
+                !line.startsWith("-Xms", ignoreCase = true) &&
+                !line.startsWith("-Xmx", ignoreCase = true) &&
+                !line.equals("-XX:+AlwaysPreTouch", ignoreCase = true)
+        }
+        .distinct()
+    val sanitizedLines = buildList {
+        add("-Xms${(memoryMb / 2).coerceAtLeast(512)}M")
+        add("-Xmx${memoryMb}M")
+        addAll(preservedLines)
+    }
+    Files.write(userJvmArgsFile, (sanitizedLines.joinToString(separator = "\n", postfix = "\n")).toByteArray())
 }
 
 private fun defaultProcessPath(): String = System.getenv("PATH")

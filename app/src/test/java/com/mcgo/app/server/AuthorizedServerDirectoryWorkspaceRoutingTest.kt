@@ -238,4 +238,29 @@ class AuthorizedServerDirectoryWorkspaceRoutingTest {
         assertThat(Files.isDirectory(authorizedServerDir.resolve("mods"))).isTrue()
         assertThat(Files.isRegularFile(authorizedServerDir.resolve("mods/example.jar"))).isTrue()
     }
+
+    @Test
+    fun discardManagedServerWorkspaceAfterForegroundAccess_clearsPrivateMirrorWithoutSyncingAuthorizedWorkspace() {
+        val filesDir = Files.createTempDirectory("mcgo-private-discard")
+        val authorizedRoot = Files.createTempDirectory("mcgo-authorized-discard")
+        val authorizedServersRoot = authorizedRoot.resolve("servers")
+        val authorizedServerDir = authorizedServersRoot.resolve("server-demo")
+        Files.createDirectories(authorizedServerDir)
+        Files.write(authorizedServerDir.resolve("server.properties"), "motd=hello\n".toByteArray())
+
+        val privateMirror = managedPaperServerDirectory(filesDir, "server-demo")
+        Files.createDirectories(privateMirror)
+        Files.write(privateMirror.resolve("server.properties"), "motd=stale\n".toByteArray())
+        Files.write(privateMirror.resolve("ops.json"), "[]\n".toByteArray())
+
+        discardManagedServerWorkspaceAfterForegroundAccess(
+            filesDir = filesDir,
+            authorizedServersRoot = authorizedServersRoot,
+            serverId = "server-demo",
+        )
+
+        assertThat(Files.exists(privateMirror)).isFalse()
+        assertThat(String(Files.readAllBytes(authorizedServerDir.resolve("server.properties")))).isEqualTo("motd=hello\n")
+        assertThat(Files.exists(authorizedServerDir.resolve("ops.json"))).isFalse()
+    }
 }

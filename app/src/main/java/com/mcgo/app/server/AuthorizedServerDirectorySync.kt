@@ -82,7 +82,8 @@ internal fun shouldSyncImportedModpackWorkspaceImmediately(
 internal fun shouldPersistManagedServerWorkspaceAfterLaunchAttempt(
     workspaceMode: ManagedServerWorkspaceMode,
     runtimeLaunchSubmitted: Boolean,
-): Boolean = workspaceMode.shouldSyncBack && runtimeLaunchSubmitted
+    completedInstallerBootstrapOnly: Boolean = false,
+): Boolean = workspaceMode.shouldSyncBack && (runtimeLaunchSubmitted || completedInstallerBootstrapOnly)
 
 internal fun shouldPreferAuthorizedWorkspaceOverPrivate(
     privateRecoverable: Boolean,
@@ -314,6 +315,16 @@ fun releaseManagedServerWorkspaceAfterForegroundAccess(
     clearManagedServerWorkspace(privateWorkspaceDir)
 }
 
+fun discardManagedServerWorkspaceAfterForegroundAccess(
+    filesDir: Path,
+    authorizedServersRoot: Path?,
+    serverId: String,
+) {
+    val privateWorkspaceDir = managedPaperServerDirectory(filesDir, serverId)
+    if (!Files.exists(privateWorkspaceDir)) return
+    clearManagedServerWorkspace(privateWorkspaceDir)
+}
+
 fun prepareManagedServerWorkspaceAccess(
     context: Context,
     authorizedDirectoryUri: String?,
@@ -412,6 +423,22 @@ fun releaseManagedServerWorkspaceAfterForegroundAccess(
         clearManagedServerWorkspace(privateWorkspaceDir)
     }
     return synced
+}
+
+fun discardManagedServerWorkspaceAfterForegroundAccess(
+    context: Context,
+    authorizedDirectoryUri: String?,
+    filesDir: Path,
+    serverId: String,
+    workspaceMode: ManagedServerWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
+): Boolean {
+    if (!workspaceMode.shouldClearPrivateWorkspaceOnSuccessfulSync) return true
+    discardManagedServerWorkspaceAfterForegroundAccess(
+        filesDir = filesDir,
+        authorizedServersRoot = resolveAuthorizedServersRootPath(context, authorizedDirectoryUri),
+        serverId = serverId,
+    )
+    return true
 }
 
 fun syncManagedServerIconToAuthorizedDirectory(

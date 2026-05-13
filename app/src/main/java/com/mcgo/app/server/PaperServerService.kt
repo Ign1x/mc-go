@@ -57,6 +57,7 @@ open class PaperServerService : Service() {
     private var runtimeLaunchSubmitted = false
     @Volatile
     private var stopSignalDelivered = false
+    private var completedInstallerBootstrapOnly = false
     @Volatile
     private var lastLaunchedJavaMajorVersion: Int? = null
     private var launchJob: Job? = null
@@ -160,6 +161,7 @@ open class PaperServerService : Service() {
         stopRequested = false
         runtimeLaunchSubmitted = false
         stopSignalDelivered = false
+        completedInstallerBootstrapOnly = false
         PaperJvmLauncher.clearPendingStopRequest()
         startForeground(notificationId(), notification("正在启动 ${server.name}"))
         publish(server.id, PaperServerEventStatus.Launching, 8, "正在准备内置 Java ${server.javaMajorVersion} 运行时")
@@ -210,6 +212,14 @@ open class PaperServerService : Service() {
                         environment = runtimeContext.environment,
                     )
                     if (setupScriptExecuted) {
+                        if (findManagedServerSetupScript(runtimeContext.workingDirectory)?.let { script ->
+                                isInstallerBootstrapScript(script, runtimeContext.workingDirectory)
+                            } == true
+                        ) {
+                            completedInstallerBootstrapOnly = true
+                            publishEvent(installerBootstrapSetupCompletedEvent(server.id))
+                            return@runCatching
+                        }
                         publish(server.id, PaperServerEventStatus.Launching, 34, "已执行整合包安装脚本，继续准备 ${serverFlavorLabel}")
                     }
                     if (!shouldReuseInstalledServerPayload(runtimeContext.workingDirectory, runtimeContext.jarPath)) {
@@ -359,7 +369,7 @@ open class PaperServerService : Service() {
                         .load()
                         .firstOrNull { persisted -> persisted.id == server.id }
                     val serverPendingDeletion = persistedServer?.pendingDeletion == true
-                    if (!serverPendingDeletion && shouldPersistManagedServerWorkspaceAfterLaunchAttempt(currentWorkspaceMode, runtimeLaunchSubmitted)) {
+                    if (!serverPendingDeletion && shouldPersistManagedServerWorkspaceAfterLaunchAttempt(currentWorkspaceMode, runtimeLaunchSubmitted, completedInstallerBootstrapOnly)) {
                         currentWorkspacePath?.let { workspacePath ->
                             check(
                                 syncManagedServerWorkspaceToAuthorizedDirectory(
@@ -392,6 +402,7 @@ open class PaperServerService : Service() {
             stopRequested = false
             runtimeLaunchSubmitted = false
             stopSignalDelivered = false
+            completedInstallerBootstrapOnly = false
             currentActiveTunnelLabel = null
             currentRuntimeAddress = null
             currentTunnelBindings = emptyList()
@@ -934,6 +945,13 @@ fun launchCancelledEvent(serverId: String): PaperServerEvent = PaperServerEvent(
     status = PaperServerEventStatus.Stopped,
     progress = 0,
     message = "已取消启动；内置 Paper 进程尚未启动",
+)
+
+fun installerBootstrapSetupCompletedEvent(serverId: String): PaperServerEvent = PaperServerEvent(
+    serverId = serverId,
+    status = PaperServerEventStatus.Stopped,
+    progress = 0,
+    message = "整合包安装脚本已执行完成，请再次点击启动继续拉起服务器",
 )
 
 fun noActiveRuntimeStopEvent(serverId: String): PaperServerEvent = PaperServerEvent(

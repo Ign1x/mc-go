@@ -154,6 +154,24 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun installerBootstrapSetupCompletedEvent_reportsStoppedAndPromptsSecondStart() {
+        val event = installerBootstrapSetupCompletedEvent("survival")
+
+        assertThat(event.serverId).isEqualTo("survival")
+        assertThat(event.status).isEqualTo(PaperServerEventStatus.Stopped)
+        assertThat(event.message).contains("请再次点击启动")
+    }
+
+    @Test
+    fun installerBootstrapSetupCompletion_shortCircuitsJvmLaunchUntilUserStartsAgain() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+
+        assertThat(source).contains("installerBootstrapSetupCompletedEvent(server.id)")
+        assertThat(source).contains("return@runCatching")
+        assertThat(source.indexOf("installerBootstrapSetupCompletedEvent(server.id)")).isLessThan(source.indexOf("val launchConfig = buildManagedPaperLaunchConfig("))
+    }
+
+    @Test
     fun runtimeMonitorEventStatus_prefersStoppingOverRunningOrLaunching() {
         assertThat(runtimeMonitorEventStatus(runtimeRunning = false, stopRequested = false))
             .isEqualTo(PaperServerEventStatus.Launching)

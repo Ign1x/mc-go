@@ -69,6 +69,74 @@ class MCGoServerFileManagementContractTest {
     }
 
     @Test
+    fun modpackSetupApprovalDialog_onlyConfirmsInstallationAndDoesNotAutoStart() {
+        val approvalDialogSource = appSource
+            .substringAfter("pendingModpackSetupApproval?.let { pendingApproval ->")
+            .substringBefore("AnimatedContent(targetState = destination, label = \"appDestination\")")
+
+        assertThat(approvalDialogSource).contains("安装完成后，请再次点击启动服务器")
+        assertThat(approvalDialogSource).contains("Text(\"确认安装\")")
+        assertThat(approvalDialogSource).doesNotContain("Text(\"确认并启动\")")
+        assertThat(approvalDialogSource).doesNotContain("startServerNow(approvedRequest)")
+    }
+
+    @Test
+    fun startServerNow_movesWorkspacePreparationOffMainThread() {
+        val startServerSource = appSource
+            .substringAfter("fun startServerNow(request: PendingStartRequest) {")
+            .substringBefore("val queuedStartRequest = pendingStartRequest")
+
+        assertThat(startServerSource).contains("scope.launch")
+        assertThat(startServerSource).contains("withContext(Dispatchers.IO)")
+        assertThat(startServerSource).contains("prepareManagedServerWorkspaceAccess(")
+        assertThat(startServerSource.indexOf("withContext(Dispatchers.IO)")).isLessThan(startServerSource.indexOf("prepareManagedServerWorkspaceAccess("))
+    }
+
+    @Test
+    fun startServerNow_refreshesLatestServerStateAfterWorkspacePreparation() {
+        val startServerSource = appSource
+            .substringAfter("fun startServerNow(request: PendingStartRequest) {")
+            .substringBefore("val queuedStartRequest = pendingStartRequest")
+        val postPrepareSource = startServerSource.substringAfter("val workDir = workspaceAccess.path")
+
+        assertThat(postPrepareSource).contains("val currentServers = latestServers")
+        assertThat(postPrepareSource).contains("val targetServer = currentServers.firstOrNull { it.id == request.serverId }")
+        assertThat(postPrepareSource).contains("releasePreparedWorkspaceIfNeeded()")
+    }
+
+    @Test
+    fun startServerNow_claimsPendingStartBeforePreparingWorkspace() {
+        val startServerSource = appSource
+            .substringAfter("fun startServerNow(request: PendingStartRequest) {")
+            .substringBefore("val queuedStartRequest = pendingStartRequest")
+
+        assertThat(appSource).contains("var pendingStartServerIds by remember { mutableStateOf<Set<String>>(emptySet()) }")
+        assertThat(startServerSource).contains("if (request.serverId in pendingStartServerIds)")
+        assertThat(startServerSource).contains("pendingStartServerIds = pendingStartServerIds + request.serverId")
+        assertThat(startServerSource).contains("pendingStartServerIds = pendingStartServerIds - request.serverId")
+        assertThat(startServerSource.indexOf("pendingStartServerIds = pendingStartServerIds + request.serverId"))
+            .isLessThan(startServerSource.indexOf("prepareManagedServerWorkspaceAccess("))
+    }
+
+    @Test
+    fun stalePreparedWorkspaceCleanup_discardsMirrorInsteadOfSyncingBack() {
+        val startServerSource = appSource
+            .substringAfter("fun startServerNow(request: PendingStartRequest) {")
+            .substringBefore("val queuedStartRequest = pendingStartRequest")
+        val approvalDialogSource = appSource
+            .substringAfter("pendingModpackSetupApproval?.let { pendingApproval ->")
+            .substringBefore("AnimatedContent(targetState = destination, label = \"appDestination\")")
+
+        assertThat(appSource).contains("discardManagedServerWorkspaceAfterForegroundAccess(")
+        assertThat(startServerSource.substringAfter("if (targetServer == null) {").substringBefore("return@launch"))
+            .contains("discardManagedServerWorkspaceAfterForegroundAccess(")
+        assertThat(startServerSource.substringAfter("if (!canStartServerFromUi(targetServer)) {").substringBefore("return@launch"))
+            .contains("discardManagedServerWorkspaceAfterForegroundAccess(")
+        assertThat(approvalDialogSource).contains("discardManagedServerWorkspaceAfterForegroundAccess(")
+        assertThat(approvalDialogSource).doesNotContain("cleanupPreparedManagedServerWorkspace(pendingApproval.request.serverId, pendingApproval.workspaceMode)")
+    }
+
+    @Test
     fun consoleDialog_showsOnlinePlayersAndLongPressActions() {
         assertThat(appSource).contains("text = \"在线玩家\"")
         assertThat(appSource).contains("combinedClickable(")

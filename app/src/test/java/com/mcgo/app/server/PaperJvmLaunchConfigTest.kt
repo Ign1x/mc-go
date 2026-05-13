@@ -3,6 +3,7 @@ package com.mcgo.app.server
 import com.google.common.truth.Truth.assertThat
 import com.mcgo.app.ui.model.createFabricServer
 import com.mcgo.app.ui.model.createForgeServer
+import com.mcgo.app.ui.model.createNeoForgeServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createQuiltServer
 import java.nio.file.Files
@@ -201,7 +202,47 @@ class PaperJvmLaunchConfigTest {
 
         assertThat(config.arguments).contains("@user_jvm_args.txt")
         assertThat(Files.isRegularFile(forgeDir.resolve("user_jvm_args.txt"))).isTrue()
-        assertThat(String(Files.readAllBytes(forgeDir.resolve("user_jvm_args.txt")))).isEqualTo("# user jvm args\n")
+        val generatedArgs = String(Files.readAllBytes(forgeDir.resolve("user_jvm_args.txt")))
+        assertThat(generatedArgs).contains("-Xms1536M")
+        assertThat(generatedArgs).contains("-Xmx3072M")
+        assertThat(generatedArgs).doesNotContain("AlwaysPreTouch")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_sanitizesImportedNeoForgeUserJvmArgsForAndroid() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-neoforge-user-args")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-neoforge-user-args")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createNeoForgeServer("ATM10", "1.21.1", maxPlayers = 20, memoryMb = 2048, port = 25565)
+        val serverDir = managedPaperServerDirectory(filesDir, server.id)
+        Files.createDirectories(serverDir.resolve("libraries/net/neoforged/neoforge/21.1.224"))
+        Files.write(serverDir.resolve("libraries/net/neoforged/neoforge/21.1.224/unix_args.txt"), "--fml.neoForgeVersion 21.1.224\n".toByteArray())
+        Files.write(
+            serverDir.resolve("user_jvm_args.txt"),
+            """
+            -Xms4G
+            -Xmx8G
+            -XX:+AlwaysPreTouch
+            -XX:+UseG1GC
+            """.trimIndent().toByteArray(),
+        )
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).contains("@user_jvm_args.txt")
+        val sanitized = String(Files.readAllBytes(serverDir.resolve("user_jvm_args.txt")))
+        assertThat(sanitized).contains("-Xms1024M")
+        assertThat(sanitized).contains("-Xmx2048M")
+        assertThat(sanitized).contains("-XX:+UseG1GC")
+        assertThat(sanitized).doesNotContain("-Xms4G")
+        assertThat(sanitized).doesNotContain("-Xmx8G")
+        assertThat(sanitized).doesNotContain("AlwaysPreTouch")
     }
 
     @Test
