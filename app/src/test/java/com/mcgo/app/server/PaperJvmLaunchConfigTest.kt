@@ -537,6 +537,35 @@ class PaperJvmLaunchConfigTest {
         assertThat(config.arguments).doesNotContain("-DPaper.IgnoreJavaVersion=true")
     }
 
+    @Test
+    fun prepareManagedPaperRuntimeContext_usesAppProcessWrapperForInstallerAndScriptJavaCommands() {
+        val filesDir = Files.createTempDirectory("mcgo-runtime-context-wrapper-files")
+        val cacheDir = Files.createTempDirectory("mcgo-runtime-context-wrapper-cache")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createNeoForgeServer("NeoForge整合服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val context = prepareManagedPaperRuntimeContext(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+            applicationSourceDir = "/data/app/com.mcgo.app/base.apk",
+        )
+
+        val wrapperPath = java.nio.file.Path.of(context.javaBinary)
+        assertThat(wrapperPath).isNotEqualTo(filesDir.resolve("jre/java-21/bin/java"))
+        assertThat(wrapperPath.toString()).contains("runtime-tools/java-wrapper/bin/java")
+        assertThat(Files.isRegularFile(wrapperPath)).isTrue()
+        assertThat(wrapperPath.toFile().canExecute()).isTrue()
+        val wrapperText = String(Files.readAllBytes(wrapperPath))
+        assertThat(wrapperText).contains("/system/bin/app_process")
+        assertThat(wrapperText).contains("com.mcgo.app.server.ManagedJavaCli")
+        assertThat(wrapperText).contains("/data/app/com.mcgo.app/base.apk")
+        assertThat(context.environment).contains("MCGO_JAVA_WRAPPER=$wrapperPath")
+        assertThat(context.environment.single { it.startsWith("PATH=") }).contains("${wrapperPath.parent}:")
+    }
+
     private fun createRuntime(
         filesDir: java.nio.file.Path,
         majorVersion: Int,

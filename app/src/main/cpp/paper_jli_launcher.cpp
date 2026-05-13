@@ -140,6 +140,11 @@ static void updateLdLibraryPath(const std::string &value) {
 }
 
 static int redirectLogs(const std::string &logFile) {
+    if (logFile.empty()) {
+        setvbuf(stdout, nullptr, _IOLBF, 0);
+        setvbuf(stderr, nullptr, _IONBF, 0);
+        return 0;
+    }
     const int fd = open(logFile.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
     if (fd < 0) {
         MCGO_LOGE("Unable to open log file %s", logFile.c_str());

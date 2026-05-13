@@ -193,6 +193,7 @@ open class PaperServerService : Service() {
                         cacheDir = cacheDir.toPath(),
                         nativeLibraryDir = applicationInfo.nativeLibraryDir,
                         is64BitProcess = android.os.Process.is64Bit(),
+                        applicationSourceDir = applicationInfo.sourceDir,
                         serverWorkDirOverride = currentWorkspacePath,
                     )
                     ensureLaunchNotCancelled()

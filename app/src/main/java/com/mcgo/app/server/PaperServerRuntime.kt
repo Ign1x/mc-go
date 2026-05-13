@@ -1151,10 +1151,11 @@ fun runManagedServerSetupScriptIfNeeded(
         if (isInstallerBootstrapScript(script, serverWorkDir)) {
             put("ATM10_INSTALL_ONLY", "true")
             put("ATM10_RESTART", "false")
-            get("JAVA_HOME")
-                ?.let { javaHome -> java.nio.file.Paths.get(javaHome).resolve("bin/java").toString() }
-                ?.let { javaBinary ->
-                    put("ATM10_JAVA", javaBinary)
+            get("MCGO_JAVA_WRAPPER")
+                ?.takeIf { it.isNotBlank() }
+                ?.let { wrapper ->
+                    put("ATM10_JAVA", wrapper)
+                    put("JAVACMD", wrapper)
                 }
         }
     }

@@ -4,7 +4,13 @@ import java.nio.file.Path
 
 object PaperJvmLauncher {
     init {
-        System.loadLibrary("paper_jli_launcher")
+        val absoluteLibPath = System.getProperty("mcgo.paperJvmLauncher.absoluteLibPath")
+            ?.takeIf { it.isNotBlank() }
+        if (absoluteLibPath != null) {
+            System.load(absoluteLibPath)
+        } else {
+            System.loadLibrary("paper_jli_launcher")
+        }
     }
 
     fun launch(config: ManagedPaperLaunchConfig): Int = nativeLaunchJvm(

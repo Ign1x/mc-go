@@ -453,6 +453,102 @@ exit 0
     }
 
     @Test
+    fun runManagedServerSetupScriptIfNeeded_doesNotInjectNonExecutableBinJavaIntoInstallerBootstrapEnv() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-java-env")
+        val script = targetDir.resolve("startserver.sh")
+        Files.write(
+            script,
+            """#!/bin/sh
+# bootstrap neoforge installer -installServer
+printf '%s\n' "ATM10_JAVA=${'$'}{ATM10_JAVA:-missing}" > install-java.txt
+printf '%s\n' "JAVA_HOME=${'$'}{JAVA_HOME:-missing}" >> install-java.txt
+echo payload > server.jar
+exit 0
+""".toByteArray(),
+        )
+        Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
+        script.toFile().setExecutable(true, false)
+        approveManagedServerSetupScript(targetDir)
+
+        runManagedServerSetupScriptIfNeeded(
+            serverWorkDir = targetDir,
+            shellBinary = "/bin/sh",
+            environment = listOf("JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21"),
+        )
+
+        val envText = String(Files.readAllBytes(targetDir.resolve("install-java.txt")))
+        assertThat(envText).contains("JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21")
+        assertThat(envText).doesNotContain("ATM10_JAVA=/data/user/0/com.mcgo.app/files/jre/java-21/bin/java")
+    }
+
+    @Test
+    fun runManagedServerSetupScriptIfNeeded_injectsManagedJavaWrapperIntoInstallerBootstrapEnvWhenAvailable() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-java-wrapper-env")
+        val script = targetDir.resolve("startserver.sh")
+        Files.write(
+            script,
+            """#!/bin/sh
+# bootstrap neoforge installer -installServer
+printf '%s\n' "ATM10_JAVA=${'$'}{ATM10_JAVA:-missing}" > install-java.txt
+printf '%s\n' "JAVACMD=${'$'}{JAVACMD:-missing}" >> install-java.txt
+printf '%s\n' "PATH=${'$'}PATH" >> install-java.txt
+echo payload > server.jar
+exit 0
+""".toByteArray(),
+        )
+        Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
+        script.toFile().setExecutable(true, false)
+        approveManagedServerSetupScript(targetDir)
+        val wrapperPath = "/data/user/0/com.mcgo.app/files/runtime-tools/java-wrapper/bin/java"
+
+        runManagedServerSetupScriptIfNeeded(
+            serverWorkDir = targetDir,
+            shellBinary = "/bin/sh",
+            environment = listOf(
+                "JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21",
+                "MCGO_JAVA_WRAPPER=$wrapperPath",
+                "PATH=/data/user/0/com.mcgo.app/files/runtime-tools/java-wrapper/bin:/system/bin",
+            ),
+        )
+
+        val envText = String(Files.readAllBytes(targetDir.resolve("install-java.txt")))
+        assertThat(envText).contains("ATM10_JAVA=$wrapperPath")
+        assertThat(envText).contains("JAVACMD=$wrapperPath")
+        assertThat(envText).contains("PATH=/data/user/0/com.mcgo.app/files/runtime-tools/java-wrapper/bin:/system/bin")
+    }
+
+    @Test
+    fun prepareManagedPaperRuntimeContext_exposesWrapperForInstallerApisInsteadOfRawBinJava() {
+        val filesDir = Files.createTempDirectory("mcgo-runtime-context-installers-files")
+        val cacheDir = Files.createTempDirectory("mcgo-runtime-context-installers-cache")
+        val javaHome = filesDir.resolve("jre/java-21")
+        Files.createDirectories(javaHome.resolve("bin"))
+        Files.write(javaHome.resolve("bin/java"), byteArrayOf(1))
+        javaHome.resolve("bin/java").toFile().setExecutable(true, false)
+        Files.write(javaHome.resolve("release"), "OS_ARCH=\"aarch64\"\nJAVA_VERSION=\"21.0.6\"\n".toByteArray())
+        Files.createDirectories(javaHome.resolve("lib/server"))
+        Files.write(javaHome.resolve("lib/libjli.so"), byteArrayOf(1))
+        Files.write(javaHome.resolve("lib/server/libjvm.so"), byteArrayOf(1))
+        Files.write(javaHome.resolve("lib/libverify.so"), byteArrayOf(1))
+        Files.write(javaHome.resolve("lib/libjava.so"), byteArrayOf(1))
+        Files.write(javaHome.resolve("lib/libnet.so"), byteArrayOf(1))
+        Files.write(javaHome.resolve("lib/libnio.so"), byteArrayOf(1))
+        val server = com.mcgo.app.ui.model.createNeoForgeServer("NeoForge整合服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val context = prepareManagedPaperRuntimeContext(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+            applicationSourceDir = "/data/app/com.mcgo.app/base.apk",
+        )
+
+        assertThat(context.javaBinary).isEqualTo(filesDir.resolve("runtime-tools/java-wrapper/bin/java").toString())
+        assertThat(context.javaBinary).isNotEqualTo(javaHome.resolve("bin/java").toString())
+    }
+
+    @Test
     fun resolveNeoForgeMinecraftVersions_mapsArtifactPrefixesBackToMinecraftVersions() {
         val metadata = """
             <metadata>

@@ -54,6 +54,7 @@ fun prepareManagedPaperRuntimeContext(
     cacheDir: Path,
     nativeLibraryDir: String,
     is64BitProcess: Boolean,
+    applicationSourceDir: String,
     serverWorkDirOverride: Path? = null,
 ): ManagedPaperRuntimeContext {
     val javaHome = requireManagedJavaHome(filesDir, server.javaMajorVersion)
@@ -64,17 +65,24 @@ fun prepareManagedPaperRuntimeContext(
         is64BitProcess = is64BitProcess,
     )
     val preparedFiles = preparePaperServerFiles(server, filesDir.resolve("servers"), serverWorkDirOverride)
+    val javaWrapper = ensureManagedJavaCommandWrapper(
+        filesDir = filesDir,
+        applicationSourceDir = applicationSourceDir,
+        javaHome = javaHome,
+        runtimeLayout = runtimeLayout,
+    )
     val environment = buildList {
         add("JAVA_HOME=$javaHome")
         add("HOME=${preparedFiles.workDir}")
         add("TMPDIR=$cacheDir")
-        add("PATH=${runtimeLayout.javaBinary.parent}:${defaultProcessPath()}")
+        add("MCGO_JAVA_WRAPPER=$javaWrapper")
+        add("PATH=${javaWrapper.parent}:${defaultProcessPath()}")
         add("LD_LIBRARY_PATH=${runtimeLayout.libraryPath}")
     }
     return ManagedPaperRuntimeContext(
         workingDirectory = preparedFiles.workDir,
         jarPath = preparedFiles.jarPath,
-        javaBinary = runtimeLayout.javaBinary.toString(),
+        javaBinary = javaWrapper.toString(),
         environment = environment,
     )
 }
@@ -254,6 +262,43 @@ private fun sanitizeManagedUserJvmArgsFileForAndroid(userJvmArgsFile: Path, memo
 private fun defaultProcessPath(): String = System.getenv("PATH")
     ?.takeIf { it.isNotBlank() }
     ?: "/system/bin:/system/xbin"
+
+internal fun ensureManagedJavaCommandWrapper(
+    filesDir: Path,
+    applicationSourceDir: String,
+    javaHome: Path,
+    runtimeLayout: ManagedJavaRuntimeLayout,
+): Path {
+    val wrapperDir = filesDir.resolve("runtime-tools/java-wrapper/bin")
+    Files.createDirectories(wrapperDir)
+    val wrapperPath = wrapperDir.resolve("java")
+    val nativeLauncherLibPath = Paths.get(runtimeLayout.libraryPath.split(':').last())
+    val absoluteNativeLauncherLibPath = nativeLauncherLibPath.resolve("libpaper_jli_launcher.so")
+    val wrapperScript = buildString {
+        appendLine("#!/system/bin/sh")
+        appendLine("export CLASSPATH=${escapeShellArg(applicationSourceDir)}")
+        appendLine("exec /system/bin/app_process -Djava.library.path=${escapeShellArg(absoluteNativeLauncherLibPath.parent.toString())} -Dmcgo.paperJvmLauncher.absoluteLibPath=${escapeShellArg(absoluteNativeLauncherLibPath.toString())} /system/bin com.mcgo.app.server.ManagedJavaCli ${escapeShellArg(javaHome.toString())} \"$@\"")
+    }
+    if (!Files.exists(wrapperPath) || String(Files.readAllBytes(wrapperPath)) != wrapperScript) {
+        Files.write(wrapperPath, wrapperScript.toByteArray())
+    }
+    wrapperPath.toFile().setExecutable(true, false)
+    return wrapperPath
+}
+
+private fun escapeShellArg(value: String): String = buildString {
+    append('"')
+    value.forEach { ch ->
+        when (ch) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            '$' -> append("\\$")
+            '`' -> append("\\`")
+            else -> append(ch)
+        }
+    }
+    append('"')
+}
 
 private fun buildAndroidServerCompatibilityJvmArguments(nativeLibraryDir: String): List<String> = buildList {
     add("-Dterminal.jline=false")
