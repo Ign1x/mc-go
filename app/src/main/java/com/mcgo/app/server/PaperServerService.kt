@@ -210,6 +210,15 @@ open class PaperServerService : Service() {
                         serverWorkDir = runtimeContext.workingDirectory,
                         targetJar = runtimeContext.jarPath,
                         environment = runtimeContext.environment,
+                        logFile = managedPaperServerLogFile(filesDir.toPath(), server.id),
+                        onOutputLine = { line ->
+                            publish(
+                                server.id,
+                                PaperServerEventStatus.Launching,
+                                30,
+                                line.takeLast(280),
+                            )
+                        },
                     )
                     if (setupScriptExecuted) {
                         if (findManagedServerSetupScript(runtimeContext.workingDirectory)?.let { script ->

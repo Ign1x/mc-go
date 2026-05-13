@@ -426,6 +426,33 @@ exit 0
     }
 
     @Test
+    fun runManagedServerSetupScriptIfNeeded_streamsScriptOutputToLogFileAndCallback() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-log")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(
+            script,
+            "#!/bin/sh\necho install-step-1\necho install-step-2\necho payload > server.jar\n".toByteArray(),
+        )
+        script.toFile().setExecutable(true, false)
+        approveManagedServerSetupScript(targetDir)
+        val logFile = targetDir.resolve("logs/mcgo-latest.log")
+        val observedLines = mutableListOf<String>()
+
+        val executed = runManagedServerSetupScriptIfNeeded(
+            serverWorkDir = targetDir,
+            shellBinary = "/bin/sh",
+            logFile = logFile,
+            onOutputLine = { line -> observedLines += line },
+        )
+
+        assertThat(executed).isTrue()
+        val logText = String(Files.readAllBytes(logFile))
+        assertThat(logText).contains("install-step-1")
+        assertThat(logText).contains("install-step-2")
+        assertThat(observedLines).containsExactly("install-step-1", "install-step-2").inOrder()
+    }
+
+    @Test
     fun resolveNeoForgeMinecraftVersions_mapsArtifactPrefixesBackToMinecraftVersions() {
         val metadata = """
             <metadata>

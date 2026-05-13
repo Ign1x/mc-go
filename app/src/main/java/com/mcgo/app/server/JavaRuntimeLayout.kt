@@ -97,7 +97,9 @@ fun buildManagedPaperLaunchConfig(
     val preparedFiles = preparePaperServerFiles(server, filesDir.resolve("servers"), serverWorkDirOverride)
     val logFile = managedPaperServerLogFile(filesDir, server.id)
     Files.createDirectories(logFile.parent)
-    Files.write(logFile, byteArrayOf())
+    if (!Files.exists(logFile)) {
+        Files.write(logFile, byteArrayOf())
+    }
     val launcherFullVersion = runtimeReleaseJavaVersion(javaHome)
     val launcherDotVersion = runtimeLauncherDotVersion(launcherFullVersion)
     val arguments = buildList {

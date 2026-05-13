@@ -184,16 +184,16 @@ class PaperJvmLaunchConfigTest {
 
     @Test
     fun buildManagedPaperLaunchConfig_createsMissingUserJvmArgsForForgeLaunches() {
-        val filesDir = Files.createTempDirectory("mcgo-launch-files-forge-user-args")
-        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-forge-user-args")
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-user-args")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-user-args")
         createRuntime(filesDir, majorVersion = 21)
-        val forgeServer = createForgeServer("Forge服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25569)
-        val forgeDir = managedPaperServerDirectory(filesDir, forgeServer.id)
-        Files.createDirectories(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.8"))
-        Files.write(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.8/unix_args.txt"), "--launchTarget forgeserver\n".toByteArray())
+        val server = createForgeServer("Forge服", "1.21.4", maxPlayers = 20, memoryMb = 3072, port = 25565)
+        val forgeDir = managedPaperServerDirectory(filesDir, server.id)
+        Files.createDirectories(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16"))
+        Files.write(forgeDir.resolve("libraries/net/minecraftforge/forge/1.21.4-54.1.16/unix_args.txt"), "--launchTarget forge_server\n".toByteArray())
 
         val config = buildManagedPaperLaunchConfig(
-            server = forgeServer,
+            server = server,
             filesDir = filesDir,
             cacheDir = cacheDir,
             nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
@@ -206,6 +206,35 @@ class PaperJvmLaunchConfigTest {
         assertThat(generatedArgs).contains("-Xms1536M")
         assertThat(generatedArgs).contains("-Xmx3072M")
         assertThat(generatedArgs).doesNotContain("AlwaysPreTouch")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_preservesExistingSetupScriptLogOutput() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-setup-log")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-setup-log")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+        val serverDir = managedPaperServerDirectory(filesDir, server.id)
+        Files.createDirectories(serverDir)
+        val importedJar = serverDir.resolve("server.jar")
+        Files.write(importedJar, "imported-server".toByteArray())
+        Files.write(paperJarSha256File(importedJar), (sha256Hex(importedJar) + "\n").toByteArray())
+        val logFile = managedPaperServerLogFile(filesDir, server.id)
+        Files.createDirectories(logFile.parent)
+        Files.write(logFile, "install-step-1\ninstall-step-2\n".toByteArray())
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.logFile).isEqualTo(logFile)
+        val logText = String(Files.readAllBytes(logFile))
+        assertThat(logText).contains("install-step-1")
+        assertThat(logText).contains("install-step-2")
     }
 
     @Test

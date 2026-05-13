@@ -1133,6 +1133,8 @@ fun runManagedServerSetupScriptIfNeeded(
     targetJar: Path = serverWorkDir.resolve("server.jar"),
     shellBinary: String = "/system/bin/sh",
     environment: List<String> = emptyList(),
+    logFile: Path = serverWorkDir.resolve("logs/mcgo-latest.log"),
+    onOutputLine: ((String) -> Unit)? = null,
 ): Boolean {
     val script = findManagedServerSetupScript(serverWorkDir) ?: return false
     val marker = managedServerSetupCompletionMarker(serverWorkDir)
@@ -1156,6 +1158,7 @@ fun runManagedServerSetupScriptIfNeeded(
                 }
         }
     }
+    Files.createDirectories(logFile.parent)
     val process = ProcessBuilder(shellBinary, script.toString())
         .directory(serverWorkDir.toFile())
         .redirectErrorStream(true)
@@ -1163,7 +1166,21 @@ fun runManagedServerSetupScriptIfNeeded(
             environment().putAll(scriptEnvironment)
         }
         .start()
-    process.inputStream.bufferedReader().useLines { lines -> lines.forEach { _ -> } }
+    Files.newOutputStream(
+        logFile,
+        java.nio.file.StandardOpenOption.CREATE,
+        java.nio.file.StandardOpenOption.APPEND,
+    ).bufferedWriter().use { logWriter ->
+        process.inputStream.bufferedReader().useLines { lines ->
+            lines.forEach { rawLine ->
+                val line = rawLine.trimEnd()
+                if (line.isBlank()) return@forEach
+                logWriter.appendLine(line)
+                logWriter.flush()
+                onOutputLine?.invoke(line)
+            }
+        }
+    }
     val exitCode = process.waitFor()
     require(exitCode == 0) { "整合包安装脚本执行失败：${script.fileName} (exit=$exitCode)" }
     writeManagedServerPayloadSha(serverWorkDir, targetJar)

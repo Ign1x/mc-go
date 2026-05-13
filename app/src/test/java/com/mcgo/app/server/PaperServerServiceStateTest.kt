@@ -172,6 +172,16 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun installerBootstrapSetupOutput_isForwardedToManagedRuntimeLogAndLaunchingEvents() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+
+        assertThat(source).contains("logFile = managedPaperServerLogFile(filesDir.toPath(), server.id)")
+        assertThat(source).contains("onOutputLine = { line ->")
+        assertThat(source).contains("publish(")
+        assertThat(source).contains("line.takeLast(280)")
+    }
+
+    @Test
     fun runtimeMonitorEventStatus_prefersStoppingOverRunningOrLaunching() {
         assertThat(runtimeMonitorEventStatus(runtimeRunning = false, stopRequested = false))
             .isEqualTo(PaperServerEventStatus.Launching)
