@@ -483,6 +483,9 @@ private fun ServerCard(
 private fun RuntimeProgressPanel(server: ServerCardState) {
     val context = LocalContext.current
     val fallbackLogsText = remember(server.runtimeLogs) { server.runtimeLogs.joinToString(separator = "\n") }
+    val latestRuntimeLog = server.runtimeLogs.lastOrNull().orEmpty()
+    val progressTitle = if (server.runtimeLogs.lastOrNull()?.contains("导入整合包") == true) "导入进度" else "启动进度"
+    val progressColor = if (latestRuntimeLog.contains("导入整合包")) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -490,7 +493,7 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "启动进度",
+                text = progressTitle,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -501,7 +504,7 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
                 Text(
                     text = "${server.launchProgress.coerceIn(0, 100)}%",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = progressColor,
                     fontWeight = FontWeight.Medium,
                 )
                 IconButton(
@@ -529,6 +532,7 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
         LinearProgressIndicator(
             progress = { server.launchProgress.coerceIn(0, 100) / 100f },
             modifier = Modifier.fillMaxWidth(),
+            color = progressColor,
         )
         server.runtimeLogs.takeLast(3).forEach { log ->
             Text(

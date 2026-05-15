@@ -559,6 +559,13 @@ fun ServerCardState.markModpackImportRecoveredAfterSyncFailure(error: String): S
     runtimeSlot = null,
 )
 
+fun ServerCardState.markModpackImportInProgress(progress: Int, logLine: String): ServerCardState = copy(
+    isOnline = false,
+    launchStatus = ServerLaunchStatus.Launching,
+    launchProgress = progress.coerceIn(1, 99),
+    runtimeLogs = (runtimeLogs + logLine).takeLast(12),
+)
+
 fun ServerCardState.isRuntimeBusy(): Boolean =
     isOnline || launchStatus == ServerLaunchStatus.Launching || launchStatus == ServerLaunchStatus.Stopping || launchStatus == ServerLaunchStatus.Running
 

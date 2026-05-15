@@ -58,6 +58,7 @@ class MCGoServerFileManagementContractTest {
         assertThat(serverCardSource).contains("enabled = !modpackImportInProgress")
         assertThat(serverCardSource).contains("val startEnabled = canStartServerFromUi(server) && !modpackImportInProgress")
         assertThat(serverCardSource).contains("val stopEnabled = server.isRuntimeBusy() && !modpackImportInProgress")
+        assertThat(serversScreenSource).contains("val progressTitle = if (server.runtimeLogs.lastOrNull()?.contains(\"导入整合包\") == true) \"导入进度\" else \"启动进度\"")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds + server.id")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds - server.id")
         assertThat(appSource).contains("resolveNewModpackServerImportFailureRecovery(")

@@ -268,6 +268,40 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun importManagedServerModpackArchive_reportsProgressAcrossExtractionAndCopy() {
+        val zipFile = Files.createTempFile("mcgo-modpack-progress", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("config/"))
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry("config/settings.txt"))
+            zip.write("alpha".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry("mods/example.jar"))
+            zip.write(byteArrayOf(1, 2, 3, 4))
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-progress-target")
+        val reportedProgress = mutableListOf<Int>()
+        val reportedMessages = mutableListOf<String>()
+
+        importManagedServerModpackArchive(
+            archiveFile = zipFile,
+            serverWorkDir = targetDir,
+            onProgress = { progress, message ->
+                reportedProgress += progress
+                reportedMessages += message
+            },
+        )
+
+        assertThat(reportedProgress).isNotEmpty()
+        assertThat(reportedProgress.first()).isAtLeast(1)
+        assertThat(reportedProgress.last()).isEqualTo(100)
+        assertThat(reportedProgress).isInOrder()
+        assertThat(reportedMessages.joinToString("\n")).contains("正在解压整合包")
+        assertThat(reportedMessages.joinToString("\n")).contains("正在复制整合包文件")
+    }
+
+    @Test
     fun importManagedServerModpackArchive_stripsReservedSetupApprovalMarkersFromArchive() {
         val zipFile = Files.createTempFile("mcgo-modpack-markers", ".zip")
         java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->

@@ -185,6 +185,23 @@ class ServerModelsTest {
     }
 
     @Test
+    fun markModpackImportInProgress_keepsServerBusyAndAccumulatesProgressLogs() {
+        val server = createForgeServer(
+            name = "ATM10",
+            minecraftVersion = "1.21.1",
+            maxPlayers = 20,
+            memoryMb = 6144,
+        )
+
+        val importing = server.markModpackImportInProgress(progress = 37, logLine = "正在解压整合包 · 37%")
+
+        assertThat(importing.launchStatus).isEqualTo(ServerLaunchStatus.Launching)
+        assertThat(importing.launchProgress).isEqualTo(37)
+        assertThat(importing.runtimeLogs.last()).contains("正在解压整合包")
+        assertThat(canStartServerFromUi(importing)).isFalse()
+    }
+
+    @Test
     fun markAwaitingManagedRuntimeInstall_keepsServerInLaunchingStateUntilAutoInstallCompletes() {
         val server = createPaperServer(
             name = "生存服",

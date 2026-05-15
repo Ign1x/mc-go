@@ -1007,31 +1007,45 @@ fun importManagedServerModpackArchive(
     archiveFile: Path,
     serverWorkDir: Path,
     targetJar: Path = serverWorkDir.resolve("server.jar"),
+    onProgress: ((Int, String) -> Unit)? = null,
 ): Path {
     require(Files.isRegularFile(archiveFile)) { "整合包文件不存在：$archiveFile" }
+    fun reportProgress(progress: Int, message: String) {
+        onProgress?.invoke(progress.coerceIn(1, 100), message)
+    }
     Files.createDirectories(serverWorkDir.parent ?: serverWorkDir)
     val stagingDir = Files.createTempDirectory(serverWorkDir.parent ?: serverWorkDir, "mcgo-modpack-stage-")
     try {
+        reportProgress(5, "正在解压整合包")
         unzipManagedServerArchive(archiveFile, stagingDir)
+        reportProgress(35, "整合包解压完成，正在准备目标目录")
         clearManagedServerImportTarget(serverWorkDir)
         Files.createDirectories(serverWorkDir)
-        Files.walk(stagingDir).use { paths ->
-            paths.sorted().forEach { path ->
-                if (path == stagingDir) return@forEach
-                val relative = stagingDir.relativize(path)
-                val target = serverWorkDir.resolve(relative.toString())
-                if (Files.isDirectory(path)) {
-                    Files.createDirectories(target)
-                } else {
-                    Files.createDirectories(target.parent)
-                    Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
-                    if (target.fileName.toString().endsWith(".sh", ignoreCase = true)) {
-                        target.toFile().setExecutable(true, false)
-                    }
+        val stagedPaths = Files.walk(stagingDir).use { paths ->
+            paths.sorted().iterator().asSequence().toList()
+        }
+        val stagedEntries = stagedPaths.filter { it != stagingDir }
+        val stagedFileCount = stagedEntries.count { Files.isRegularFile(it) }.coerceAtLeast(1)
+        var copiedFileCount = 0
+        reportProgress(45, "正在复制整合包文件")
+        stagedEntries.forEach { path ->
+            val relative = stagingDir.relativize(path)
+            val target = serverWorkDir.resolve(relative.toString())
+            if (Files.isDirectory(path)) {
+                Files.createDirectories(target)
+            } else {
+                Files.createDirectories(target.parent)
+                Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
+                if (target.fileName.toString().endsWith(".sh", ignoreCase = true)) {
+                    target.toFile().setExecutable(true, false)
                 }
+                copiedFileCount += 1
+                val fileProgress = 45 + ((copiedFileCount * 50) / stagedFileCount)
+                reportProgress(fileProgress, "正在复制整合包文件 · ${copiedFileCount}/$stagedFileCount")
             }
         }
         writeManagedServerPayloadSha(serverWorkDir, targetJar)
+        reportProgress(100, "整合包导入完成")
         return serverWorkDir
     } finally {
         clearManagedServerImportTarget(stagingDir)

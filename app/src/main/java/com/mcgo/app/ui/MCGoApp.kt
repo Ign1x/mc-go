@@ -270,6 +270,7 @@ import com.mcgo.app.ui.model.isManagedRuntimeProvisioningAvailable
 import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markAwaitingManagedRuntimeInstall
 import com.mcgo.app.ui.model.markLaunchFailed
+import com.mcgo.app.ui.model.markModpackImportInProgress
 import com.mcgo.app.ui.model.markModpackImportRecoveredAfterSyncFailure
 import com.mcgo.app.ui.model.markUnsupportedManagedRuntime
 import com.mcgo.app.ui.model.normalizeConsoleCommand
@@ -1450,7 +1451,9 @@ private fun MCGoAppScaffold(
                             currentModpackImportServerIds = currentModpackImportServerIds + server.id
                             scope.launch {
                                 val currentServers = latestServers
-                                val provisionalServers = currentServers + server.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+                                val provisionalServers = currentServers + server
+                                    .markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+                                    .markModpackImportInProgress(3, "正在准备导入整合包")
                                 onServersChange(provisionalServers)
                                 syncServerProfilesToAuthorizedDirectoryNow(provisionalServers)
                                 var importCompleted = false
@@ -1464,12 +1467,25 @@ private fun MCGoAppScaffold(
                                         } ?: error("无法读取整合包文件")
                                         try {
                                             val filesDir = appContext.filesDir.toPath()
+                                            val updateImportProgress = { progress: Int, message: String ->
+                                                val updatedServers = latestServers.map { existing ->
+                                                    if (existing.id == server.id) {
+                                                        existing.markModpackImportInProgress(progress, message)
+                                                    } else {
+                                                        existing
+                                                    }
+                                                }
+                                                onServersChange(updatedServers)
+                                                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+                                            }
+                                            updateImportProgress(8, "正在读取整合包文件")
                                             val workspaceAccess = prepareManagedServerWorkspaceAccess(
                                                 context = appContext,
                                                 authorizedDirectoryUri = serverDirectoryUriText,
                                                 filesDir = filesDir,
                                                 serverId = server.id,
                                             )
+                                            updateImportProgress(16, "正在准备整合包目标目录")
                                             importedWorkspaceMode = workspaceAccess.mode
                                             val workDir = workspaceAccess.path
                                             var operationSucceeded = false
@@ -1477,8 +1493,13 @@ private fun MCGoAppScaffold(
                                                 importManagedServerModpackArchive(
                                                     archiveFile = tempPack,
                                                     serverWorkDir = workDir,
+                                                    onProgress = { progress, message ->
+                                                        val mapped = 20 + ((progress.coerceIn(0, 100) * 55) / 100)
+                                                        updateImportProgress(mapped, message)
+                                                    },
                                                 )
                                                 importCompleted = true
+                                                updateImportProgress(82, "正在识别整合包元数据")
                                                 val metadata = detectImportedModpackServerMetadata(workDir)
                                                 val detectedTargetJar = managedServerTargetJarPath(
                                                     serverWorkDir = workDir,
@@ -1494,6 +1515,7 @@ private fun MCGoAppScaffold(
                                                     javaMajorVersion = metadata.javaMajorVersion,
                                                     javaSelectionMode = JavaSelectionMode.Recommended,
                                                 ).markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+                                                updateImportProgress(90, "正在写入整合包识别结果")
                                                 recoveredImportedServer = updatedServer
                                                 operationSucceeded = true
                                                 val shouldSyncImportedWorkspaceImmediately = shouldSyncImportedModpackWorkspaceImmediately(
@@ -1501,6 +1523,7 @@ private fun MCGoAppScaffold(
                                                     containsInstallerBootstrap = setupScriptName != null,
                                                 )
                                                 if (workspaceAccess.mode.shouldSyncBack && shouldSyncImportedWorkspaceImmediately) {
+                                                    updateImportProgress(96, "正在同步整合包到已授权目录")
                                                     check(
                                                         releaseManagedServerWorkspaceAfterForegroundAccess(
                                                             context = appContext,
@@ -1511,6 +1534,7 @@ private fun MCGoAppScaffold(
                                                         ),
                                                     ) { "同步服务器目录到已授权位置失败" }
                                                 }
+                                                updateImportProgress(100, "整合包导入完成")
                                                 Pair(updatedServer, setupScriptName)
                                             } finally {
                                                 if (!operationSucceeded && workspaceAccess.mode.shouldSyncBack && !importCompleted) {
