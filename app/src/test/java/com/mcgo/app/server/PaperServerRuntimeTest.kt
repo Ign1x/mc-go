@@ -447,8 +447,11 @@ exit 0
 
         assertThat(executed).isTrue()
         val logText = String(Files.readAllBytes(logFile))
+        assertThat(logText).contains("[debug]")
+        assertThat(logText).contains("准备执行整合包安装脚本")
         assertThat(logText).contains("install-step-1")
         assertThat(logText).contains("install-step-2")
+        assertThat(logText).contains("整合包安装脚本执行完成")
         assertThat(observedLines).containsExactly("install-step-1", "install-step-2").inOrder()
     }
 

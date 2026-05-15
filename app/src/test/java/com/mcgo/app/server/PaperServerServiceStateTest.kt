@@ -182,6 +182,18 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun serviceLaunchFlow_appendsStructuredDebugMarkersToManagedRuntimeLog() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+
+        assertThat(source).contains("appendManagedServerDebugLog(")
+        assertThat(source).contains("\"启动请求已接收\"")
+        assertThat(source).contains("\"工作目录已就绪\"")
+        assertThat(source).contains("\"运行时上下文已准备\"")
+        assertThat(source).contains("\"JVM 启动参数已生成\"")
+        assertThat(source).contains("\"运行时已退出\"")
+    }
+
+    @Test
     fun runtimeMonitorEventStatus_prefersStoppingOverRunningOrLaunching() {
         assertThat(runtimeMonitorEventStatus(runtimeRunning = false, stopRequested = false))
             .isEqualTo(PaperServerEventStatus.Launching)

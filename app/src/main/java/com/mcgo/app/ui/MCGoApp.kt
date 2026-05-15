@@ -177,6 +177,7 @@ import com.mcgo.app.server.hasAuthorizedManagedServerWorkspaceReady
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromPrivateDirectory
 import com.mcgo.app.server.extractTarXzSafely
 import com.mcgo.app.server.exportManagedServerWorldArchive
+import com.mcgo.app.server.buildManagedServerDebugLogLine
 import com.mcgo.app.server.fallbackPaperVersions
 import com.mcgo.app.server.fallbackPurpurVersions
 import com.mcgo.app.server.fallbackVanillaVersions
@@ -1920,6 +1921,18 @@ private fun exportDebugLogs(context: Context): Intent {
         add("== mcgo debug export ==")
         add("generatedAt=$timestamp")
         add("")
+        add(
+            """
+            |===== export_metadata =====
+            |versionName=${com.mcgo.app.BuildConfig.VERSION_NAME}
+            |versionCode=${com.mcgo.app.BuildConfig.VERSION_CODE}
+            |deviceApi=${Build.VERSION.SDK_INT}
+            |deviceRelease=${Build.VERSION.RELEASE}
+            |supportedAbis=${Build.SUPPORTED_ABIS.joinToString(",")}
+            |${buildManagedServerDebugLogLine("[debug] 行会写入托管运行日志，用于记录启动、导入、脚本执行与退出阶段")}
+            |
+            """.trimMargin(),
+        )
         add(readLogExportSection("server_profiles.properties", filesDir.resolve("server_profiles.properties")))
         add(readLogExportSection("tunnel_profiles.properties", filesDir.resolve("tunnel_profiles.properties")))
         add(readLogExportSection("appearance_preferences.properties", filesDir.resolve("appearance_preferences.properties")))

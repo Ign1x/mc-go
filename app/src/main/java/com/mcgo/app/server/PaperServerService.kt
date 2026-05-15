@@ -11,6 +11,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.mcgo.app.MainActivity
 import com.mcgo.app.R
+import com.mcgo.app.server.appendManagedServerDebugLog
 import com.mcgo.app.network.TcpEndpoint
 import com.mcgo.app.network.measureTcpLatency
 import com.mcgo.app.ui.model.PaperDifficulty
@@ -157,6 +158,21 @@ open class PaperServerService : Service() {
         }
         currentActiveTunnelLabel = server.activeTunnelLabel
         currentRuntimeAddress = server.runtimeAddress
+        val runtimeLogFile = managedPaperServerLogFile(filesDir.toPath(), server.id)
+        appendManagedServerDebugLog(
+            runtimeLogFile,
+            "启动请求已接收",
+            mapOf(
+                "serverId" to server.id,
+                "serverName" to server.name,
+                "serverType" to server.serverType.name,
+                "minecraftVersion" to server.minecraftVersion,
+                "javaMajorVersion" to server.javaMajorVersion,
+                "workspaceMode" to currentWorkspaceMode.name,
+                "requestedWorkspacePath" to currentWorkspacePath,
+                "tunnelCount" to tunnels.size,
+            ),
+        )
         runtimeRunning = false
         stopRequested = false
         runtimeLaunchSubmitted = false
@@ -187,6 +203,15 @@ open class PaperServerService : Service() {
                         currentWorkspacePath = preparedWorkspace
                         currentWorkspacePreparedFromAuthorizedDirectory = true
                     }
+                    appendManagedServerDebugLog(
+                        runtimeLogFile,
+                        "工作目录已就绪",
+                        mapOf(
+                            "workspacePath" to currentWorkspacePath,
+                            "workspacePreparedFromAuthorizedDirectory" to currentWorkspacePreparedFromAuthorizedDirectory,
+                            "workspaceMode" to currentWorkspaceMode.name,
+                        ),
+                    )
                     val runtimeContext = prepareManagedPaperRuntimeContext(
                         server = server,
                         filesDir = filesDir.toPath(),
@@ -195,6 +220,16 @@ open class PaperServerService : Service() {
                         is64BitProcess = android.os.Process.is64Bit(),
                         applicationSourceDir = applicationInfo.sourceDir,
                         serverWorkDirOverride = currentWorkspacePath,
+                    )
+                    appendManagedServerDebugLog(
+                        runtimeLogFile,
+                        "运行时上下文已准备",
+                        mapOf(
+                            "workingDirectory" to runtimeContext.workingDirectory,
+                            "jarPath" to runtimeContext.jarPath,
+                            "javaBinary" to runtimeContext.javaBinary,
+                            "environmentSize" to runtimeContext.environment.size,
+                        ),
                     )
                     ensureLaunchNotCancelled()
                     val serverFlavorLabel = when (server.serverType) {
@@ -358,9 +393,29 @@ open class PaperServerService : Service() {
                         is64BitProcess = android.os.Process.is64Bit(),
                         serverWorkDirOverride = currentWorkspacePath,
                     )
+                    appendManagedServerDebugLog(
+                        runtimeLogFile,
+                        "JVM 启动参数已生成",
+                        mapOf(
+                            "logFile" to launchConfig.logFile,
+                            "argumentCount" to launchConfig.arguments.size,
+                            "environmentSize" to launchConfig.environment.size,
+                            "bootstrapLibraryCount" to launchConfig.bootstrapLibraries.size,
+                        ),
+                    )
                     publish(server.id, PaperServerEventStatus.Launching, 78, "正在通过内置 HotSpot 启动 ${serverFlavorLabel}")
                     startRuntimeMonitors(server, launchConfig.logFile)
                     val exitCode = PaperJvmLauncher.launch(launchConfig)
+                    appendManagedServerDebugLog(
+                        runtimeLogFile,
+                        "运行时已退出",
+                        mapOf(
+                            "exitCode" to exitCode,
+                            "stopRequested" to stopRequested,
+                            "stopSignalDelivered" to stopSignalDelivered,
+                            "logFile" to launchConfig.logFile,
+                        ),
+                    )
                     lastLaunchedJavaMajorVersion = server.javaMajorVersion
                     publishEvent(runtimeExitEvent(server.id, exitCode, stopRequested && stopSignalDelivered, launchConfig.logFile))
                 }

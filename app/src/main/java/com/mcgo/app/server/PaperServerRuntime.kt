@@ -11,6 +11,8 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.zip.ZipFile
 import java.io.BufferedInputStream
 import java.util.zip.ZipInputStream
@@ -32,6 +34,7 @@ private val ReservedManagedServerImportEntries = setOf(
     ".mcgo-modpack-setup-complete",
 )
 val PaperDownloadUserAgent: String = McGoUserAgent
+private val ManagedServerSetupDebugTimestampFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 data class PreparedPaperServerFiles(
     val workDir: Path,
@@ -1136,6 +1139,22 @@ fun runManagedServerSetupScriptIfNeeded(
     logFile: Path = serverWorkDir.resolve("logs/mcgo-latest.log"),
     onOutputLine: ((String) -> Unit)? = null,
 ): Boolean {
+    fun appendSetupDebugLine(message: String, details: Map<String, Any?> = emptyMap()) {
+        val normalizedDetails = details.entries
+            .asSequence()
+            .filter { (_, value) -> value != null }
+            .joinToString(separator = " ") { (key, value) -> "$key=$value" }
+            .trim()
+        val prefix = "[debug] ${ManagedServerSetupDebugTimestampFormatter.format(LocalDateTime.now())} $message"
+        val rendered = if (normalizedDetails.isBlank()) prefix else "$prefix | $normalizedDetails"
+        Files.createDirectories(logFile.parent)
+        Files.write(
+            logFile,
+            "$rendered\n".toByteArray(),
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.APPEND,
+        )
+    }
     val script = findManagedServerSetupScript(serverWorkDir) ?: return false
     val marker = managedServerSetupCompletionMarker(serverWorkDir)
     if (Files.isRegularFile(marker)) return false
@@ -1154,6 +1173,15 @@ fun runManagedServerSetupScriptIfNeeded(
         }
     }
     val effectiveScript = rewriteManagedInstallerBootstrapScriptForAndroid(script, scriptEnvironment) ?: script
+    appendSetupDebugLine(
+        "准备执行整合包安装脚本",
+        mapOf(
+            "script" to script.fileName,
+            "effectiveScript" to effectiveScript.fileName,
+            "workingDirectory" to serverWorkDir,
+            "environmentSize" to scriptEnvironment.size,
+        ),
+    )
     Files.createDirectories(logFile.parent)
     val process = ProcessBuilder(shellBinary, effectiveScript.toString())
         .directory(serverWorkDir.toFile())
@@ -1178,6 +1206,14 @@ fun runManagedServerSetupScriptIfNeeded(
         }
     }
     val exitCode = process.waitFor()
+    appendSetupDebugLine(
+        "整合包安装脚本执行完成",
+        mapOf(
+            "script" to script.fileName,
+            "exitCode" to exitCode,
+            "targetJar" to targetJar.fileName,
+        ),
+    )
     require(exitCode == 0) { "整合包安装脚本执行失败：${script.fileName} (exit=$exitCode)" }
     writeManagedServerPayloadSha(serverWorkDir, targetJar)
     Files.write(marker, "done\n".toByteArray())
