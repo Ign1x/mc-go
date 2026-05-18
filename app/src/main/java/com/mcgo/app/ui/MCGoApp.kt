@@ -1,7 +1,5 @@
 package com.mcgo.app.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -26,9 +24,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.Arrangement
@@ -65,7 +61,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
@@ -97,7 +92,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -216,10 +210,6 @@ import com.mcgo.app.status.rememberStatusDashboardState
 import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearancePreferencesSaver
-import com.mcgo.app.ui.model.ConsoleErrorColor
-import com.mcgo.app.ui.model.ConsoleInfoColor
-import com.mcgo.app.ui.model.ConsoleTimestampColor
-import com.mcgo.app.ui.model.ConsoleWarnColor
 import com.mcgo.app.ui.model.JavaSelectionMode
 import com.mcgo.app.ui.model.McGoPage
 import com.mcgo.app.ui.model.McGoPageChrome
@@ -238,7 +228,6 @@ import com.mcgo.app.ui.model.applyTunnelLatencyResults
 import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.MinecraftServerType.Paper
 
-import com.mcgo.app.ui.model.buildConsoleAnnotatedLog
 import com.mcgo.app.ui.model.buildPaperServerPropertiesEditorText
 import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.defaultJavaManagementState
@@ -257,7 +246,6 @@ import com.mcgo.app.ui.model.sanitizeAdvancedServerPropertiesOverride
 import com.mcgo.app.ui.model.removeTunnelProfile
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
 import com.mcgo.app.ui.model.requestServerDeletion
-import com.mcgo.app.ui.model.resolveServerConsoleText
 import com.mcgo.app.ui.model.startWithTunnels
 import com.mcgo.app.ui.model.stopServer
 import com.mcgo.app.ui.model.upsertTunnelProfile
@@ -1910,243 +1898,6 @@ private fun ServerDirectoryPermissionEffect(
             permission.uri == uri && permission.isReadPermission && permission.isWritePermission
         }
     } == true
-
-@Composable
-private fun ServerConsoleDialog(
-    server: ServerCardState,
-    onDismiss: () -> Unit,
-    onSubmitCommand: (String) -> Boolean,
-) {
-    val consoleText = remember(server.runtimeLogPath, server.runtimeLogs) { resolveServerConsoleText(server) }
-    val context = LocalContext.current
-    val annotatedLog = remember(consoleText) { buildConsoleAnnotatedLog(consoleText) }
-    var command by remember(server.id) { mutableStateOf("") }
-    var inlineError by remember(server.id) { mutableStateOf<String?>(null) }
-    var selectedOnlinePlayer by remember(server.id) { mutableStateOf<String?>(null) }
-    val scrollState = rememberScrollState()
-    LaunchedEffect(annotatedLog.text) {
-        scrollState.scrollTo(scrollState.maxValue)
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {},
-        dismissButton = {},
-        containerColor = Color(0xFF1F1F1F),
-        tonalElevation = 0.dp,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = server.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
-                    )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                                .background(
-                                    when (server.launchStatus) {
-                                        ServerLaunchStatus.Running -> ConsoleInfoColor
-                                        ServerLaunchStatus.Failed -> ConsoleErrorColor
-                                        ServerLaunchStatus.Stopping -> ConsoleWarnColor
-                                        else -> ConsoleTimestampColor
-                                    },
-                                    CircleShape,
-                                ),
-                        )
-                        Text(
-                            text = server.launchStatus.label,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFFD0D7DE),
-                        )
-                    }
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            val clipboard = server.runtimeLogPath
-                                ?.let { java.io.File(it) }
-                                ?.takeIf { it.isFile }
-                                ?.readText()
-                                ?.takeIf { it.isNotBlank() }
-                                ?: consoleText
-                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                                ClipData.newPlainText("${server.name} logs", clipboard),
-                            )
-                        },
-                    ) {
-                        Text("复制日志")
-                    }
-                    OutlinedButton(onClick = onDismiss) {
-                        Text("关闭")
-                    }
-                }
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(520.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    color = Color(0xFF050505),
-                    shape = CardDefaults.shape,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            text = "在线玩家",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFD0D7DE),
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            if (server.onlinePlayerNames.isEmpty()) {
-                                Text(
-                                    text = "当前无人在线",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF8B949E),
-                                )
-                            } else {
-                                server.onlinePlayerNames.forEach { playerName ->
-                                    Surface(
-                                        modifier = Modifier.combinedClickable(
-                                            onClick = {},
-                                            onLongClick = { selectedOnlinePlayer = playerName },
-                                        ),
-                                        shape = RoundedCornerShape(999.dp),
-                                        color = ConsoleInfoColor.copy(alpha = 0.14f),
-                                        contentColor = ConsoleInfoColor,
-                                    ) {
-                                        Text(
-                                            text = playerName,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                            style = MaterialTheme.typography.labelMedium,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        selectedOnlinePlayer?.let { playerName ->
-                            DropdownMenu(
-                                expanded = true,
-                                onDismissRequest = { selectedOnlinePlayer = null },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("复制昵称") },
-                                    onClick = {
-                                        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                                            ClipData.newPlainText("player-name", playerName),
-                                        )
-                                        selectedOnlinePlayer = null
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("踢出玩家") },
-                                    onClick = {
-                                        if (onSubmitCommand("kick $playerName")) inlineError = null else inlineError = "当前 Paper 进程尚未接收标准输入，请稍后再试"
-                                        selectedOnlinePlayer = null
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("授予 OP") },
-                                    onClick = {
-                                        if (onSubmitCommand("op $playerName")) inlineError = null else inlineError = "当前 Paper 进程尚未接收标准输入，请稍后再试"
-                                        selectedOnlinePlayer = null
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("移除 OP") },
-                                    onClick = {
-                                        if (onSubmitCommand("deop $playerName")) inlineError = null else inlineError = "当前 Paper 进程尚未接收标准输入，请稍后再试"
-                                        selectedOnlinePlayer = null
-                                    },
-                                )
-                            }
-                        }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(scrollState),
-                        ) {
-                            BasicText(
-                                text = annotatedLog,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = Color(0xFFE6EDF3),
-                                    fontFamily = FontFamily.Monospace,
-                                    lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.35,
-                                ),
-                            )
-                        }
-                    }
-                }
-                inlineError?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    OutlinedTextField(
-                        value = command,
-                        onValueChange = {
-                            command = it
-                            if (inlineError != null) inlineError = null
-                        },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("发送指令") },
-                        placeholder = { Text("例如：list / say hello / stop") },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                    )
-                    IconButton(
-                        onClick = {
-                            val result = runCatching {
-                                val normalized = normalizeConsoleCommand(command)
-                                if (!onSubmitCommand(normalized)) {
-                                    error("当前 Paper 进程尚未接收标准输入，请稍后再试")
-                                }
-                                command = ""
-                            }
-                            inlineError = result.exceptionOrNull()?.message
-                        },
-                    ) {
-                        Icon(Icons.Outlined.ArrowUpward, contentDescription = "发送指令")
-                    }
-                }
-            }
-        },
-    )
-}
 
 @Composable
 private fun EditPaperServerDialog(

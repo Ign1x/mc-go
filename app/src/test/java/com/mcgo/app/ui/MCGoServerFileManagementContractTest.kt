@@ -7,6 +7,7 @@ import kotlin.test.Test
 
 class MCGoServerFileManagementContractTest {
     private val appSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
+    private val serverConsoleDialogSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ServerConsoleDialog.kt")))
     private val serversScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/ServersScreen.kt")))
     private val modelSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/model/McGoUiModels.kt")))
     private val eventSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerEvents.kt")))
@@ -139,13 +140,16 @@ class MCGoServerFileManagementContractTest {
 
     @Test
     fun consoleDialog_showsOnlinePlayersAndLongPressActions() {
-        assertThat(appSource).contains("text = \"在线玩家\"")
-        assertThat(appSource).contains("combinedClickable(")
-        assertThat(appSource).contains("onLongClick =")
-        assertThat(appSource).contains("复制昵称")
-        assertThat(appSource).contains("踢出玩家")
-        assertThat(appSource).contains("授予 OP")
-        assertThat(appSource).contains("移除 OP")
+        assertThat(appSource).contains("ServerConsoleDialog(")
+        assertThat(appSource).doesNotContain("private fun ServerConsoleDialog(")
+        assertThat(serverConsoleDialogSource).contains("internal fun ServerConsoleDialog(")
+        assertThat(serverConsoleDialogSource).contains("text = \"在线玩家\"")
+        assertThat(serverConsoleDialogSource).contains("combinedClickable(")
+        assertThat(serverConsoleDialogSource).contains("onLongClick =")
+        assertThat(serverConsoleDialogSource).contains("复制昵称")
+        assertThat(serverConsoleDialogSource).contains("踢出玩家")
+        assertThat(serverConsoleDialogSource).contains("授予 OP")
+        assertThat(serverConsoleDialogSource).contains("移除 OP")
     }
 
     @Test
