@@ -1261,6 +1261,9 @@ private fun Intent.toTunnelProfiles(): List<TunnelProfile> = decodeTunnelProfile
             put("tunnels.$index.serverAddress", getStringExtra("tunnels.$index.serverAddress"))
             put("tunnels.$index.remotePort", getIntExtra("tunnels.$index.remotePort", -1))
             put("tunnels.$index.localPort", getIntExtra("tunnels.$index.localPort", -1))
+            put("tunnels.$index.credentialValue", getStringExtra("tunnels.$index.credentialValue"))
+            put("tunnels.$index.rawConfigPreview", getStringExtra("tunnels.$index.rawConfigPreview"))
+            put("tunnels.$index.rawConfigText", getStringExtra("tunnels.$index.rawConfigText"))
             put("tunnels.$index.portRange", getStringExtra("tunnels.$index.portRange"))
             put("tunnels.$index.detail", getStringExtra("tunnels.$index.detail"))
         }
@@ -1280,6 +1283,9 @@ private fun decodeTunnelProfilesExtras(extras: Map<String, Any?>): List<TunnelPr
                 "tunnel.serverAddress" to extras["tunnels.$index.serverAddress"],
                 "tunnel.remotePort" to extras["tunnels.$index.remotePort"],
                 "tunnel.localPort" to extras["tunnels.$index.localPort"],
+                "tunnel.credentialValue" to extras["tunnels.$index.credentialValue"],
+                "tunnel.rawConfigPreview" to extras["tunnels.$index.rawConfigPreview"],
+                "tunnel.rawConfigText" to extras["tunnels.$index.rawConfigText"],
                 "tunnel.portRange" to extras["tunnels.$index.portRange"],
                 "tunnel.detail" to extras["tunnels.$index.detail"],
             ),
@@ -1304,6 +1310,8 @@ private fun hydrateLaunchTunnelProfiles(
             localPort = launch.localPort ?: stored.localPort,
             credentialValue = launch.credentialValue ?: stored.credentialValue,
             portRange = launch.portRange ?: stored.portRange,
+            rawConfigPreview = launch.rawConfigPreview ?: stored.rawConfigPreview,
+            rawConfigText = launch.rawConfigText ?: stored.rawConfigText,
             detail = launch.detail ?: stored.detail,
         )
     }
@@ -1320,6 +1328,8 @@ private fun Intent.toTunnelProfile(): TunnelProfile? = decodeTunnelProfileExtras
         "tunnel.remotePort" to getIntExtra("tunnel.remotePort", -1),
         "tunnel.localPort" to getIntExtra("tunnel.localPort", -1),
         "tunnel.credentialValue" to getStringExtra("tunnel.credentialValue"),
+        "tunnel.rawConfigPreview" to getStringExtra("tunnel.rawConfigPreview"),
+        "tunnel.rawConfigText" to getStringExtra("tunnel.rawConfigText"),
         "tunnel.portRange" to getStringExtra("tunnel.portRange"),
         "tunnel.detail" to getStringExtra("tunnel.detail"),
     ),
@@ -1341,8 +1351,8 @@ private fun decodeTunnelProfileExtras(extras: Map<String, Any?>): TunnelProfile?
         localPort = (extras["tunnel.localPort"] as? Int)?.takeIf { it > 0 },
         credentialValue = extras["tunnel.credentialValue"] as? String,
         portRange = extras["tunnel.portRange"] as? String,
-        rawConfigPreview = null,
-        rawConfigText = null,
+        rawConfigPreview = extras["tunnel.rawConfigPreview"] as? String,
+        rawConfigText = extras["tunnel.rawConfigText"] as? String,
         detail = extras["tunnel.detail"] as? String,
     )
 }

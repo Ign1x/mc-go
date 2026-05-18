@@ -1,8 +1,10 @@
 package com.mcgo.app.server
 
 import com.google.common.truth.Truth.assertThat
+import com.mcgo.app.ui.model.TunnelConfigFormat
 import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.TunnelSource
 import com.mcgo.app.ui.model.createPaperServer
 import java.nio.file.Files
 import java.nio.file.Path
@@ -85,6 +87,59 @@ class TunnelRuntimeHelperTest {
         assertThat(plans[1].configPath.toString()).contains("frp/manualserver-阿里云-frp-b/frpc.toml")
         assertThat(plans[0].configPath).isNotEqualTo(plans[1].configPath)
         assertThat(plans[0].runtimeAddress).isNotEqualTo(plans[1].runtimeAddress)
+    }
+
+    @Test
+    fun tunnelRuntimePlanForStart_usesRawPastedFrpConfigVerbatim() {
+        val filesDir = Files.createTempDirectory("mcgo-frpc-pasted")
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25577,
+        )
+        val rawConfig = """
+            serverAddr = "frp.example.com"
+            serverPort = 7000
+
+            auth.method = "token"
+            auth.token = "original-token"
+
+            [[proxies]]
+            name = "provider-assigned-proxy"
+            type = "tcp"
+            localIP = "127.0.0.1"
+            localPort = 25565
+            remotePort = 39001
+
+            transport.protocol = "kcp"
+            metadatas.owner = "mcgo-user"
+        """.trimIndent()
+        val tunnel = TunnelProfile(
+            id = "frp-pasted",
+            name = "单隧道 FRP",
+            kind = TunnelKind.Frp,
+            source = TunnelSource.PastedConfig,
+            format = TunnelConfigFormat.Toml,
+            serverAddress = "frp.example.com:7000",
+            remotePort = 39001,
+            localPort = 25565,
+            credentialValue = "different-token-that-must-not-rewrite-config",
+            rawConfigText = rawConfig,
+        )
+
+        val plan = tunnelRuntimePlanForStart(
+            filesDir = filesDir,
+            nativeLibraryDir = Path.of("/data/app/com.mcgo.app/lib/arm64"),
+            server = server,
+            tunnel = tunnel,
+            supportedAbi = "arm64-v8a",
+        )
+
+        assertThat(plan).isNotNull()
+        assertThat(plan!!.configText).isEqualTo(rawConfig)
+        assertThat(plan.runtimeAddress).isEqualTo("frp.example.com:39001")
     }
 
     @Test

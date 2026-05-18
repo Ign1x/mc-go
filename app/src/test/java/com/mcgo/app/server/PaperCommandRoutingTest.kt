@@ -141,6 +141,41 @@ class PaperCommandRoutingTest {
     }
 
     @Test
+    fun tunnelIntentRoundTrip_preservesPastedConfigRawText() {
+        val rawConfig = """
+            serverAddr = "frp.example.com"
+            serverPort = 7000
+            auth.token = "provider-token"
+            [[proxies]]
+            name = "provider-proxy"
+            localPort = 25565
+            remotePort = 39001
+        """.trimIndent()
+
+        val tunnel = decodeTunnelProfileExtrasForTest(
+            mapOf(
+                "tunnel.id" to "frp-pasted",
+                "tunnel.name" to "单隧道 FRP",
+                "tunnel.kind" to TunnelKind.Frp.name,
+                "tunnel.source" to TunnelSource.PastedConfig.name,
+                "tunnel.format" to TunnelConfigFormat.Toml.name,
+                "tunnel.serverAddress" to "frp.example.com:7000",
+                "tunnel.remotePort" to 39001,
+                "tunnel.localPort" to 25565,
+                "tunnel.credentialValue" to "secret-token",
+                "tunnel.rawConfigPreview" to rawConfig.lineSequence().take(4).joinToString("\n"),
+                "tunnel.rawConfigText" to rawConfig,
+                "tunnel.portRange" to "",
+                "tunnel.detail" to "固定映射",
+            ),
+        )
+
+        assertThat(tunnel).isNotNull()
+        assertThat(tunnel!!.rawConfigPreview).isEqualTo(rawConfig.lineSequence().take(4).joinToString("\n"))
+        assertThat(tunnel.rawConfigText).isEqualTo(rawConfig)
+    }
+
+    @Test
     fun tunnelIntentRoundTrip_preservesMultipleTunnelProfilesForRuntimeLaunch() {
         val tunnels = decodeTunnelProfilesExtrasForTest(
             mapOf(
@@ -164,6 +199,8 @@ class PaperCommandRoutingTest {
                 "tunnels.1.remotePort" to 40001,
                 "tunnels.1.localPort" to 25565,
                 "tunnels.1.credentialValue" to "token-ali",
+                "tunnels.1.rawConfigPreview" to "serverAddr = \"frp.ali\"",
+                "tunnels.1.rawConfigText" to "serverAddr = \"frp.ali\"\nserverPort = 7001\nremotePort = 40001",
                 "tunnels.1.portRange" to "",
                 "tunnels.1.detail" to "固定映射",
             ),
@@ -172,6 +209,7 @@ class PaperCommandRoutingTest {
         assertThat(tunnels.map(TunnelProfile::id)).containsExactly("frp-home", "frp-ali").inOrder()
         assertThat(tunnels.map(TunnelProfile::remotePort)).containsExactly(39001, 40001).inOrder()
         assertThat(tunnels.map(TunnelProfile::source)).containsExactly(TunnelSource.ManualServer, TunnelSource.PastedConfig).inOrder()
+        assertThat(tunnels[1].rawConfigText).isEqualTo("serverAddr = \"frp.ali\"\nserverPort = 7001\nremotePort = 40001")
     }
 
     @Test
@@ -194,5 +232,42 @@ class PaperCommandRoutingTest {
         assertThat(hydrated.remotePort).isEqualTo(39008)
         assertThat(hydrated.credentialValue).isEqualTo("secret-token")
         assertThat(hydrated.detail).isEqualTo("运行时覆写")
+    }
+
+    @Test
+    fun hydrateLaunchTunnelProfiles_recoversStoredPastedRawConfig() {
+        val rawConfig = """
+            serverAddr = "frp.example.com"
+            serverPort = 7000
+            auth.token = "provider-token"
+            [[proxies]]
+            name = "provider-proxy"
+            localPort = 25565
+            remotePort = 39001
+        """.trimIndent()
+        val stored = TunnelProfile(
+            id = "frp-pasted",
+            name = "单隧道 FRP",
+            kind = TunnelKind.Frp,
+            source = TunnelSource.PastedConfig,
+            format = TunnelConfigFormat.Toml,
+            serverAddress = "frp.example.com:7000",
+            remotePort = 39001,
+            localPort = 25565,
+            credentialValue = "secret-token",
+            rawConfigPreview = rawConfig.lineSequence().take(4).joinToString("\n"),
+            rawConfigText = rawConfig,
+            detail = "固定映射",
+        )
+        val launch = stored.copy(rawConfigPreview = null, rawConfigText = null, credentialValue = null)
+
+        val hydrated = hydrateLaunchTunnelProfilesForTest(
+            storedProfiles = listOf(stored),
+            launchProfiles = listOf(launch),
+        ).single()
+
+        assertThat(hydrated.rawConfigPreview).isEqualTo(rawConfig.lineSequence().take(4).joinToString("\n"))
+        assertThat(hydrated.rawConfigText).isEqualTo(rawConfig)
+        assertThat(hydrated.credentialValue).isEqualTo("secret-token")
     }
 }

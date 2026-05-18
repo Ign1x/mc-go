@@ -3,6 +3,7 @@ package com.mcgo.app.server
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
+import com.mcgo.app.ui.model.TunnelSource
 import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.readableSlug
 import java.net.URI
@@ -39,13 +40,36 @@ fun allocateRuntimeSlot(
 
 fun buildFrpcConfigForTunnel(server: ServerCardState, tunnel: TunnelProfile): String {
     require(tunnel.kind == TunnelKind.Frp) { "当前仅支持 FRP 隧道配置" }
+    tunnel.rawConfigText
+        ?.takeIf { tunnel.source == TunnelSource.PastedConfig }
+        ?.takeIf { it.isNotBlank() }
+        ?.let { return it }
+
     val trimmedToken = tunnel.credentialValue?.trim()
     require(!trimmedToken.isNullOrBlank()) { "FRP token 不能为空" }
     val endpoint = URI("tcp://${tunnel.serverAddress}")
     val host = endpoint.host ?: error("FRP 服务端地址无效")
     val serverPort = endpoint.port.takeIf { it > 0 } ?: error("FRP 服务端端口无效")
     val remotePort = tunnel.remotePort ?: server.tunnelRemotePort ?: server.port
-    val escapedToken = trimmedToken
+    return buildGeneratedFrpcConfig(
+        server = server,
+        tunnel = tunnel,
+        host = host,
+        serverPort = serverPort,
+        remotePort = remotePort,
+        token = trimmedToken,
+    )
+}
+
+private fun buildGeneratedFrpcConfig(
+    server: ServerCardState,
+    tunnel: TunnelProfile,
+    host: String,
+    serverPort: Int,
+    remotePort: Int,
+    token: String,
+): String {
+    val escapedToken = token
         .replace("\\", "\\\\")
         .replace("\n", "")
         .replace("\r", "")
