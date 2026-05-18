@@ -264,6 +264,79 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun selectFrpcReadinessSignal_waitsForProxySuccessAndPrioritizesFailures() {
+        assertThat(
+            selectFrpcReadinessSignal(
+                listOf("[I] login to server success, get run id [abcd]"),
+            ),
+        ).isNull()
+        assertThat(
+            selectFrpcReadinessSignal(
+                listOf("[I] [control.go:123] [minecraft] start proxy success"),
+            )?.status,
+        ).isEqualTo(FrpcReadinessStatus.Ready)
+        assertThat(
+            selectFrpcReadinessSignal(
+                listOf(
+                    "[I] login to server success, get run id [abcd]",
+                    "[E] [minecraft] start proxy error: port already used",
+                ),
+            )?.status,
+        ).isEqualTo(FrpcReadinessStatus.Failed)
+    }
+
+    @Test
+    fun frpcReadinessMessage_surfacesActionableFailureReasons() {
+        val tokenMismatch = selectFrpcReadinessSignal(
+            listOf("login to the server failed: token in login doesn't match token from configuration"),
+        )!!
+        assertThat(tokenMismatch.status).isEqualTo(FrpcReadinessStatus.Failed)
+        assertThat(frpcReadinessMessage("家庭 FRP", "frp.example.com:39001", tokenMismatch))
+            .contains("token 不匹配")
+
+        val portConflict = selectFrpcReadinessSignal(
+            listOf("start proxy error: port already used"),
+        )!!
+        assertThat(portConflict.status).isEqualTo(FrpcReadinessStatus.Failed)
+        assertThat(frpcReadinessMessage("家庭 FRP", "frp.example.com:39001", portConflict))
+            .contains("远端端口可能已被占用")
+    }
+
+    @Test
+    fun pendingTunnelBindingForFrpcPlan_hidesPublicAddressUntilReady() {
+        val plan = TunnelRuntimePlan(
+            tunnelId = "frp-home",
+            binaryPath = java.nio.file.Path.of("/tmp/libfrpc.so"),
+            extractedBinaryPath = java.nio.file.Path.of("/tmp/frpc"),
+            configPath = java.nio.file.Path.of("/tmp/frpc.toml"),
+            configText = "serverAddr = \"frp.example.com\"",
+            displayLabel = "家庭 FRP",
+            runtimeAddress = "frp.example.com:39001",
+            remotePort = 39001,
+        )
+
+        val pending = pendingTunnelBindingForFrpcPlan(plan)
+        assertThat(pending.tunnelId).isEqualTo("frp-home")
+        assertThat(pending.remotePort).isEqualTo(39001)
+        assertThat(pending.activeLabel).isNull()
+        assertThat(pending.runtimeAddress).isNull()
+
+        val ready = readyTunnelBindingForFrpcPlan(plan)
+        assertThat(ready.activeLabel).isEqualTo("家庭 FRP")
+        assertThat(ready.runtimeAddress).isEqualTo("frp.example.com:39001")
+    }
+
+    @Test
+    fun serviceLaunchFlow_waitsForFrpcReadinessLogBeforePublishingPublicAddress() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+
+        assertThat(source).contains("tunnelPlans.map(::pendingTunnelBindingForFrpcPlan)")
+        assertThat(source).contains("selectFrpcReadinessSignal(tail.lines)")
+        assertThat(source).contains("while (isActive && process.isAlive")
+        assertThat(source).doesNotContain("FRP 隧道已启动，等待服务器绑定端口")
+    }
+
+    @Test
     fun selectFrpcExitLogLine_prefersTokenMismatchOverTrailingGenericStoppedLine() {
         val line = selectFrpcExitLogLine(
             listOf(
@@ -282,6 +355,20 @@ class PaperServerServiceStateTest {
             .contains("FRP token 不匹配")
         assertThat(frpcExitMessage(1, "login to the server failed: token in login doesn't match token from configuration"))
             .contains("token")
+    }
+
+    @Test
+    fun frpcExitMessage_surfacesProxyPortConflictAsActionableHint() {
+        val line = selectFrpcExitLogLine(
+            listOf(
+                "[I] login to server success, get run id [abcd]",
+                "[E] [minecraft] start proxy error: port already used",
+                "frpc service for config file [/tmp/frpc.toml] stopped",
+            ),
+        )
+
+        assertThat(line).contains("start proxy error")
+        assertThat(frpcExitMessage(1, line)).contains("远端端口可能已被占用")
     }
 
     @Test

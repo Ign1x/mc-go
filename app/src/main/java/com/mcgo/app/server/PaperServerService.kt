@@ -355,14 +355,9 @@ open class PaperServerService : Service() {
                         supportedAbi = android.os.Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
                     )
                     if (tunnelPlans.isNotEmpty()) {
-                        currentTunnelBindings = tunnelPlans.map { plan ->
-                            ServerTunnelBinding(
-                                tunnelId = plan.tunnelId,
-                                remotePort = plan.remotePort,
-                                activeLabel = plan.displayLabel,
-                                runtimeAddress = plan.runtimeAddress,
-                            )
-                        }
+                        currentTunnelBindings = tunnelPlans.map(::pendingTunnelBindingForFrpcPlan)
+                        currentActiveTunnelLabel = null
+                        currentRuntimeAddress = null
                         publish(
                             server.id,
                             PaperServerEventStatus.Launching,
@@ -370,15 +365,14 @@ open class PaperServerService : Service() {
                             "正在启动 ${tunnelPlans.joinToString("、") { it.displayLabel }} 隧道",
                         )
                         startFrpcForPlans(server, tunnelPlans)
-                        val primaryPlan = tunnelPlans.first()
                         publishEvent(
                             PaperServerEvent(
                                 serverId = server.id,
                                 status = PaperServerEventStatus.Launching,
                                 progress = 72,
-                                message = "FRP 隧道已启动，等待服务器绑定端口",
-                                activeTunnelLabel = primaryPlan.displayLabel,
-                                runtimeAddress = primaryPlan.runtimeAddress,
+                                message = "FRP 隧道正在连接，等待日志确认",
+                                activeTunnelLabel = currentActiveTunnelLabel,
+                                runtimeAddress = currentRuntimeAddress,
                                 tunnelBindings = currentTunnelBindings,
                             ),
                         )
@@ -767,11 +761,38 @@ open class PaperServerService : Service() {
             frpcProcesses[plan.tunnelId] = process
             frpcWatchJobs.remove(plan.tunnelId)?.cancel()
             frpcWatchJobs[plan.tunnelId] = serviceScope.launch {
+                var readinessOffset = frpcLogStartOffset
+                var readinessDelivered = false
+                while (isActive && process.isAlive && !readinessDelivered) {
+                    val tail = readAppendedNonBlankLinesWithOffset(frpcLogFile, readinessOffset)
+                    readinessOffset = tail.nextOffset
+                    selectFrpcReadinessSignal(tail.lines)?.let { signal ->
+                        readinessDelivered = true
+                        if (signal.status == FrpcReadinessStatus.Ready) {
+                            markFrpcTunnelReady(server, plan, signal)
+                        } else if (!stopRequested) {
+                            publishEvent(
+                                PaperServerEvent(
+                                    serverId = server.id,
+                                    status = PaperServerEventStatus.Failed,
+                                    progress = 0,
+                                    message = frpcReadinessMessage(plan.displayLabel, plan.runtimeAddress, signal),
+                                    activeTunnelLabel = currentActiveTunnelLabel,
+                                    runtimeAddress = currentRuntimeAddress,
+                                    tunnelBindings = currentTunnelBindings,
+                                ),
+                            )
+                        }
+                    }
+                    if (!readinessDelivered) {
+                        delay(250)
+                    }
+                }
                 val exitCode = process.waitFor()
                 if (!isActive) return@launch
                 val frpcLines = readAppendedNonBlankLines(
                     frpcLogFile,
-                    frpcLogStartOffset,
+                    readinessOffset,
                 )
                 val lastFrpcLine = selectFrpcExitLogLine(frpcLines)
                 if (!stopRequested) {
@@ -798,6 +819,30 @@ open class PaperServerService : Service() {
                     )
                 }
             }
+        }
+    }
+
+    private fun markFrpcTunnelReady(server: ServerCardState, plan: TunnelRuntimePlan, signal: FrpcReadinessSignal) {
+        synchronized(tunnelRuntimeStateLock) {
+            currentTunnelBindings = currentTunnelBindings.map { binding ->
+                if (binding.tunnelId == plan.tunnelId) readyTunnelBindingForFrpcPlan(plan) else binding
+            }
+            val primaryBinding = currentTunnelBindings.firstOrNull()
+            currentActiveTunnelLabel = primaryBinding?.activeLabel
+            currentRuntimeAddress = primaryBinding?.runtimeAddress
+        }
+        if (!stopRequested) {
+            publishEvent(
+                PaperServerEvent(
+                    serverId = server.id,
+                    status = PaperServerEventStatus.Launching,
+                    progress = 72,
+                    message = frpcReadinessMessage(plan.displayLabel, plan.runtimeAddress, signal),
+                    activeTunnelLabel = currentActiveTunnelLabel,
+                    runtimeAddress = currentRuntimeAddress,
+                    tunnelBindings = currentTunnelBindings,
+                ),
+            )
         }
     }
 
@@ -1078,11 +1123,79 @@ fun runtimeExitEvent(
     )
 }
 
+fun pendingTunnelBindingForFrpcPlan(plan: TunnelRuntimePlan): ServerTunnelBinding = ServerTunnelBinding(
+    tunnelId = plan.tunnelId,
+    remotePort = plan.remotePort,
+    activeLabel = null,
+    runtimeAddress = null,
+)
+
+fun readyTunnelBindingForFrpcPlan(plan: TunnelRuntimePlan): ServerTunnelBinding = ServerTunnelBinding(
+    tunnelId = plan.tunnelId,
+    remotePort = plan.remotePort,
+    activeLabel = plan.displayLabel,
+    runtimeAddress = plan.runtimeAddress,
+)
+
+enum class FrpcReadinessStatus {
+    Ready,
+    Failed,
+}
+
+data class FrpcReadinessSignal(
+    val status: FrpcReadinessStatus,
+    val line: String,
+)
+
+fun selectFrpcReadinessSignal(lines: List<String>): FrpcReadinessSignal? {
+    val normalizedLines = lines.map(String::trim).filter(String::isNotBlank)
+    val failureMatchers = listOf<(String) -> Boolean>(
+        { line -> line.contains("token in login doesn't match token from configuration", ignoreCase = true) },
+        { line -> line.contains("login to the server failed", ignoreCase = true) },
+        { line -> line.contains("start proxy", ignoreCase = true) && line.contains("error", ignoreCase = true) },
+        { line -> line.contains("port already", ignoreCase = true) || line.contains("port already used", ignoreCase = true) },
+        { line -> line.contains("connect to server error", ignoreCase = true) },
+    )
+    val readyMatchers = listOf<(String) -> Boolean>(
+        { line -> line.contains("start proxy success", ignoreCase = true) },
+    )
+    normalizedLines.forEach { line ->
+        if (failureMatchers.any { matcher -> matcher(line) }) {
+            return FrpcReadinessSignal(FrpcReadinessStatus.Failed, line)
+        }
+        if (readyMatchers.any { matcher -> matcher(line) }) {
+            return FrpcReadinessSignal(FrpcReadinessStatus.Ready, line)
+        }
+    }
+    return null
+}
+
+fun frpcReadinessMessage(label: String, runtimeAddress: String, signal: FrpcReadinessSignal): String {
+    val normalizedLine = signal.line.trim()
+    val prefix = if (label.isBlank()) "FRP" else "FRP 隧道 $label"
+    val addressSuffix = runtimeAddress.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()
+    return when {
+        signal.status == FrpcReadinessStatus.Ready -> "$prefix 已连接$addressSuffix"
+        normalizedLine.contains("token in login doesn't match token from configuration", ignoreCase = true) -> {
+            "$prefix token 不匹配，请检查隧道配置中的 token 是否与服务端一致"
+        }
+        normalizedLine.contains("port already", ignoreCase = true) || normalizedLine.contains("start proxy", ignoreCase = true) -> {
+            "$prefix 启动失败，远端端口可能已被占用：${normalizedLine.takeLast(220)}"
+        }
+        normalizedLine.contains("connect to server error", ignoreCase = true) -> {
+            "$prefix 无法连接服务端：${normalizedLine.takeLast(220)}"
+        }
+        else -> "$prefix 启动失败：${normalizedLine.takeLast(220)}"
+    }
+}
+
 fun selectFrpcExitLogLine(lines: List<String>): String? {
     val normalizedLines = lines.map(String::trim).filter(String::isNotBlank)
     val matchers = listOf<(String) -> Boolean>(
         { line -> line.contains("token in login doesn't match token from configuration", ignoreCase = true) },
         { line -> line.contains("login to the server failed", ignoreCase = true) },
+        { line -> line.contains("start proxy", ignoreCase = true) && line.contains("error", ignoreCase = true) },
+        { line -> line.contains("port already", ignoreCase = true) || line.contains("port already used", ignoreCase = true) },
         { line -> line.contains("connect to server error", ignoreCase = true) },
         { line -> line.contains("frpc service", ignoreCase = true) },
     )
@@ -1091,10 +1204,12 @@ fun selectFrpcExitLogLine(lines: List<String>): String? {
 
 fun frpcExitMessage(exitCode: Int, lastLogLine: String?): String {
     val normalizedLine = lastLogLine?.trim().orEmpty()
+    val readinessFailure = normalizedLine
+        .takeIf { it.isNotBlank() }
+        ?.let { selectFrpcReadinessSignal(listOf(it)) }
+        ?.takeIf { it.status == FrpcReadinessStatus.Failed }
     return when {
-        normalizedLine.contains("token in login doesn't match token from configuration", ignoreCase = true) -> {
-            "FRP token 不匹配，请检查隧道配置中的 token 是否与服务端一致"
-        }
+        readinessFailure != null -> frpcReadinessMessage("", "", readinessFailure)
         normalizedLine.isNotBlank() -> "FRP 退出码 $exitCode；$normalizedLine"
         else -> "FRP 退出码 $exitCode；公网入口已断开"
     }
