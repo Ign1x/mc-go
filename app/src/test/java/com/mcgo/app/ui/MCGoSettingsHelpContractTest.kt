@@ -35,24 +35,57 @@ class MCGoSettingsHelpContractTest {
 
     @Test
     fun logExport_usesFileProviderAndSystemShareSheet() {
-        assertThat(appSource).contains("exportDebugLogs(")
-        assertThat(appSource).contains("Intent.ACTION_SEND")
-        assertThat(appSource).contains("Intent.createChooser(")
-        assertThat(appSource).contains("FileProvider.getUriForFile(")
-        assertThat(appSource).contains("mcgo_debug_logs")
-        assertThat(appSource).contains("===== export_metadata =====")
-        assertThat(appSource).contains("supportedAbis=")
-        assertThat(appSource).contains("[debug] 行会写入托管运行日志")
-        assertThat(appSource).contains("FLAG_GRANT_READ_URI_PERMISSION")
-        assertThat(appSource).contains("redactSensitiveLogExportText(")
-        assertThat(appSource).contains("line.substringBefore('=')")
-        assertThat(appSource).contains("key.endsWith(\"credentialValue\")")
-        assertThat(appSource).contains("key.endsWith(\"rawConfigText\")")
-        assertThat(appSource).contains("key.endsWith(\"rawConfigPreview\")")
-        assertThat(appSource).contains("server_directory_uri")
+        val debugExportSource = readSource("app/src/main/java/com/mcgo/app/ui/DebugLogExport.kt")
+        val settingsExportCallback = appSource.substringAfter("onExportLogs = {").substringBefore("                        },")
+
+        assertThat(settingsExportCallback).contains("exportDebugLogs(appContext)")
+        assertThat(appSource).doesNotContain("private fun exportDebugLogs(")
+        assertThat(appSource).doesNotContain("private fun readLogExportSection(")
+        assertThat(appSource).doesNotContain("private fun readRuntimePrefsExportSection(")
+        assertThat(appSource).doesNotContain("private fun redactSensitiveLogExportText(")
+        assertThat(debugExportSource).contains("internal fun exportDebugLogs(")
+        assertThat(debugExportSource).contains("Intent.ACTION_SEND")
+        assertThat(debugExportSource).contains("Intent.createChooser(")
+        assertThat(debugExportSource).contains("FileProvider.getUriForFile(")
+        assertThat(debugExportSource).contains("mcgo_debug_logs")
+        assertThat(debugExportSource).contains("===== export_metadata =====")
+        assertThat(debugExportSource).contains("supportedAbis=")
+        assertThat(debugExportSource).contains("[debug] 行会写入托管运行日志")
+        assertThat(debugExportSource).contains("FLAG_GRANT_READ_URI_PERMISSION")
+        assertThat(debugExportSource).contains("redactSensitiveLogExportText(")
+        assertThat(debugExportSource).contains("line.substringBefore('=')")
+        assertThat(debugExportSource).contains("key.endsWith(\"credentialValue\")")
+        assertThat(debugExportSource).contains("key.endsWith(\"rawConfigText\")")
+        assertThat(debugExportSource).contains("key.endsWith(\"rawConfigPreview\")")
+        assertThat(debugExportSource).contains("server_directory_uri")
         assertThat(settingsScreenSource).contains("默认会自动隐藏隧道凭据")
         assertThat(manifestSource).contains("androidx.core.content.FileProvider")
         assertThat(manifestSource).contains(".fileprovider")
+    }
+
+    @Test
+    fun logExportRedaction_hidesCredentialsAndRawFrpConfigValuesOnly() {
+        val redacted = redactSensitiveLogExportText(
+            """
+            server.0.name=creative
+            server.0.credentialValue=secret-token
+            tunnel.0.rawConfigText=[common]\ntoken = secret
+            tunnel.0.rawConfigPreview=token = secret
+            tunnel.0.rawConfigFormat=toml
+            server.0.credentialValueSuffix=visible
+            """.trimIndent(),
+        )
+
+        assertThat(redacted).isEqualTo(
+            """
+            server.0.name=creative
+            server.0.credentialValue=<redacted>
+            tunnel.0.rawConfigText=<redacted>
+            tunnel.0.rawConfigPreview=<redacted>
+            tunnel.0.rawConfigFormat=toml
+            server.0.credentialValueSuffix=visible
+            """.trimIndent(),
+        )
     }
 
     private fun readSource(relativePath: String): String =
