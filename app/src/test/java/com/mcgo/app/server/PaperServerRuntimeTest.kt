@@ -216,6 +216,23 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun installManagedServerModFile_rejectsPathTraversalTargetFileName() {
+        val serverWorkDir = Files.createTempDirectory("mcgo-mod-target")
+        val modFile = Files.createTempFile("fabric-api", ".jar")
+        Files.write(modFile, "fabric-mod".toByteArray())
+
+        assertFailsWith<IllegalArgumentException> {
+            installManagedServerModFile(modFile, serverWorkDir, targetFileName = "../escape.jar")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            installManagedServerModFile(modFile, serverWorkDir, targetFileName = "nested/escape.jar")
+        }
+
+        assertThat(Files.exists(serverWorkDir.resolve("escape.jar"))).isFalse()
+        assertThat(Files.exists(serverWorkDir.resolve("mods/nested/escape.jar"))).isFalse()
+    }
+
+    @Test
     fun preparePaperServerFiles_prefersExplicitServerPropertiesOverride() {
         val workDir = Files.createTempDirectory("mcgo-paper-runtime-override")
         val overrideText = "motd=Custom MOTD\nonline-mode=false\npvp=false\n"

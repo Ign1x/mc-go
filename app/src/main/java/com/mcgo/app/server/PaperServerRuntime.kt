@@ -1249,9 +1249,13 @@ fun installManagedServerModFile(
 ): Path {
     require(Files.isRegularFile(sourceFile)) { "模组文件不存在：$sourceFile" }
     require(targetFileName.endsWith(".jar", ignoreCase = true)) { "模组文件必须是 .jar" }
-    val modsDir = serverWorkDir.resolve("mods")
+    require(targetFileName.isNotBlank()) { "模组文件名不能为空" }
+    require('/' !in targetFileName && '\\' !in targetFileName) { "模组文件名不能包含路径：$targetFileName" }
+    require(targetFileName != "." && targetFileName != "..") { "模组文件名无效：$targetFileName" }
+    val modsDir = serverWorkDir.resolve("mods").normalize()
     Files.createDirectories(modsDir)
-    val target = modsDir.resolve(targetFileName)
+    val target = modsDir.resolve(targetFileName).normalize()
+    require(target.parent == modsDir) { "模组文件名不能越界：$targetFileName" }
     Files.copy(sourceFile, target, StandardCopyOption.REPLACE_EXISTING)
     return target
 }
