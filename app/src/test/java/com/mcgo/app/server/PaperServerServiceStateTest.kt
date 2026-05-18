@@ -23,6 +23,23 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun serviceLaunchFlow_holdsPartialWakeLockUntilRuntimeCleanup() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+
+        assertThat(source).contains("import android.os.PowerManager")
+        assertThat(source).contains("private var runtimeWakeLock: PowerManager.WakeLock? = null")
+        assertThat(source).contains("acquireRuntimeWakeLock(server.id)")
+        assertThat(source).contains("PowerManager.PARTIAL_WAKE_LOCK")
+        assertThat(source).contains("setReferenceCounted(false)")
+        assertThat(source).contains("private fun releaseRuntimeWakeLock()")
+        assertThat(source).contains("releaseRuntimeWakeLock()")
+        assertThat(source.indexOf("startForeground(notificationId(), notification(\"正在启动 ${'$'}{server.name}\"))"))
+            .isLessThan(source.indexOf("acquireRuntimeWakeLock(server.id)"))
+        assertThat(source.indexOf("releaseRuntimeWakeLock()"))
+            .isLessThan(source.indexOf("stopForeground(STOP_FOREGROUND_REMOVE)"))
+    }
+
+    @Test
     fun serviceLaunchFlow_tracksIndependentFrpcProcessesForMultipleTunnels() {
         val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
 

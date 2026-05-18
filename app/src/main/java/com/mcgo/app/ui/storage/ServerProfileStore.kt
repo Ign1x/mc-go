@@ -432,9 +432,7 @@ class ServerProfileStore(
                 properties.setProperty(prefix + "runtimeLog.$logIndex", logLine)
             }
         }
-        Files.newOutputStream(storePath).use { output ->
-            properties.store(output, "MC-GO server profiles")
-        }
+        storePropertiesAtomically(storePath, properties, "MC-GO server profiles")
     }
 }
 

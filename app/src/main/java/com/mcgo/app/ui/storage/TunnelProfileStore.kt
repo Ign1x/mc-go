@@ -68,9 +68,7 @@ class TunnelProfileStore(
             properties.setNullable(prefix + "rawConfigText", profile.rawConfigText)
             properties.setNullable(prefix + "detail", profile.detail)
         }
-        Files.newOutputStream(storePath).use { output ->
-            properties.store(output, "MC-GO tunnel profiles")
-        }
+        storePropertiesAtomically(storePath, properties, "MC-GO tunnel profiles")
     }
 }
 

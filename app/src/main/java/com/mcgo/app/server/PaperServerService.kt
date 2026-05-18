@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.mcgo.app.MainActivity
 import com.mcgo.app.R
@@ -66,6 +67,7 @@ open class PaperServerService : Service() {
     private var logTailJob: Job? = null
     private var portMonitorJob: Job? = null
     private var workspaceSyncJob: Job? = null
+    private var runtimeWakeLock: PowerManager.WakeLock? = null
     @Volatile
     private var currentWorkspacePreparedFromAuthorizedDirectory = false
     @Volatile
@@ -105,6 +107,7 @@ open class PaperServerService : Service() {
         portMonitorJob?.cancel()
         workspaceSyncJob?.cancel()
         stopFrpcProcesses()
+        releaseRuntimeWakeLock()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -180,6 +183,7 @@ open class PaperServerService : Service() {
         completedInstallerBootstrapOnly = false
         PaperJvmLauncher.clearPendingStopRequest()
         startForeground(notificationId(), notification("正在启动 ${server.name}"))
+        acquireRuntimeWakeLock(server.id)
         publish(server.id, PaperServerEventStatus.Launching, 8, "正在准备内置 Java ${server.javaMajorVersion} 运行时")
         launchJob = serviceScope.launch {
             fun ensureLaunchNotCancelled() {
@@ -475,6 +479,7 @@ open class PaperServerService : Service() {
             currentWorkspacePath = null
             currentWorkspaceMode = ManagedServerWorkspaceMode.PrivatePersistentFallback
             PaperJvmLauncher.clearPendingStopRequest()
+            releaseRuntimeWakeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             android.os.Process.killProcess(android.os.Process.myPid())
@@ -684,6 +689,27 @@ open class PaperServerService : Service() {
 
     private fun publishEvent(event: PaperServerEvent) {
         sendPaperRuntimeEvent(event)
+    }
+
+    private fun acquireRuntimeWakeLock(serverId: String) {
+        if (runtimeWakeLock?.isHeld == true) return
+        val powerManager = getSystemService(PowerManager::class.java) ?: return
+        runtimeWakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "MC-GO:paper-runtime-$serverId",
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseRuntimeWakeLock() {
+        runtimeWakeLock?.let { wakeLock ->
+            if (wakeLock.isHeld) {
+                wakeLock.release()
+            }
+        }
+        runtimeWakeLock = null
     }
 
     private fun ensureNotificationChannel() {
