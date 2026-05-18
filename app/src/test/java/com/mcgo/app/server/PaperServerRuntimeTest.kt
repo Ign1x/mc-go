@@ -268,7 +268,7 @@ class PaperServerRuntimeTest {
     }
 
     @Test
-    fun importManagedServerModpackArchive_reportsProgressAcrossExtractionAndCopy() {
+    fun importManagedServerModpackArchive_reportsProgressAcrossDirectExtractionForFreshTarget() {
         val zipFile = Files.createTempFile("mcgo-modpack-progress", ".zip")
         java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
             zip.putNextEntry(java.util.zip.ZipEntry("config/"))
@@ -293,12 +293,35 @@ class PaperServerRuntimeTest {
             },
         )
 
+        val messageText = reportedMessages.joinToString("\n")
         assertThat(reportedProgress).isNotEmpty()
         assertThat(reportedProgress.first()).isAtLeast(1)
         assertThat(reportedProgress.last()).isEqualTo(100)
         assertThat(reportedProgress).isInOrder()
-        assertThat(reportedMessages.joinToString("\n")).contains("正在解压整合包")
+        assertThat(messageText).contains("正在解压整合包到目标目录")
+        assertThat(messageText).doesNotContain("正在复制整合包文件")
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_keepsStagingCopyWhenReplacingExistingWorkspace() {
+        val zipFile = Files.createTempFile("mcgo-modpack-replace", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("server.jar"))
+            zip.write(byteArrayOf(0x50, 0x4b, 0x03, 0x04))
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-existing-target")
+        Files.write(targetDir.resolve("server.jar"), byteArrayOf(9, 9, 9))
+        val reportedMessages = mutableListOf<String>()
+
+        importManagedServerModpackArchive(
+            archiveFile = zipFile,
+            serverWorkDir = targetDir,
+            onProgress = { _, message -> reportedMessages += message },
+        )
+
         assertThat(reportedMessages.joinToString("\n")).contains("正在复制整合包文件")
+        assertThat(Files.readAllBytes(targetDir.resolve("server.jar")).map { it.toInt() }).containsExactly(0x50, 0x4b, 0x03, 0x04).inOrder()
     }
 
     @Test
@@ -342,6 +365,25 @@ class PaperServerRuntimeTest {
         assertThat(error).isNotNull()
         assertThat(Files.isRegularFile(targetDir.resolve("server.jar"))).isTrue()
         assertThat(String(Files.readAllBytes(targetDir.resolve("server.jar")))).isEqualTo("keep-me")
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_cleansFreshDirectTargetWhenArchiveIsInvalid() {
+        val zipFile = Files.createTempFile("mcgo-modpack-invalid-fresh", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("mods/example.jar"))
+            zip.write(byteArrayOf(1, 2, 3))
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry("../escape.txt"))
+            zip.write("boom".toByteArray())
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-invalid-fresh-target")
+
+        val error = kotlin.runCatching { importManagedServerModpackArchive(zipFile, targetDir) }.exceptionOrNull()
+
+        assertThat(error).isNotNull()
+        assertThat(Files.exists(targetDir)).isFalse()
     }
 
     @Test
@@ -620,7 +662,7 @@ exit 0
     }
 
     @Test
-    fun importManagedServerModpackArchive_createsMissingParentDirectoryBeforeStaging() {
+    fun importManagedServerModpackArchive_createsMissingParentDirectoryBeforeDirectExtraction() {
         val zipFile = Files.createTempFile("mcgo-modpack-parent", ".zip")
         java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
             zip.putNextEntry(java.util.zip.ZipEntry("server.jar"))

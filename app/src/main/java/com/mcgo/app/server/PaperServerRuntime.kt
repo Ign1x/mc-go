@@ -1002,6 +1002,20 @@ fun importManagedServerModpackArchive(
         onProgress?.invoke(progress.coerceIn(1, 100), message)
     }
     Files.createDirectories(serverWorkDir.parent ?: serverWorkDir)
+    if (shouldImportModpackDirectlyIntoTarget(serverWorkDir)) {
+        try {
+            reportProgress(5, "正在解压整合包到目标目录")
+            unzipManagedServerArchive(archiveFile, serverWorkDir)
+            writeManagedServerPayloadSha(serverWorkDir, targetJar)
+            reportProgress(100, "整合包导入完成")
+            return serverWorkDir
+        } catch (error: Exception) {
+            clearManagedServerImportTarget(serverWorkDir)
+            Files.deleteIfExists(serverWorkDir)
+            throw error
+        }
+    }
+
     val stagingDir = Files.createTempDirectory(serverWorkDir.parent ?: serverWorkDir, "mcgo-modpack-stage-")
     try {
         reportProgress(5, "正在解压整合包")
@@ -1039,6 +1053,12 @@ fun importManagedServerModpackArchive(
         clearManagedServerImportTarget(stagingDir)
         Files.deleteIfExists(stagingDir)
     }
+}
+
+private fun shouldImportModpackDirectlyIntoTarget(serverWorkDir: Path): Boolean {
+    if (!Files.exists(serverWorkDir)) return true
+    if (!Files.isDirectory(serverWorkDir)) return false
+    return Files.list(serverWorkDir).use { children -> !children.findAny().isPresent }
 }
 
 internal fun findManagedServerSetupScript(serverWorkDir: Path): Path? =
