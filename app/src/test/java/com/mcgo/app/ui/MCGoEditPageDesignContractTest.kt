@@ -8,6 +8,7 @@ import kotlin.test.Test
 class MCGoEditPageDesignContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
     private val bottomMenuSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/FloatingGlassBottomMenu.kt")))
+    private val editChromeSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/EditPageChrome.kt")))
     private val mainActivitySource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/MainActivity.kt")))
     private val settingsScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/SettingsScreen.kt")))
 
@@ -19,15 +20,16 @@ class MCGoEditPageDesignContractTest {
         )
         val propertiesDialog = source.substringBetween(
             start = "private fun PaperServerPropertiesEditorDialog(",
-            end = "private fun EditSettingsSectionCard(",
+            end = "@Composable\ninternal fun ServerIconEditorCard(",
         )
 
         assertThat(editDialog).contains("EditFullScreenScaffold(")
         assertThat(propertiesDialog).contains("EditFullScreenScaffold(")
-        assertThat(source).contains("private fun EditFullScreenScaffold(")
-        assertThat(source).contains("FluidGradientBackground(")
-        assertThat(source).contains("LocalMcGoVisualTokens.current")
-        assertThat(source).contains("animate = dynamicBackground")
+        assertThat(source).doesNotContain("private fun EditFullScreenScaffold(")
+        assertThat(editChromeSource).contains("internal fun EditFullScreenScaffold(")
+        assertThat(editChromeSource).contains("FluidGradientBackground(")
+        assertThat(editChromeSource).contains("LocalMcGoVisualTokens.current")
+        assertThat(editChromeSource).contains("animate = dynamicBackground")
         assertThat(source).contains("dynamicBackground = appearancePreferences.dynamicBackground")
     }
 
@@ -35,11 +37,11 @@ class MCGoEditPageDesignContractTest {
     fun editPageComponents_areDarkModeAwareAndAvoidLightOnlySurfaces() {
         val editSupportSource = source.substringBetween(
             start = "private fun EditPaperServerDialog(",
-            end = "private fun PaperGameMode.displayLabel()",
-        )
+            end = "@Composable\ninternal fun ServerIconEditorCard(",
+        ) + editChromeSource
 
         assertThat(editSupportSource).contains("editPageColors()")
-        assertThat(source).contains("MaterialTheme.colorScheme")
+        assertThat(editChromeSource).contains("MaterialTheme.colorScheme")
         assertThat(editSupportSource).contains("navigationBarsPadding()")
         assertThat(editSupportSource).contains("statusBarsPadding()")
         assertThat(editSupportSource).contains("border = BorderStroke")
@@ -61,7 +63,7 @@ class MCGoEditPageDesignContractTest {
         )
         val propertiesDialog = source.substringBetween(
             start = "private fun PaperServerPropertiesEditorDialog(",
-            end = "private fun EditSettingsSectionCard(",
+            end = "@Composable\ninternal fun ServerIconEditorCard(",
         )
 
         assertThat(source).contains("import androidx.activity.compose.BackHandler")
@@ -75,13 +77,13 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editOverlays_reuseActivityEdgeToEdgeWithoutDialogWindowSystemBarHacks() {
-        val scaffold = source.substringBetween(
-            start = "private fun EditFullScreenScaffold(",
-            end = "private fun EditSettingsInfoCard(",
+        val scaffold = editChromeSource.substringBetween(
+            start = "internal fun EditFullScreenScaffold(",
+            end = "internal fun EditSettingsInfoCard(",
         )
 
         assertThat(scaffold).doesNotContain("EditDialogImmersiveSystemBars()")
-        assertThat(source).doesNotContain("private fun EditDialogImmersiveSystemBars(")
+        assertThat(editChromeSource).doesNotContain("private fun EditDialogImmersiveSystemBars(")
         assertThat(mainActivitySource).contains("enableEdgeToEdge()")
     }
 
@@ -105,9 +107,9 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editPages_useFloatingTopBarInsteadOfWholePageSafeAreaInset() {
-        val scaffold = source.substringBetween(
-            start = "private fun EditFullScreenScaffold(",
-            end = "private fun buildServerPropertiesAnnotatedText(",
+        val scaffold = editChromeSource.substringBetween(
+            start = "internal fun EditFullScreenScaffold(",
+            end = "internal fun buildServerPropertiesAnnotatedText(",
         )
 
         assertThat(scaffold).doesNotContain("contentTopPadding = 120.dp")
@@ -121,13 +123,13 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editOverlays_consumeBackgroundTouchesInsteadOfPassingThrough() {
-        val scaffold = source.substringBetween(
-            start = "private fun EditFullScreenScaffold(",
-            end = "private fun EditSettingsInfoCard(",
+        val scaffold = editChromeSource.substringBetween(
+            start = "internal fun EditFullScreenScaffold(",
+            end = "internal fun EditSettingsInfoCard(",
         )
-        val blocker = source.substringBetween(
+        val blocker = editChromeSource.substringBetween(
             start = "private fun EditOverlayInteractionBlocker(",
-            end = "@Composable\nprivate fun EditSettingsInfoCard(",
+            end = "@Composable\ninternal fun EditSettingsInfoCard(",
         )
 
         assertThat(scaffold).contains("EditOverlayInteractionBlocker()")
@@ -145,22 +147,22 @@ class MCGoEditPageDesignContractTest {
         )
         val propertiesDialog = source.substringBetween(
             start = "private fun PaperServerPropertiesEditorDialog(",
-            end = "private fun EditSettingsSectionCard(",
+            end = "@Composable\ninternal fun ServerIconEditorCard(",
         )
-        val scaffold = source.substringBetween(
-            start = "private fun EditFullScreenScaffold(",
-            end = "private fun EditSettingsInfoCard(",
+        val scaffold = editChromeSource.substringBetween(
+            start = "internal fun EditFullScreenScaffold(",
+            end = "internal fun EditSettingsInfoCard(",
         )
-        val textRow = source.substringBetween(
-            start = "private fun EditTextSettingRow(",
-            end = "@Composable\nprivate fun EditSwitchSettingRow(",
+        val textRow = editChromeSource.substringBetween(
+            start = "internal fun EditTextSettingRow(",
+            end = "internal fun <T> EditMenuSettingRow(",
         )
 
-        assertThat(source).contains("import androidx.compose.foundation.relocation.BringIntoViewRequester")
-        assertThat(source).contains("import androidx.compose.foundation.relocation.bringIntoViewRequester")
-        assertThat(source).contains("import androidx.compose.foundation.layout.imePadding")
-        assertThat(source).contains("import androidx.compose.foundation.layout.statusBarsPadding")
-        assertThat(source).contains("import androidx.compose.ui.focus.onFocusEvent")
+        assertThat(editChromeSource).contains("import androidx.compose.foundation.relocation.BringIntoViewRequester")
+        assertThat(source + editChromeSource).contains("import androidx.compose.foundation.relocation.bringIntoViewRequester")
+        assertThat(source + editChromeSource).contains("import androidx.compose.foundation.layout.imePadding")
+        assertThat(editChromeSource).contains("import androidx.compose.foundation.layout.statusBarsPadding")
+        assertThat(source + editChromeSource).contains("import androidx.compose.ui.focus.onFocusEvent")
         assertThat(scaffold).contains("imePadding()")
         assertThat(scaffold).doesNotContain("safeDrawingPadding()")
         assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.ScrollableChrome")
@@ -170,15 +172,15 @@ class MCGoEditPageDesignContractTest {
         assertThat(textRow).contains("rememberImeBringIntoViewRequester()")
         assertThat(textRow).contains("bringIntoViewRequester(bringIntoViewRequester)")
         assertThat(textRow).contains("onFocusEvent")
-        assertThat(source).contains("private fun rememberImeBringIntoViewRequester(): Pair<BringIntoViewRequester, (Boolean) -> Unit>")
-        assertThat(source).contains("bringIntoViewRequester.bringIntoView()")
+        assertThat(editChromeSource).contains("internal fun rememberImeBringIntoViewRequester(): Pair<BringIntoViewRequester, (Boolean) -> Unit>")
+        assertThat(editChromeSource).contains("bringIntoViewRequester.bringIntoView()")
     }
 
     @Test
     fun editPageMenuRows_anchorDropdownToTrailingValueAreaInsteadOfWholeRow() {
-        val menuRow = source.substringBetween(
-            start = "private fun <T> EditMenuSettingRow(",
-            end = "@Composable\nprivate fun EditSwitchSettingRow(",
+        val menuRow = editChromeSource.substringBetween(
+            start = "internal fun <T> EditMenuSettingRow(",
+            end = "@Composable\ninternal fun EditSwitchSettingRow(",
         )
 
         assertThat(menuRow).contains("modifier = Modifier.wrapContentWidth(align = Alignment.End)")
@@ -291,14 +293,14 @@ class MCGoEditPageDesignContractTest {
         )
         val propertiesDialog = source.substringBetween(
             start = "private fun PaperServerPropertiesEditorDialog(",
-            end = "private fun EditSettingsSectionCard(",
+            end = "@Composable\ninternal fun ServerIconEditorCard(",
         )
-        val scaffold = source.substringBetween(
-            start = "private fun EditFullScreenScaffold(",
-            end = "private fun EditSettingsInfoCard(",
+        val scaffold = editChromeSource.substringBetween(
+            start = "internal fun EditFullScreenScaffold(",
+            end = "internal fun EditSettingsInfoCard(",
         )
 
-        assertThat(source).contains("private enum class EditFullScreenScaffoldLayoutMode")
+        assertThat(editChromeSource).contains("internal enum class EditFullScreenScaffoldLayoutMode")
         assertThat(editDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.ScrollableChrome")
         assertThat(propertiesDialog).contains("layoutMode = EditFullScreenScaffoldLayoutMode.PinnedChrome")
         assertThat(editDialog).contains("Text(\"编辑 server.properties\")")
@@ -308,8 +310,8 @@ class MCGoEditPageDesignContractTest {
         assertThat(propertiesDialog).doesNotContain("受管理字段会同步回表单")
         assertThat(propertiesDialog).doesNotContain("其他未知项会保留为 override")
         assertThat(propertiesDialog).doesNotContain("# 在这里直接编辑 server.properties")
-        assertThat(propertiesDialog).contains("AnnotatedString")
-        assertThat(propertiesDialog).contains("SpanStyle")
+        assertThat(editChromeSource).contains("AnnotatedString")
+        assertThat(editChromeSource).contains("SpanStyle")
         assertThat(editDialog).doesNotContain(".verticalScroll(rememberScrollState())")
         assertThat(scaffold).contains("EditFullScreenScaffoldLayoutMode.ScrollableChrome ->")
         assertThat(scaffold).contains("headerInline()")
@@ -318,6 +320,34 @@ class MCGoEditPageDesignContractTest {
         assertThat(scaffold).contains("verticalScroll(rememberScrollState())")
         assertThat(scaffold).contains("navigationBarsPadding()")
         assertThat(scaffold).contains("imePadding()")
+    }
+
+
+    @Test
+    fun editPageChromeSupport_isExtractedOutOfMainAppFile() {
+        listOf(
+            "private data class EditPageColors(",
+            "private fun editPageColors(",
+            "private fun EditFullScreenScaffold(",
+            "private fun EditSettingsInfoCard(",
+            "private fun EditSettingsSectionCard(",
+            "private fun EditTextSettingRow(",
+            "private fun <T> EditMenuSettingRow(",
+            "private fun EditSwitchSettingRow(",
+            "private fun PaperGameMode.displayLabel(",
+        ).forEach { oldDefinition ->
+            assertThat(source).doesNotContain(oldDefinition)
+        }
+        assertThat(editChromeSource).contains("internal data class EditPageColors(")
+        assertThat(editChromeSource).contains("internal fun editPageColors(")
+        assertThat(editChromeSource).contains("internal fun EditFullScreenScaffold(")
+        assertThat(editChromeSource).contains("internal fun EditSettingsInfoCard(")
+        assertThat(editChromeSource).contains("internal fun EditSettingsSectionCard(")
+        assertThat(editChromeSource).contains("internal fun EditTextSettingRow(")
+        assertThat(editChromeSource).contains("internal fun <T> EditMenuSettingRow(")
+        assertThat(editChromeSource).contains("internal fun EditSwitchSettingRow(")
+        assertThat(editChromeSource).contains("internal fun PaperGameMode.displayLabel()")
+        assertThat(editChromeSource).contains("internal fun PaperDifficulty.displayLabel()")
     }
 
     private fun String.substringBetween(start: String, end: String): String {
