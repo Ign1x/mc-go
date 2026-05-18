@@ -18,10 +18,7 @@ class MCGoEditPageDesignContractTest {
             start = "private fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
-        val propertiesDialog = source.substringBetween(
-            start = "private fun PaperServerPropertiesEditorDialog(",
-            end = "@Composable\ninternal fun ServerIconEditorCard(",
-        )
+        val propertiesDialog = source.substringAfter("private fun PaperServerPropertiesEditorDialog(")
 
         assertThat(editDialog).contains("EditFullScreenScaffold(")
         assertThat(propertiesDialog).contains("EditFullScreenScaffold(")
@@ -35,10 +32,7 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editPageComponents_areDarkModeAwareAndAvoidLightOnlySurfaces() {
-        val editSupportSource = source.substringBetween(
-            start = "private fun EditPaperServerDialog(",
-            end = "@Composable\ninternal fun ServerIconEditorCard(",
-        ) + editChromeSource
+        val editSupportSource = source.substringAfter("private fun EditPaperServerDialog(") + editChromeSource
 
         assertThat(editSupportSource).contains("editPageColors()")
         assertThat(editChromeSource).contains("MaterialTheme.colorScheme")
@@ -61,10 +55,7 @@ class MCGoEditPageDesignContractTest {
             start = "private fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
-        val propertiesDialog = source.substringBetween(
-            start = "private fun PaperServerPropertiesEditorDialog(",
-            end = "@Composable\ninternal fun ServerIconEditorCard(",
-        )
+        val propertiesDialog = source.substringAfter("private fun PaperServerPropertiesEditorDialog(")
 
         assertThat(source).contains("import androidx.activity.compose.BackHandler")
         assertThat(editDialog).contains("BackHandler(enabled = true, onBack = onDismiss)")
@@ -145,10 +136,7 @@ class MCGoEditPageDesignContractTest {
             start = "private fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
-        val propertiesDialog = source.substringBetween(
-            start = "private fun PaperServerPropertiesEditorDialog(",
-            end = "@Composable\ninternal fun ServerIconEditorCard(",
-        )
+        val propertiesDialog = source.substringAfter("private fun PaperServerPropertiesEditorDialog(")
         val scaffold = editChromeSource.substringBetween(
             start = "internal fun EditFullScreenScaffold(",
             end = "internal fun EditSettingsInfoCard(",
@@ -291,10 +279,7 @@ class MCGoEditPageDesignContractTest {
             start = "private fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
-        val propertiesDialog = source.substringBetween(
-            start = "private fun PaperServerPropertiesEditorDialog(",
-            end = "@Composable\ninternal fun ServerIconEditorCard(",
-        )
+        val propertiesDialog = source.substringAfter("private fun PaperServerPropertiesEditorDialog(")
         val scaffold = editChromeSource.substringBetween(
             start = "internal fun EditFullScreenScaffold(",
             end = "internal fun EditSettingsInfoCard(",
