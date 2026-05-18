@@ -9,16 +9,17 @@ class MCGoEditPageDesignContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
     private val bottomMenuSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/FloatingGlassBottomMenu.kt")))
     private val editChromeSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/EditPageChrome.kt")))
+    private val editDialogsSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/EditServerDialogs.kt")))
     private val mainActivitySource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/MainActivity.kt")))
     private val settingsScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/SettingsScreen.kt")))
 
     @Test
     fun editPages_shareFullScreenFluidScaffoldWithCurrentVisualTokens() {
-        val editDialog = source.substringBetween(
-            start = "private fun EditPaperServerDialog(",
+        val editDialog = editDialogsSource.substringBetween(
+            start = "internal fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
-        val propertiesDialog = source.substringAfter("private fun PaperServerPropertiesEditorDialog(")
+        val propertiesDialog = editDialogsSource.substringAfter("private fun PaperServerPropertiesEditorDialog(")
 
         assertThat(editDialog).contains("EditFullScreenScaffold(")
         assertThat(propertiesDialog).contains("EditFullScreenScaffold(")
@@ -32,7 +33,7 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editPageComponents_areDarkModeAwareAndAvoidLightOnlySurfaces() {
-        val editSupportSource = source.substringAfter("private fun EditPaperServerDialog(") + editChromeSource
+        val editSupportSource = editDialogsSource.substringAfter("internal fun EditPaperServerDialog(") + editChromeSource
 
         assertThat(editSupportSource).contains("editPageColors()")
         assertThat(editChromeSource).contains("MaterialTheme.colorScheme")
@@ -51,13 +52,13 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editOverlays_stayInsideActivityLayerInsteadOfCreatingSeparateDialogWindows() {
-        val editDialog = source.substringBetween(
-            start = "private fun EditPaperServerDialog(",
+        val editDialog = editDialogsSource.substringBetween(
+            start = "internal fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
-        val propertiesDialog = source.substringAfter("private fun PaperServerPropertiesEditorDialog(")
+        val propertiesDialog = editDialogsSource.substringAfter("private fun PaperServerPropertiesEditorDialog(")
 
-        assertThat(source).contains("import androidx.activity.compose.BackHandler")
+        assertThat(editDialogsSource).contains("import androidx.activity.compose.BackHandler")
         assertThat(editDialog).contains("BackHandler(enabled = true, onBack = onDismiss)")
         assertThat(propertiesDialog).contains("BackHandler(enabled = true, onBack = onDismiss)")
         assertThat(editDialog).doesNotContain("\n    Dialog(")
@@ -80,8 +81,8 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editDialogs_chooseVersionOptionsByCurrentServerType() {
-        val editDialog = source.substringBetween(
-            start = "private fun EditPaperServerDialog(",
+        val editDialog = editDialogsSource.substringBetween(
+            start = "internal fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
 
@@ -132,11 +133,11 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editPagesAvoidImeAndBringFocusedInputsIntoView() {
-        val editDialog = source.substringBetween(
-            start = "private fun EditPaperServerDialog(",
+        val editDialog = editDialogsSource.substringBetween(
+            start = "internal fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
-        val propertiesDialog = source.substringAfter("private fun PaperServerPropertiesEditorDialog(")
+        val propertiesDialog = editDialogsSource.substringAfter("private fun PaperServerPropertiesEditorDialog(")
         val scaffold = editChromeSource.substringBetween(
             start = "internal fun EditFullScreenScaffold(",
             end = "internal fun EditSettingsInfoCard(",
@@ -275,11 +276,11 @@ class MCGoEditPageDesignContractTest {
 
     @Test
     fun editPaperServerDialog_usesScrollableChromeAndNonStickyConfigActions() {
-        val editDialog = source.substringBetween(
-            start = "private fun EditPaperServerDialog(",
+        val editDialog = editDialogsSource.substringBetween(
+            start = "internal fun EditPaperServerDialog(",
             end = "private fun PaperServerPropertiesEditorDialog(",
         )
-        val propertiesDialog = source.substringAfter("private fun PaperServerPropertiesEditorDialog(")
+        val propertiesDialog = editDialogsSource.substringAfter("private fun PaperServerPropertiesEditorDialog(")
         val scaffold = editChromeSource.substringBetween(
             start = "internal fun EditFullScreenScaffold(",
             end = "internal fun EditSettingsInfoCard(",
@@ -334,6 +335,30 @@ class MCGoEditPageDesignContractTest {
         assertThat(editChromeSource).contains("internal fun PaperGameMode.displayLabel()")
         assertThat(editChromeSource).contains("internal fun PaperDifficulty.displayLabel()")
     }
+    @Test
+    fun editServerDialogs_areExtractedOutOfMainAppFile() {
+        assertThat(source).contains("EditPaperServerDialog(")
+        listOf(
+            "private data class PendingServerIconCrop(",
+            "private fun EditPaperServerDialog(",
+            "private enum class EditServerOverlayDestination",
+            "private fun PaperServerPropertiesEditorDialog(",
+        ).forEach { oldDefinition ->
+            assertThat(source).doesNotContain(oldDefinition)
+        }
+        assertThat(editDialogsSource).contains("private data class PendingServerIconCrop(")
+        assertThat(editDialogsSource).contains("internal fun EditPaperServerDialog(")
+        assertThat(editDialogsSource).contains("private enum class EditServerOverlayDestination")
+        assertThat(editDialogsSource).contains("private fun PaperServerPropertiesEditorDialog(")
+        assertThat(editDialogsSource).contains("rememberLauncherForActivityResult(")
+        assertThat(editDialogsSource).contains("PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)")
+        assertThat(editDialogsSource).contains("writeManagedServerIcon(")
+        assertThat(editDialogsSource).contains("syncManagedServerIconToAuthorizedDirectory(")
+        assertThat(editDialogsSource).contains("deleteManagedServerIconFromAuthorizedDirectory(")
+        assertThat(editDialogsSource).contains("buildPaperServerPropertiesEditorText(")
+        assertThat(editDialogsSource).contains("parsePaperServerPropertiesEditorText(")
+    }
+
 
     private fun String.substringBetween(start: String, end: String): String {
         val startIndex = indexOf(start)

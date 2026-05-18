@@ -13,10 +13,11 @@ class MCGoServerIconContractTest {
     private val serversScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/ServersScreen.kt")))
     private val iconImageSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ServerIconImage.kt")))
     private val iconUiSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ServerIconUi.kt")))
+    private val editDialogsSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/EditServerDialogs.kt")))
 
     @Test
     fun editServerFlow_supportsPickingCroppingAndSavingSquareServerIcon() {
-        val editDialog = appSource.substringAfter("private fun EditPaperServerDialog(")
+        val editDialog = editDialogsSource.substringAfter("internal fun EditPaperServerDialog(")
             .substringBefore("private enum class EditServerOverlayDestination")
         val decodeSection = iconImageSource.substringAfter("internal fun decodeServerIconPreviewBitmap(")
             .substringBefore("private fun calculateInSampleSize(")
