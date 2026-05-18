@@ -7,6 +7,7 @@ import kotlin.test.Test
 
 class MCGoEditPageDesignContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
+    private val bottomMenuSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/FloatingGlassBottomMenu.kt")))
     private val mainActivitySource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/MainActivity.kt")))
     private val settingsScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/SettingsScreen.kt")))
 
@@ -209,12 +210,11 @@ class MCGoEditPageDesignContractTest {
             start = "    Box(modifier = Modifier.fillMaxSize()) {",
             end = "@Composable\nprivate fun RequestRuntimePermissions(",
         )
-        val bottomMenu = source.substringBetween(
-            start = "private fun FloatingGlassBottomMenu(",
-            end = "private fun ServerDirectoryPermissionEffect(",
-        )
+        val bottomMenu = bottomMenuSource
 
-        assertThat(source).contains("private fun FloatingGlassBottomMenu(")
+        assertThat(source).contains("FloatingGlassBottomMenu(")
+        assertThat(source).doesNotContain("private fun FloatingGlassBottomMenu(")
+        assertThat(bottomMenuSource).contains("internal enum class McGoDestination(")
         assertThat(settingsScreenSource).contains("settingsDestination: SettingsDestination = SettingsDestination.Overview")
         assertThat(settingsScreenSource).contains("onSettingsDestinationChange: (SettingsDestination) -> Unit = {}")
         assertThat(settingsScreenSource).doesNotContain("LaunchedEffect(navigationState.canNavigateBack)")
