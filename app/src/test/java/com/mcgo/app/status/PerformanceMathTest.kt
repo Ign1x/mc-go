@@ -2,6 +2,7 @@ package com.mcgo.app.status
 
 import com.google.common.truth.Truth.assertThat
 import com.mcgo.app.ui.model.MetricTrendSample
+import java.util.Locale
 import kotlin.test.Test
 
 class PerformanceMathTest {
@@ -163,6 +164,22 @@ class PerformanceMathTest {
 
         assertThat(formatted.valueLabel).isEqualTo("12.0 Mbps")
         assertThat(formatted.detailLabel).isEqualTo("上传 4.0 · 下载 8.0")
+    }
+
+    @Test
+    fun formatNetworkAndTemperatureMetrics_useLocaleIndependentDecimalSeparator() {
+        val previousLocale = Locale.getDefault()
+        Locale.setDefault(Locale.GERMANY)
+        try {
+            val network = formatNetworkMetric(uploadBytesPerSecond = 500_000L, downloadBytesPerSecond = 1_000_000L)
+            val temperature = formatTemperatureMetric(temperatureCelsius = 41.75f, detailLabel = "SoC 热区")
+
+            assertThat(network.valueLabel).isEqualTo("12.0 Mbps")
+            assertThat(network.detailLabel).isEqualTo("上传 4.0 · 下载 8.0")
+            assertThat(temperature.valueLabel).isEqualTo("41.8°C")
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.mcgo.app.status
 import com.mcgo.app.ui.model.MetricTrendSample
 import com.mcgo.app.ui.model.formatBatteryCurrent
 import com.mcgo.app.ui.model.usedMemoryPercent
+import java.util.Locale
 import kotlin.math.max
 
 const val GIGABYTE_BYTES: Long = 1024L * 1024L * 1024L
@@ -184,7 +185,7 @@ private fun matchesThermalKind(type: String, kind: ThermalSensorKind): Boolean {
 
 private fun toGigabytesLabel(bytes: Long): String = formatOneDecimal(bytes / GIGABYTE_BYTES.toFloat())
 
-private fun formatOneDecimal(value: Float): String = "%.1f".format(value)
+private fun formatOneDecimal(value: Float): String = String.format(Locale.US, "%.1f", value)
 
 private val CpuThermalAliases = listOf(
     "cpu",

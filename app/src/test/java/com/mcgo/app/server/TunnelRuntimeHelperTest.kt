@@ -90,6 +90,38 @@ class TunnelRuntimeHelperTest {
     }
 
     @Test
+    fun tunnelRuntimePlanForStart_formatsBracketedIpv6FrpAddressConsistently() {
+        val filesDir = Files.createTempDirectory("mcgo-frpc-ipv6")
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.11",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25577,
+        )
+        val tunnel = TunnelProfile.manualServer(
+            name = "IPv6 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "[2001:db8::42]:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38100",
+        ).copy(remotePort = 38001)
+
+        val config = buildFrpcConfigForTunnel(server, tunnel)
+        val plan = tunnelRuntimePlanForStart(
+            filesDir = filesDir,
+            nativeLibraryDir = Path.of("/data/app/com.mcgo.app/lib/arm64"),
+            server = server,
+            tunnel = tunnel,
+            supportedAbi = "arm64-v8a",
+        )
+
+        assertThat(config).contains("serverAddr = \"2001:db8::42\"")
+        assertThat(config).contains("serverPort = 7000")
+        assertThat(plan!!.runtimeAddress).isEqualTo("[2001:db8::42]:38001")
+    }
+
+    @Test
     fun tunnelRuntimePlanForStart_usesRawPastedFrpConfigVerbatim() {
         val filesDir = Files.createTempDirectory("mcgo-frpc-pasted")
         val server = createPaperServer(

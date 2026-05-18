@@ -1,12 +1,13 @@
 package com.mcgo.app.server
 
+import com.mcgo.app.network.TcpEndpoint
+import com.mcgo.app.network.parseTcpEndpoint
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.TunnelSource
 import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.readableSlug
-import java.net.URI
 
 private const val DefaultBundledFrpcAssetArm64 = "frp/android_arm64/frpc"
 
@@ -47,15 +48,13 @@ fun buildFrpcConfigForTunnel(server: ServerCardState, tunnel: TunnelProfile): St
 
     val trimmedToken = tunnel.credentialValue?.trim()
     require(!trimmedToken.isNullOrBlank()) { "FRP token 不能为空" }
-    val endpoint = URI("tcp://${tunnel.serverAddress}")
-    val host = endpoint.host ?: error("FRP 服务端地址无效")
-    val serverPort = endpoint.port.takeIf { it > 0 } ?: error("FRP 服务端端口无效")
+    val endpoint = requireFrpServerEndpoint(tunnel.serverAddress)
     val remotePort = tunnel.remotePort ?: server.tunnelRemotePort ?: server.port
     return buildGeneratedFrpcConfig(
         server = server,
         tunnel = tunnel,
-        host = host,
-        serverPort = serverPort,
+        host = endpoint.host,
+        serverPort = endpoint.port,
         remotePort = remotePort,
         token = trimmedToken,
     )
@@ -109,8 +108,7 @@ fun tunnelRuntimePlansForStart(
     val frpDir = managedPaperServerDirectory(filesDir, server.id).resolve("frp").resolve(sanitizeManagedServerId(tunnel.id))
     val frpcAssetRelativePath = defaultBundledFrpcAssetRelativePath(supportedAbi)
     val frpcBinaryName = nativeLibraryExecutableNameForAsset(frpcAssetRelativePath)
-    val endpoint = URI("tcp://${tunnel.serverAddress}")
-    val host = endpoint.host ?: error("FRP 服务端地址无效")
+    val endpoint = requireFrpServerEndpoint(tunnel.serverAddress)
     val remotePort = tunnel.remotePort ?: server.tunnelRemotePort ?: server.port
     TunnelRuntimePlan(
         tunnelId = tunnel.id,
@@ -119,10 +117,19 @@ fun tunnelRuntimePlansForStart(
         configPath = frpDir.resolve("frpc.toml"),
         configText = buildFrpcConfigForTunnel(server, tunnel),
         displayLabel = tunnel.name,
-        runtimeAddress = "$host:$remotePort",
+        runtimeAddress = endpoint.runtimeAddress(remotePort),
         remotePort = remotePort,
     )
 }
+
+private fun requireFrpServerEndpoint(serverAddress: String): TcpEndpoint =
+    parseTcpEndpoint(serverAddress) ?: error("FRP 服务端地址无效")
+
+private fun TcpEndpoint.runtimeAddress(remotePort: Int): String =
+    "${host.forHostPortDisplay()}:$remotePort"
+
+private fun String.forHostPortDisplay(): String =
+    if (':' in this && !(startsWith("[") && endsWith("]"))) "[$this]" else this
 
 fun tunnelRuntimePlanForStart(
     filesDir: java.nio.file.Path,
