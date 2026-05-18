@@ -14,40 +14,26 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -209,67 +195,6 @@ private data class PendingCreateServerFromModpack(
     val server: ServerCardState,
     val archiveUri: Uri,
 )
-
-private sealed interface StartupUiState {
-    data object Loading : StartupUiState
-
-    data class Ready(
-        val appearancePreferences: AppearancePreferences,
-        val persistedServers: List<ServerCardState>,
-        val reconciledPersistedServers: List<ServerCardState>,
-        val persistedTunnels: List<TunnelProfile>,
-        val activeRuntimeSlotsOnLaunch: Set<Int>,
-        val persistedServerDirectoryUri: String?,
-    ) : StartupUiState
-}
-
-@Composable
-private fun MCGoStartupLoadingScreen(appearancePreferences: AppearancePreferences) {
-    McGoTheme(appearancePreferences = appearancePreferences) {
-        val visuals = LocalMcGoVisualTokens.current
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background,
-            contentColor = visuals.primaryTextColor,
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                FluidGradientBackground(
-                    spec = visuals.fluidBackgroundSpec,
-                    animate = appearancePreferences.dynamicBackground,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.52f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Surface(
-                        modifier = Modifier.padding(horizontal = 28.dp),
-                        color = visuals.cardContainerColor,
-                        contentColor = visuals.primaryTextColor,
-                        shape = RoundedCornerShape(28.dp),
-                        border = BorderStroke(1.dp, visuals.cardStrokeColor),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 28.dp, vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            CircularProgressIndicator()
-                            Text(stringResource(R.string.startup_loading_title), style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                text = stringResource(R.string.startup_loading_body),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = visuals.secondaryTextColor,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 private enum class PendingServerDirectoryAction {
     StartServer,

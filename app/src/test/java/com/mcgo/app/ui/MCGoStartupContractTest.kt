@@ -7,6 +7,7 @@ import kotlin.test.Test
 
 class MCGoStartupContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
+    private val startupUiSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/StartupUi.kt")))
     private val manifestSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/AndroidManifest.xml")))
 
     @Test
@@ -21,10 +22,16 @@ class MCGoStartupContractTest {
         assertThat(topLevelApp).contains("StartupUiState.Ready(")
         assertThat(topLevelApp).doesNotContain("val persistedServers = remember(serverStore, persistedServerDirectoryUri) {")
         assertThat(topLevelApp).contains("MCGoStartupLoadingScreen(")
-        assertThat(source).contains("private sealed interface StartupUiState")
-        assertThat(source).contains("private fun MCGoStartupLoadingScreen(")
-        assertThat(source).contains("CircularProgressIndicator(")
-        assertThat(source).contains("Text(stringResource(R.string.startup_loading_title)")
+        assertThat(source).doesNotContain("private sealed interface StartupUiState")
+        assertThat(source).doesNotContain("private fun MCGoStartupLoadingScreen(")
+        assertThat(source).doesNotContain("CircularProgressIndicator(")
+        assertThat(source).doesNotContain("startup_loading_body")
+        assertThat(startupUiSource).contains("internal sealed interface StartupUiState")
+        assertThat(startupUiSource).contains("internal fun MCGoStartupLoadingScreen(")
+        assertThat(startupUiSource).contains("McGoTheme(appearancePreferences = appearancePreferences)")
+        assertThat(startupUiSource).contains("FluidGradientBackground(")
+        assertThat(startupUiSource).contains("CircularProgressIndicator(")
+        assertThat(startupUiSource).contains("Text(stringResource(R.string.startup_loading_title)")
     }
 
     @Test
