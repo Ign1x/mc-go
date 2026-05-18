@@ -7,6 +7,7 @@ import kotlin.test.Test
 
 class MCGoAutoJavaInstallContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
+    private val runtimeInstallSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/JavaRuntimeInstallActions.kt")))
 
     @Test
     fun startServerFlow_autoInstallsMissingManagedJavaAndResumesLaunch() {
@@ -35,6 +36,33 @@ class MCGoAutoJavaInstallContractTest {
 
         assertThat(scaffold).contains("pendingManagedRuntimeStarts = pendingManagedRuntimeStarts.filterNot { it.request.serverId == serverId }")
         assertThat(scaffold).contains("pendingStartRequest = pendingStartRequest?.takeUnless { it.serverId == serverId }")
+    }
+
+    @Test
+    fun javaRuntimeInstallActions_liveOutsideMainComposeFile() {
+        assertThat(source).doesNotContain("private fun downloadAndInstallPojavRuntime(")
+        assertThat(source).doesNotContain("private fun downloadVerifiedFileToPath(")
+        assertThat(source).doesNotContain("internal fun downloadVerifiedFileFromAnyUrl(")
+        assertThat(source).doesNotContain("private fun downloadSingleFileToPath(")
+        assertThat(source).doesNotContain("private fun runtimeDownloadUrlsForRegion(")
+        assertThat(source).doesNotContain("private fun installJavaRuntimeFromUri(")
+        assertThat(source).doesNotContain("private fun pojavRuntimeComponentSignerCertSha256(")
+        assertThat(source).doesNotContain("private fun copyUriToTempFile(")
+        assertThat(source).doesNotContain("private fun Throwable.userFacingInstallMessage(")
+        assertThat(source).contains("downloadAndInstallPojavRuntime(appContext, majorVersion)")
+        assertThat(source).contains("installJavaRuntimeFromUri(")
+        assertThat(source).contains("error.userFacingInstallMessage(majorVersion)")
+        assertThat(runtimeInstallSource).contains("internal fun downloadAndInstallPojavRuntime(")
+        assertThat(runtimeInstallSource).contains("private fun downloadVerifiedFileToPath(")
+        assertThat(runtimeInstallSource).contains("internal fun downloadVerifiedFileFromAnyUrl(")
+        assertThat(runtimeInstallSource).contains("private fun downloadSingleFileToPath(")
+        assertThat(runtimeInstallSource).contains("private fun runtimeDownloadUrlsForRegion(")
+        assertThat(runtimeInstallSource).contains("internal fun installJavaRuntimeFromUri(")
+        assertThat(runtimeInstallSource).contains("private fun pojavRuntimeComponentSignerCertSha256(")
+        assertThat(runtimeInstallSource).contains("private fun copyUriToTempFile(")
+        assertThat(runtimeInstallSource).contains("internal fun Throwable.userFacingInstallMessage(")
+        assertThat(runtimeInstallSource).contains("setRequestProperty(\"User-Agent\", McGoUserAgent)")
+        assertThat(runtimeInstallSource).contains("JRE 安装包可信校验失败")
     }
 
     private fun String.substringBetween(start: String, end: String): String {
