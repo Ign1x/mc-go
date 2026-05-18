@@ -5,4 +5,7 @@
 **/build/
 **/.cxx/
 /captures/
+/dist/
+/tmp/
+/share/
 .DS_Store

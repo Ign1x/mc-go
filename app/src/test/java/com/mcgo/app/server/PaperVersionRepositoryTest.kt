@@ -46,22 +46,40 @@ class PaperVersionRepositoryTest {
     }
 
     @Test
-    fun fetchVanillaFallbackVersions_includeCurrentModernRelease() {
-        assertThat(fallbackVanillaVersions()).containsAtLeast("1.12.2", "1.16.5", "1.20.1", "1.21.11", "26.1.2")
+    fun fetchVanillaFallbackVersions_includeCurrentModernRelease_withoutHardPinningLatest26Patch() {
+        assertThat(fallbackVanillaVersions()).containsAtLeast("1.12.2", "1.16.5", "1.20.1", "1.21.11")
+        assertThat(fallbackVanillaVersions()).doesNotContain("26.1.2")
     }
 
     @Test
-    fun fetchPurpurFallbackVersions_neverOfferUnsupportedLegacyVersions() {
-        assertThat(fallbackPurpurVersions()).containsAtLeast("1.14.4", "1.16.5", "1.20.1", "1.21.11", "26.1.2")
+    fun fetchPurpurFallbackVersions_neverOfferUnsupportedLegacyVersionsOrHardPinnedLatest26Patch() {
+        assertThat(fallbackPurpurVersions()).containsAtLeast("1.14.4", "1.16.5", "1.20.1", "1.21.11")
         assertThat(fallbackPurpurVersions()).doesNotContain("1.12.2")
         assertThat(fallbackPurpurVersions()).doesNotContain("1.13.2")
+        assertThat(fallbackPurpurVersions()).doesNotContain("26.1.2")
+    }
+
+    @Test
+    fun fallbackFabricFamilyVersions_includeModernVersionsWithoutHardPinnedLatest26Patch() {
+        val fallbackVersionLists = listOf(
+            fallbackFabricVersions(),
+            fallbackForgeVersions(),
+            fallbackNeoForgeVersions(),
+            fallbackQuiltVersions(),
+        )
+
+        fallbackVersionLists.forEach { versions ->
+            assertThat(versions).containsAtLeast("1.14.4", "1.16.5", "1.20.1", "1.21.11")
+            assertThat(versions).doesNotContain("26.1.2")
+        }
     }
 
     @Test
     fun filterProvisionablePurpurVersions_usesPurpurSpecificFallbackWhenSourceIsEmpty() {
         assertThat(filterProvisionablePurpurVersions(emptyList()))
-            .containsAtLeast("1.14.4", "1.16.5", "1.20.1", "1.21.11", "26.1.2")
+            .containsAtLeast("1.14.4", "1.16.5", "1.20.1", "1.21.11")
         assertThat(filterProvisionablePurpurVersions(emptyList())).doesNotContain("1.12.2")
+        assertThat(filterProvisionablePurpurVersions(emptyList())).doesNotContain("26.1.2")
     }
 
     @Test

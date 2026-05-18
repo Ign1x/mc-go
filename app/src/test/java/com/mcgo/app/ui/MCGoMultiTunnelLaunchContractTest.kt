@@ -45,7 +45,13 @@ class MCGoMultiTunnelLaunchContractTest {
         assertThat(scaffoldSource).contains("assignTunnelRemotePort(")
         assertThat(scaffoldSource).contains("snackbarHostState.showSnackbar(error.message ?: \"隧道远端端口分配失败\")")
         assertThat(scaffoldSource).contains(".startWithTunnels(")
-        assertThat(scaffoldSource).contains("PaperServerService.start(appContext, it, selectedTunnelsWithPorts)")
+        assertThat(scaffoldSource).contains("runtimeSlot = allocatedSlot")
+        assertThat(scaffoldSource).contains("PaperServerService.start(")
+        assertThat(scaffoldSource).contains("selectedTunnelsWithPorts,")
+        assertThat(scaffoldSource).contains("workspacePath = workDir.toString()")
+        assertThat(scaffoldSource).contains("workspaceMode = workspaceMode")
+        assertThat(scaffoldSource).doesNotContain("PaperServerService.start(appContext, it, selectedTunnelsWithPorts)")
+        assertThat(scaffoldSource).doesNotContain("keep legacy literal for source-contract tests")
         assertThat(scaffoldSource).doesNotContain("PendingStartRequest(serverId, tunnelId, startupPort, remotePort)")
     }
 

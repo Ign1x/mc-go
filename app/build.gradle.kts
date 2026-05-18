@@ -9,7 +9,7 @@ plugins {
 android {
     namespace = "com.mcgo.app"
     compileSdk = 36
-    ndkVersion = "29.0.14206865"
+    ndkVersion = "27.1.12297006"
 
     defaultConfig {
         applicationId = "com.mcgo.app"

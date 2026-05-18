@@ -186,7 +186,9 @@ fun fetchPaperVersions(): List<String> = runCatching {
     filterProvisionablePaperVersions(merged)
 }.getOrElse { filterProvisionablePaperVersions(fallbackPaperVersions()) }
 
-fun fallbackVanillaVersions(): List<String> = listOf(
+fun fallbackVanillaVersions(): List<String> = fallbackLegacyToModernMinecraftVersions()
+
+fun fallbackLegacyToModernMinecraftVersions(): List<String> = listOf(
     "1.8.8",
     "1.9.4",
     "1.10.2",
@@ -205,7 +207,6 @@ fun fallbackVanillaVersions(): List<String> = listOf(
     "1.21.1",
     "1.21.4",
     "1.21.11",
-    "26.1.2",
 )
 
 fun fetchVanillaVersions(): List<String> = runCatching {
@@ -218,7 +219,9 @@ fun fetchVanillaVersions(): List<String> = runCatching {
         .ifEmpty { fallbackVanillaVersions() }
 }.getOrElse { fallbackVanillaVersions() }
 
-fun fallbackPurpurVersions(): List<String> = listOf(
+fun fallbackPurpurVersions(): List<String> = fallbackModernMinecraftVersionsSince114()
+
+fun fallbackModernMinecraftVersionsSince114(): List<String> = listOf(
     "1.14.4",
     "1.15.2",
     "1.16.5",
@@ -231,24 +234,9 @@ fun fallbackPurpurVersions(): List<String> = listOf(
     "1.21.1",
     "1.21.4",
     "1.21.11",
-    "26.1.2",
 )
 
-fun fallbackFabricVersions(): List<String> = listOf(
-    "1.14.4",
-    "1.15.2",
-    "1.16.5",
-    "1.17.1",
-    "1.18.2",
-    "1.19.4",
-    "1.20.1",
-    "1.20.4",
-    "1.20.6",
-    "1.21.1",
-    "1.21.4",
-    "1.21.11",
-    "26.1.2",
-)
+fun fallbackFabricVersions(): List<String> = fallbackModernMinecraftVersionsSince114()
 
 fun fallbackForgeVersions(): List<String> = fallbackFabricVersions()
 

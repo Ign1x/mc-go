@@ -1104,8 +1104,6 @@ private fun MCGoAppScaffold(
                         workspacePath = workDir.toString(),
                         workspaceMode = workspaceMode,
                     )
-                    // keep legacy literal for source-contract tests:
-                    // PaperServerService.start(appContext, it, selectedTunnelsWithPorts)
                 }
                 snackbarHostState.showSnackbar(
                     if (selectedTunnelsWithPorts.isNotEmpty()) {
