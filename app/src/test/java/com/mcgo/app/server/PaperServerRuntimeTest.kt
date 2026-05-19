@@ -166,6 +166,23 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun androidSparkConfigHelpers_liveInDedicatedHelperFile() {
+        val runtimeSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
+        val sparkSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerSparkConfig.kt")))
+
+        assertThat(runtimeSource).contains("prepareAndroidCompatibleSparkConfig(workDir, server)")
+        assertThat(runtimeSource).doesNotContain("private fun prepareAndroidCompatibleSparkConfig(")
+        assertThat(runtimeSource).doesNotContain("private fun mergeAndroidCompatibleSparkConfig(")
+        assertThat(runtimeSource).doesNotContain("private fun upsertTopLevelJsonScalarProperty(")
+        assertThat(runtimeSource).doesNotContain("private fun findTopLevelJsonValueRange(")
+        assertThat(sparkSource).contains("internal fun prepareAndroidCompatibleSparkConfig(")
+        assertThat(sparkSource).contains("backgroundProfiler")
+        assertThat(sparkSource).contains("backgroundProfilerEngine")
+        assertThat(sparkSource).contains("findTopLevelJsonValueRange(")
+        assertThat(sparkSource).contains("findJsonStringEnd(")
+    }
+
+    @Test
     fun preparePaperServerFiles_usesVanillaJarNameForVanillaServerType() {
         val workDir = Files.createTempDirectory("mcgo-vanilla-runtime")
         val server = createVanillaServer("原版服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25566)
