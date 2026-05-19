@@ -70,10 +70,16 @@ class MCGoSettingsHelpContractTest {
         assertThat(debugExportSource).contains("FileProvider.getUriForFile(")
         assertThat(debugExportSource).contains("mcgo_debug_logs")
         assertThat(debugExportSource).contains("isReadableLogExportFile")
-        assertThat(debugExportSource).contains("readNoFollowLogExportText")
+        assertThat(debugExportSource).contains("MaxLogExportSectionBytes")
+        assertThat(debugExportSource).contains("readNoFollowLogExportTailText")
+        assertThat(debugExportSource).contains("channel.size()")
+        assertThat(debugExportSource).contains("channel.position(startOffset)")
+        assertThat(debugExportSource).contains("readUpToByteCount(input, bytesToRead)")
+        assertThat(debugExportSource).contains("<truncated to last")
         assertThat(debugExportSource).contains("Files.newByteChannel")
         assertThat(debugExportSource).contains("StandardOpenOption.READ")
         assertThat(debugExportSource).doesNotContain("Files.readAllBytes(path)")
+        assertThat(debugExportSource).doesNotContain("input.readBytes()")
         assertThat(debugExportSource).contains("LinkOption.NOFOLLOW_LINKS")
         assertThat(debugExportSource).contains("Files.isSymbolicLink")
         assertThat(debugExportSource).contains("Files.isDirectory(serversRoot, LinkOption.NOFOLLOW_LINKS)")
@@ -107,13 +113,61 @@ class MCGoSettingsHelpContractTest {
             Files.createSymbolicLink(symlinkLog, externalSecret)
 
             assertThat(isReadableLogExportFile(regularLog)).isTrue()
-            assertThat(readNoFollowLogExportText(regularLog)).isEqualTo("safe log")
+            assertThat(readNoFollowLogExportTailText(regularLog)).isEqualTo("safe log")
             assertThat(isReadableLogExportFile(symlinkLog)).isFalse()
         } finally {
             Files.deleteIfExists(symlinkLog)
             Files.deleteIfExists(regularLog)
             Files.deleteIfExists(externalSecret)
             Files.deleteIfExists(tempDir)
+        }
+    }
+
+    @Test
+    fun logExportFileReadability_readsOnlyBoundedTailForLargeLogs() {
+        val logFile = Files.createTempFile("mcgo-large-log-export", ".log")
+        try {
+            Files.write(
+                logFile,
+                ("old-line\n" + "x".repeat(MaxLogExportSectionBytes + 256) + "\nrecent-line\n").toByteArray(),
+            )
+
+            val exported = readNoFollowLogExportTailText(logFile, maxBytes = 128)
+
+            assertThat(exported).contains("<truncated to last 128 bytes>")
+            assertThat(exported).contains("recent-line")
+            assertThat(exported).doesNotContain("old-line")
+            assertThat(exported.toByteArray().size).isLessThan(MaxLogExportSectionBytes)
+        } finally {
+            Files.deleteIfExists(logFile)
+        }
+    }
+
+    @Test
+    fun logExportFileReadability_doesNotEmitPartialLineWhenTailWindowHasNoNewline() {
+        val logFile = Files.createTempFile("mcgo-newline-free-log-export", ".log")
+        try {
+            Files.write(logFile, ("prefix-line\n" + "x".repeat(1024)).toByteArray())
+
+            val exported = readNoFollowLogExportTailText(logFile, maxBytes = 64)
+
+            assertThat(exported).isEqualTo("<truncated to last 64 bytes>\n")
+        } finally {
+            Files.deleteIfExists(logFile)
+        }
+    }
+
+    @Test
+    fun logExportFileReadability_keepsFirstLineWhenTailStartsAtLineBoundary() {
+        val logFile = Files.createTempFile("mcgo-boundary-log-export", ".log")
+        try {
+            Files.write(logFile, "old-line\nfirst-kept\nsecond-kept\n".toByteArray())
+
+            val exported = readNoFollowLogExportTailText(logFile, maxBytes = "first-kept\nsecond-kept\n".toByteArray().size)
+
+            assertThat(exported).isEqualTo("<truncated to last 23 bytes>\nfirst-kept\nsecond-kept\n")
+        } finally {
+            Files.deleteIfExists(logFile)
         }
     }
 

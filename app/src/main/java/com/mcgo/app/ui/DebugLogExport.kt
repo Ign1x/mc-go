@@ -8,6 +8,7 @@ import androidx.core.content.FileProvider
 import com.mcgo.app.server.appendMcGoAppDebugLog
 import com.mcgo.app.server.buildManagedServerDebugLogLine
 import com.mcgo.app.server.mcGoAppDebugLogFile
+import java.io.ByteArrayOutputStream
 import java.nio.channels.Channels
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -18,6 +19,7 @@ import java.time.format.DateTimeFormatter
 
 internal const val RuntimePrefsName = "mcgo_runtime_permissions"
 internal const val ServerDirectoryUriKey = "server_directory_uri"
+internal const val MaxLogExportSectionBytes = 256 * 1024
 
 internal fun exportDebugLogs(context: Context): Intent {
     val timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(LocalDateTime.now())
@@ -81,16 +83,45 @@ internal fun exportDebugLogs(context: Context): Intent {
 internal fun isReadableLogExportFile(path: Path): Boolean =
     Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path)
 
-internal fun readNoFollowLogExportText(path: Path): String =
-    Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use { channel ->
-        Channels.newInputStream(channel).use { input ->
-            input.readBytes().toString(Charsets.UTF_8)
-        }
+internal fun readNoFollowLogExportTailText(
+    path: Path,
+    maxBytes: Int = MaxLogExportSectionBytes,
+): String = Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use { channel ->
+    val fileSize = channel.size()
+    val bytesToRead = minOf(fileSize, maxBytes.coerceAtLeast(1).toLong()).toInt()
+    val startOffset = (fileSize - bytesToRead).coerceAtLeast(0L)
+    val startsAtLineBoundary = startOffset <= 0L || runCatching {
+        channel.position(startOffset - 1L)
+        Channels.newInputStream(channel).read() == '\n'.code
+    }.getOrDefault(false)
+    channel.position(startOffset)
+    val tailText = Channels.newInputStream(channel).use { input ->
+        readUpToByteCount(input, bytesToRead).toString(Charsets.UTF_8)
     }
+    if (startOffset <= 0L) {
+        tailText
+    } else {
+        val body = if (startsAtLineBoundary) tailText else tailText.substringAfter('\n', missingDelimiterValue = "")
+        "<truncated to last $bytesToRead bytes>\n" + body
+    }
+}
+
+private fun readUpToByteCount(input: java.io.InputStream, byteCount: Int): ByteArray {
+    val buffer = ByteArrayOutputStream(byteCount.coerceAtLeast(32))
+    val chunk = ByteArray(DEFAULT_BUFFER_SIZE)
+    var remaining = byteCount.coerceAtLeast(0)
+    while (remaining > 0) {
+        val read = input.read(chunk, 0, minOf(chunk.size, remaining))
+        if (read <= 0) break
+        buffer.write(chunk, 0, read)
+        remaining -= read
+    }
+    return buffer.toByteArray()
+}
 
 private fun readLogExportSection(title: String, path: Path): String {
     val body = if (isReadableLogExportFile(path)) {
-        runCatching { redactSensitiveLogExportText(readNoFollowLogExportText(path)) }
+        runCatching { redactSensitiveLogExportText(readNoFollowLogExportTailText(path)) }
             .getOrElse { "<read failed: ${it.message}>" }
     } else {
         "<missing>"
