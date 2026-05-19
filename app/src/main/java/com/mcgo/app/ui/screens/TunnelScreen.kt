@@ -71,6 +71,18 @@ fun TunnelsScreen(
     val editingTunnel = remember(editingTunnelId, tunnels) {
         tunnels.firstOrNull { it.id == editingTunnelId }
     }
+    var pendingDeleteTunnel by remember { mutableStateOf<TunnelProfile?>(null) }
+
+    pendingDeleteTunnel?.let { tunnel ->
+        DeleteTunnelDialog(
+            tunnel = tunnel,
+            onDismiss = { pendingDeleteTunnel = null },
+            onConfirm = {
+                onDeleteTunnel(tunnel.id)
+                pendingDeleteTunnel = null
+            },
+        )
+    }
 
     if (showComposer) {
         TunnelComposerDialog(
@@ -122,12 +134,31 @@ fun TunnelsScreen(
                     tunnel = tunnel,
                     modifier = Modifier.padding(horizontal = 20.dp),
                     onEdit = { onEditTunnel(tunnel.id) },
-                    onDelete = { onDeleteTunnel(tunnel.id) },
+                    onDelete = { pendingDeleteTunnel = tunnel },
                 )
             }
         }
         item { Spacer(modifier = Modifier.height(96.dp + bottomContentPadding)) }
     }
+}
+
+@Composable
+private fun DeleteTunnelDialog(
+    tunnel: TunnelProfile,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("删除") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        title = { Text("确认删除隧道") },
+        text = { Text("删除后不会影响已保存的服务器配置，但该隧道入口会从列表中移除：${tunnel.name}") },
+    )
 }
 
 @Composable

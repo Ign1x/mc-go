@@ -23,6 +23,27 @@ class TunnelsScreenContractTest {
         assertThat(appSource).contains("onRequestCreateTunnel = { showTunnelComposer = true }")
     }
 
+    @Test
+    fun tunnelDeleteRequiresConfirmationDialog() {
+        val screenBodySource = tunnelsScreenSource
+            .substringAfter("fun TunnelsScreen(")
+            .substringBefore("@Composable\nprivate fun TunnelCard(")
+        val deleteDialogSource = tunnelsScreenSource
+            .substringAfter("private fun DeleteTunnelDialog(")
+            .substringBefore("@Composable\nprivate fun TunnelCard(")
+
+        assertThat(screenBodySource).contains("var pendingDeleteTunnel by remember { mutableStateOf<TunnelProfile?>(null) }")
+        assertThat(screenBodySource).contains("pendingDeleteTunnel?.let { tunnel ->")
+        assertThat(screenBodySource).contains("DeleteTunnelDialog(")
+        assertThat(screenBodySource).contains("onDelete = { pendingDeleteTunnel = tunnel }")
+        assertThat(screenBodySource).doesNotContain("onDelete = { onDeleteTunnel(tunnel.id) }")
+        assertThat(deleteDialogSource).contains("title = { Text(\"确认删除隧道\") }")
+        assertThat(deleteDialogSource).contains("text = { Text(\"删除后不会影响已保存的服务器配置，但该隧道入口会从列表中移除：\${tunnel.name}\") }")
+        assertThat(deleteDialogSource).contains("Text(\"删除\")")
+        assertThat(screenBodySource).contains("onDeleteTunnel(tunnel.id)")
+        assertThat(screenBodySource).contains("pendingDeleteTunnel = null")
+    }
+
     private fun readSource(relativePath: String): String =
         String(Files.readAllBytes(projectRoot().resolve(relativePath)))
 
