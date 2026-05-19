@@ -7,6 +7,7 @@ import kotlin.test.Test
 
 class MCGoMultiTunnelLaunchContractTest {
     private val appSource: String = readSource("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")
+    private val appPendingActionsSource: String = readSource("app/src/main/java/com/mcgo/app/ui/MCGoAppPendingActions.kt")
     private val serversScreenSource: String = readSource("app/src/main/java/com/mcgo/app/ui/screens/ServersScreen.kt")
 
     @Test
@@ -31,9 +32,9 @@ class MCGoMultiTunnelLaunchContractTest {
 
     @Test
     fun appStartFlow_tracksPluralTunnelSelectionsAcrossPendingRequestsAndRuntimeLaunch() {
-        val requestSource = appSource
-            .substringAfter("private data class PendingStartRequest(")
-            .substringBefore("private data class PendingManagedRuntimeStart(")
+        val requestSource = appPendingActionsSource
+            .substringAfter("internal data class PendingStartRequest(")
+            .substringBefore("internal data class PendingManagedRuntimeStart(")
         val scaffoldSource = appSource.substringBetween(
             start = "private fun MCGoAppScaffold(",
             end = "@Composable\nprivate fun RequestRuntimePermissions(",

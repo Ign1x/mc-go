@@ -7,6 +7,7 @@ import kotlin.test.Test
 
 class MCGoAutoJavaInstallContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
+    private val appPendingActionsSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoAppPendingActions.kt")))
     private val runtimeInstallSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/JavaRuntimeInstallActions.kt")))
 
     @Test
@@ -16,7 +17,7 @@ class MCGoAutoJavaInstallContractTest {
             end = "@Composable\nprivate fun RequestRuntimePermissions(",
         )
 
-        assertThat(source).contains("private data class PendingManagedRuntimeStart(")
+        assertThat(appPendingActionsSource).contains("internal data class PendingManagedRuntimeStart(")
         assertThat(scaffold).contains("var pendingManagedRuntimeStarts by remember")
         assertThat(scaffold).contains("pendingManagedRuntimeStarts = pendingManagedRuntimeStarts + PendingManagedRuntimeStart(request, targetServer.javaMajorVersion)")
         assertThat(scaffold).contains("markAwaitingManagedRuntimeInstall(targetServer.javaMajorVersion)")

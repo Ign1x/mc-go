@@ -10,6 +10,7 @@ class MCGoServerFileManagementContractTest {
     private val serverConsoleDialogSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ServerConsoleDialog.kt")))
     private val serversScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/ServersScreen.kt")))
     private val modpackSetupDialogSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ModpackSetupApprovalDialog.kt")))
+    private val appPendingActionsSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoAppPendingActions.kt")))
     private val modelSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/model/McGoUiModels.kt")))
     private val eventSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerEvents.kt")))
     private val archiveSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerWorldArchive.kt")))
@@ -138,6 +139,32 @@ class MCGoServerFileManagementContractTest {
             .contains("discardManagedServerWorkspaceAfterForegroundAccess(")
         assertThat(approvalDialogSource).contains("discardManagedServerWorkspaceAfterForegroundAccess(")
         assertThat(approvalDialogSource).doesNotContain("cleanupPreparedManagedServerWorkspace(pendingApproval.request.serverId, pendingApproval.workspaceMode)")
+    }
+
+    @Test
+    fun appPendingActionModels_liveOutsideMainAppFile() {
+        listOf(
+            "private data class PendingStartRequest(",
+            "private data class PendingManagedRuntimeStart(",
+            "private data class PendingModpackSetupApproval(",
+            "private data class PendingCreateServerFromModpack(",
+            "private fun managedSetupScriptRelativePath(",
+            "private enum class PendingServerDirectoryAction",
+        ).forEach { oldDefinition ->
+            assertThat(appSource).doesNotContain(oldDefinition)
+        }
+        assertThat(appSource).contains("startServerNow(request: PendingStartRequest)")
+        assertThat(appSource).contains("PendingCreateServerFromModpack(server, archiveUri)")
+        assertThat(appSource).contains("managedSetupScriptRelativePath(workDir, script)")
+        assertThat(appPendingActionsSource).contains("internal data class PendingStartRequest(")
+        assertThat(appPendingActionsSource).contains("val tunnelSelections: List<TunnelLaunchSelection>")
+        assertThat(appPendingActionsSource).contains("internal data class PendingManagedRuntimeStart(")
+        assertThat(appPendingActionsSource).contains("internal data class PendingModpackSetupApproval(")
+        assertThat(appPendingActionsSource).contains("val workspaceMode: ManagedServerWorkspaceMode")
+        assertThat(appPendingActionsSource).contains("internal data class PendingCreateServerFromModpack(")
+        assertThat(appPendingActionsSource).contains("internal fun managedSetupScriptRelativePath(")
+        assertThat(appPendingActionsSource).contains("replace('\\\\', '/')")
+        assertThat(appPendingActionsSource).contains("internal enum class PendingServerDirectoryAction")
     }
 
     @Test

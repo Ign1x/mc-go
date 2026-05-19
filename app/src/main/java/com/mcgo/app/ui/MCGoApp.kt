@@ -125,7 +125,6 @@ import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.ThemeModePreference
 import com.mcgo.app.ui.model.TunnelLatencyResult
-import com.mcgo.app.ui.model.TunnelLaunchSelection
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.assignTunnelRemotePort
 import com.mcgo.app.ui.model.applyTunnelLatencyResults
@@ -171,44 +170,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 private const val ServerDirectoryGrantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-
-private data class PendingStartRequest(
-    val serverId: String,
-    val startupPort: Int,
-    val tunnelSelections: List<TunnelLaunchSelection>,
-)
-
-private data class PendingManagedRuntimeStart(
-    val request: PendingStartRequest,
-    val javaMajorVersion: Int,
-)
-
-private data class PendingModpackSetupApproval(
-    val request: PendingStartRequest,
-    val serverName: String,
-    val defaultScriptRelativePath: String,
-    val scriptCandidates: List<String>,
-    val workspaceMode: ManagedServerWorkspaceMode,
-)
-
-private data class PendingCreateServerFromModpack(
-    val server: ServerCardState,
-    val archiveUri: Uri,
-)
-
-private fun managedSetupScriptRelativePath(serverWorkDir: Path, script: Path): String =
-    serverWorkDir.toAbsolutePath().normalize()
-        .relativize(script.toAbsolutePath().normalize())
-        .toString()
-        .replace('\\', '/')
-
-private enum class PendingServerDirectoryAction {
-    StartServer,
-    OpenConsole,
-    EditServer,
-    SettingsRequest,
-}
-
 
 @Composable
 fun MCGoApp() {
