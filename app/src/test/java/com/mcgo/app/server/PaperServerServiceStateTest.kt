@@ -150,6 +150,117 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun logTailHelpers_useBoundedNoFollowReadsForAppendedSegments() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/LogTailing.kt")))
+
+        assertThat(source).contains("isReadableLogTailFile(logFile)")
+        assertThat(source).contains("Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)")
+        assertThat(source).contains("Files.newByteChannel(logFile, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)")
+        assertThat(source).contains("val fileSize = channel.size()")
+        assertThat(source).contains("readLogBytesAt(channel, window.startOffset, window.bytesToRead)")
+        assertThat(source).contains("channel.position(offset)")
+        assertThat(source).contains("startsAtLogLineBoundary(channel, window.startOffset)")
+        assertThat(source).contains("completeAppendedLogChunk(")
+        assertThat(source).contains("appendedLogReadWindow(fileSize, previousOffset)")
+        assertThat(source).doesNotContain("Files.size(logFile)")
+        assertThat(source).doesNotContain("Files.isRegularFile(logFile)")
+        assertThat(source).doesNotContain("Files.newByteChannel(logFile).use")
+        assertThat(source).doesNotContain("(fileSize - startOffset).toInt().coerceAtLeast(0)")
+        assertThat(source).doesNotContain("input.readBytes()")
+    }
+
+    @Test
+    fun logTailHelpers_rejectSymbolicLinkLogFiles() {
+        val realLog = Files.createTempFile("mcgo-real-log", ".log")
+        val symlinkLog = Files.createTempFile("mcgo-symlink-log", ".log")
+        Files.write(realLog, "outside-secret\n".toByteArray())
+        Files.deleteIfExists(symlinkLog)
+        Files.createSymbolicLink(symlinkLog, realLog)
+
+        val lines = readAppendedNonBlankLinesWithOffset(symlinkLog, previousOffset = 42L)
+        val lastLine = readLastAppendedNonBlankLine(symlinkLog, previousOffset = 42L)
+        val matchingLine = readLastAppendedMatchingLine(symlinkLog, previousOffset = 42L) { true }
+
+        assertThat(lines).isEqualTo(AppendedLinesResult(nextOffset = 42L, lines = emptyList()))
+        assertThat(lastLine).isEqualTo(LogTailResult(nextOffset = 42L, line = null))
+        assertThat(matchingLine).isEqualTo(LogTailResult(nextOffset = 42L, line = null))
+    }
+
+    @Test
+    fun appendedLogReadWindow_capsHugeAppendedSegmentsWithoutOverflow() {
+        val fileSize = Int.MAX_VALUE.toLong() + 8192L
+
+        val window = appendedLogReadWindow(fileSize = fileSize, previousOffset = 0L, maxBytes = 4096)
+
+        assertThat(window).isNotNull()
+        assertThat(window?.startOffset).isEqualTo(0L)
+        assertThat(window?.bytesToRead).isEqualTo(4096 + MaxAppendedLogLineContinuationBytes)
+        assertThat(window?.nextOffset).isEqualTo(4096L + MaxAppendedLogLineContinuationBytes)
+    }
+
+    @Test
+    fun appendedLogReadWindow_keepsSmallAppendedSegmentsAndReportsNoNewData() {
+        assertThat(appendedLogReadWindow(fileSize = 128L, previousOffset = 32L, maxBytes = 4096))
+            .isEqualTo(AppendedLogReadWindow(startOffset = 32L, bytesToRead = 96, nextOffset = 128L))
+        assertThat(appendedLogReadWindow(fileSize = 128L, previousOffset = 128L, maxBytes = 4096)).isNull()
+        assertThat(appendedLogReadWindow(fileSize = 128L, previousOffset = 256L, maxBytes = 4096)).isNull()
+    }
+
+    @Test
+    fun appendedLogChunk_decodesOnlyCompleteLinesUnlessWindowReachedEnd() {
+        val partialChunk = completeAppendedLogChunk(
+            bytes = "line-1\npartial-line".toByteArray(),
+            startOffset = 10L,
+            reachedEnd = false,
+        )
+        val finalChunk = completeAppendedLogChunk(
+            bytes = "tail-without-newline".toByteArray(),
+            startOffset = 100L,
+            reachedEnd = true,
+        )
+
+        assertThat(partialChunk).isEqualTo(
+            AppendedLogChunk(nextOffset = 17L, lines = listOf("line-1")),
+        )
+        assertThat(finalChunk).isEqualTo(
+            AppendedLogChunk(nextOffset = 120L, lines = listOf("tail-without-newline")),
+        )
+    }
+
+    @Test
+    fun appendedLogChunk_advancesPastOverlongNewlineFreePartialWindow() {
+        val chunk = completeAppendedLogChunk(
+            bytes = "unterminated-overlong-fragment".toByteArray(),
+            startOffset = 256L,
+            reachedEnd = false,
+        )
+
+        assertThat(chunk).isEqualTo(
+            AppendedLogChunk(
+                nextOffset = 256L + "unterminated-overlong-fragment".toByteArray().size,
+                lines = emptyList(),
+            ),
+        )
+    }
+
+    @Test
+    fun appendedLogChunk_discardsLeadingPartialLineWhenResumeOffsetWasMidLine() {
+        val chunk = completeAppendedLogChunk(
+            bytes = "suffix-of-skipped-line\nnext-line\n".toByteArray(),
+            startOffset = 512L,
+            reachedEnd = false,
+            discardLeadingPartialLine = true,
+        )
+
+        assertThat(chunk).isEqualTo(
+            AppendedLogChunk(
+                nextOffset = 512L + "suffix-of-skipped-line\nnext-line\n".toByteArray().size,
+                lines = listOf("next-line"),
+            ),
+        )
+    }
+
+    @Test
     fun readLastAppendedNonBlankLine_returnsOnlyNewlyAppendedContent() {
         val logFile = Files.createTempFile("mcgo-log-tail", ".log")
         Files.write(logFile, "\n".toByteArray())
