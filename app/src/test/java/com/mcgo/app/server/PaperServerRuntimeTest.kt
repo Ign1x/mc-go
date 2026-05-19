@@ -51,6 +51,22 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun serverPropertiesHelpers_liveInDedicatedHelperFile() {
+        val runtimeSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
+        val propertiesSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerProperties.kt")))
+
+        assertThat(runtimeSource).contains("Files.write(propertiesPath, buildServerProperties(server).toByteArray())")
+        assertThat(runtimeSource).doesNotContain("fun buildManagedServerProperties(")
+        assertThat(runtimeSource).doesNotContain("private fun mergeManagedServerProperties(")
+        assertThat(runtimeSource).doesNotContain("private val RuntimeOwnedServerPropertyKeys")
+        assertThat(propertiesSource).contains("fun buildPaperEula(): String")
+        assertThat(propertiesSource).contains("fun buildServerProperties(server: ServerCardState): String")
+        assertThat(propertiesSource).contains("fun buildManagedServerProperties(server: ServerCardState): String")
+        assertThat(propertiesSource).contains("server-port")
+        assertThat(propertiesSource).contains("RuntimeOwnedServerPropertyKeys")
+    }
+
+    @Test
     fun preparePaperServerFiles_writesEulaAndServerProperties() {
         val workDir = Files.createTempDirectory("mcgo-paper-runtime")
         val server = createPaperServer("生存服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25566)
