@@ -4,7 +4,9 @@ import android.content.Context
 import android.net.Uri
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.OutputStream
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.zip.ZipEntry
@@ -31,24 +33,33 @@ fun exportManagedServerWorldArchive(
     sourceWorldDir: Path,
     targetUri: Uri,
 ) {
-    require(Files.isDirectory(sourceWorldDir)) { "世界存档目录不存在：$sourceWorldDir" }
+    require(Files.isDirectory(sourceWorldDir, LinkOption.NOFOLLOW_LINKS)) { "世界存档目录不存在：$sourceWorldDir" }
     context.contentResolver.openOutputStream(targetUri, "wt")?.use { output ->
-        ZipOutputStream(BufferedOutputStream(output)).use { zip ->
-            val rootName = sourceWorldDir.fileName.toString()
-            Files.walk(sourceWorldDir).use { paths ->
-                paths.forEach { path ->
-                    val relative = sourceWorldDir.relativize(path).toString().replace('\\', '/')
-                    val entryName = if (relative.isBlank()) "$rootName/" else "$rootName/$relative"
-                    val zipEntry = ZipEntry(if (Files.isDirectory(path)) "$entryName/" else entryName)
-                    zip.putNextEntry(zipEntry)
-                    if (Files.isRegularFile(path)) {
-                        Files.newInputStream(path).use { input -> input.copyTo(zip) }
-                    }
-                    zip.closeEntry()
+        exportManagedServerWorldArchiveToStream(sourceWorldDir, output)
+    } ?: error("无法写入导出目标")
+}
+
+internal fun exportManagedServerWorldArchiveToStream(
+    sourceWorldDir: Path,
+    output: OutputStream,
+) {
+    require(Files.isDirectory(sourceWorldDir, LinkOption.NOFOLLOW_LINKS)) { "世界存档目录不存在：$sourceWorldDir" }
+    ZipOutputStream(BufferedOutputStream(output)).use { zip ->
+        val rootName = sourceWorldDir.fileName.toString()
+        Files.walk(sourceWorldDir).use { paths ->
+            paths.forEach { path ->
+                if (Files.isSymbolicLink(path)) return@forEach
+                val relative = sourceWorldDir.relativize(path).toString().replace('\\', '/')
+                val entryName = if (relative.isBlank()) "$rootName/" else "$rootName/$relative"
+                val zipEntry = ZipEntry(if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) "$entryName/" else entryName)
+                zip.putNextEntry(zipEntry)
+                if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                    Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS).use { input -> input.copyTo(zip) }
                 }
+                zip.closeEntry()
             }
         }
-    } ?: error("无法写入导出目标")
+    }
 }
 
 fun importManagedServerWorldArchive(
