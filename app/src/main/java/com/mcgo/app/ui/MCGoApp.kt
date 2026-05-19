@@ -1408,6 +1408,7 @@ private fun MCGoAppScaffold(
                         modifier = Modifier.fillMaxSize(),
                         bottomContentPadding = bottomContentPadding,
                         showCreateServer = showServerComposer,
+                        onRequestCreateServer = { showServerComposer = true },
                         onDismissCreateServer = { showServerComposer = false },
                         onCreateServer = { server ->
                             if (!hasServerDirectoryGrant()) {

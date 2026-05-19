@@ -110,6 +110,7 @@ fun ServersScreen(
     modifier: Modifier = Modifier,
     bottomContentPadding: Dp = 0.dp,
     showCreateServer: Boolean = false,
+    onRequestCreateServer: () -> Unit = {},
     onDismissCreateServer: () -> Unit = {},
     onCreateServer: (ServerCardState) -> Unit = {},
     onCreateServerFromModpack: (ServerCardState, android.net.Uri) -> Unit = { _, _ -> },
@@ -190,10 +191,14 @@ fun ServersScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "添加后的服务器都可以继续启动、编辑或删除。",
+                        text = "添加后的服务器都可以继续启动、编辑或删除。创建弹窗中也可以直接导入整合包。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = onRequestCreateServer) {
+                        Text("创建第一个服务器")
+                    }
                 }
             }
         } else {
