@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
-import androidx.documentfile.provider.DocumentFile
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -83,7 +82,6 @@ import com.mcgo.app.server.fetchVanillaVersions
 import com.mcgo.app.server.filterProvisionablePaperVersions
 import com.mcgo.app.server.importManagedServerModpackArchive
 import com.mcgo.app.server.importManagedServerWorldArchive
-import com.mcgo.app.server.isInstallerBootstrapScript
 import com.mcgo.app.server.installManagedServerModFile
 import com.mcgo.app.server.approveManagedServerSetupScript
 import com.mcgo.app.server.discoverManagedServerSetupScripts
@@ -96,17 +94,13 @@ import com.mcgo.app.server.managedPaperServerLogFile
 import com.mcgo.app.server.ManagedServerWorkspaceMode
 import com.mcgo.app.server.discardManagedServerWorkspaceAfterForegroundAccess
 import com.mcgo.app.server.prepareManagedServerWorkspaceAccess
-import com.mcgo.app.server.prepareManagedServerWorkspaceForForegroundAccess
 import com.mcgo.app.server.releaseManagedServerWorkspaceAfterForegroundAccess
 import com.mcgo.app.server.resolveAuthorizedServersRootPath
-import com.mcgo.app.server.resolveManagedServerWorkspaceDirectory
 import com.mcgo.app.server.resolveNewModpackServerImportFailureRecovery
-import com.mcgo.app.server.shouldSyncImportedModpackWorkspaceImmediately
 import com.mcgo.app.server.migratePrivateServerDataToAuthorizedDirectory
 import com.mcgo.app.server.reconcilePersistedRuntimeState
 import com.mcgo.app.server.reducePaperRuntimeEvent
 import com.mcgo.app.server.requiresManagedServerSetupApproval
-import com.mcgo.app.server.restoreManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.restoreManagedServerIconFromAuthorizedDirectory
 import com.mcgo.app.server.restoreServerProfilesFromAuthorizedDirectory
 import com.mcgo.app.server.scanInstalledJavaVersions
@@ -334,25 +328,6 @@ fun MCGoApp() {
             }
         }
     }
-}
-
-private fun restoreManagedManagedServerWorkspaceOnStartup(
-    context: Context,
-    authorizedDirectoryUri: String?,
-    serverId: String,
-) {
-    val authorizedServersRoot = resolveAuthorizedServersRootPath(context, authorizedDirectoryUri)
-    resolveManagedServerWorkspaceDirectory(
-        filesDir = context.filesDir.toPath(),
-        authorizedServersRoot = authorizedServersRoot,
-        serverId = serverId,
-    )
-    prepareManagedServerWorkspaceForForegroundAccess(
-        context = context,
-        authorizedDirectoryUri = authorizedDirectoryUri,
-        filesDir = context.filesDir.toPath(),
-        serverId = serverId,
-    )
 }
 
 @Composable
@@ -803,11 +778,7 @@ private fun MCGoAppScaffold(
                                 updateImportProgress(90, "正在写入整合包识别结果")
                                 recoveredImportedServer = updatedServer
                                 operationSucceeded = true
-                                val shouldSyncImportedWorkspaceImmediately = shouldSyncImportedModpackWorkspaceImmediately(
-                                    workspaceMode = workspaceAccess.mode,
-                                    containsInstallerBootstrap = setupScriptNames.isNotEmpty(),
-                                )
-                                if (workspaceAccess.mode.shouldSyncBack && shouldSyncImportedWorkspaceImmediately) {
+                                if (workspaceAccess.mode.shouldSyncBack) {
                                     updateImportProgress(96, "正在同步整合包到已授权目录")
                                     check(
                                         releaseManagedServerWorkspaceAfterForegroundAccess(
@@ -1355,7 +1326,7 @@ private fun MCGoAppScaffold(
                                             filesDir = filesDir,
                                             serverId = pendingApproval.request.serverId,
                                         )
-                                        val approvedScript = resolveManagedServerSetupScript(
+                                        resolveManagedServerSetupScript(
                                             workspaceAccess.path,
                                             selectedScriptRelativePath,
                                         )
@@ -1369,14 +1340,7 @@ private fun MCGoAppScaffold(
                                                 "workspaceMode" to workspaceAccess.mode.name,
                                             ),
                                         )
-                                        val containsInstallerBootstrap = isInstallerBootstrapScript(approvedScript, workspaceAccess.path)
-                                        if (
-                                            workspaceAccess.mode.shouldSyncBack &&
-                                            shouldSyncImportedModpackWorkspaceImmediately(
-                                                workspaceMode = workspaceAccess.mode,
-                                                containsInstallerBootstrap = containsInstallerBootstrap,
-                                            )
-                                        ) {
+                                        if (workspaceAccess.mode.shouldSyncBack) {
                                             check(
                                                 releaseManagedServerWorkspaceAfterForegroundAccess(
                                                     context = appContext,

@@ -68,7 +68,7 @@ class MCGoServerFileManagementContractTest {
         assertThat(appSource).contains("if (recovery.keepServerEntry)")
         assertThat(appSource).contains("recoveredImportedServer")
         assertThat(appSource).contains("markModpackImportRecoveredAfterSyncFailure(")
-        assertThat(appSource).contains("val containsInstallerBootstrap = isInstallerBootstrapScript(")
+        assertThat(appSource).doesNotContain("val containsInstallerBootstrap = isInstallerBootstrapScript(")
         assertThat(appSource).contains("确认整合包安装脚本后同步服务器目录失败")
     }
 

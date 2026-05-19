@@ -21,8 +21,7 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(appSource).contains("deleteManagedServerWorkspaceFromAuthorizedDirectory(")
         assertThat(appSource).contains("authorizedServerProfilesAvailable(")
         assertThat(appSource).contains("if (authorizedProfilesAvailable)")
-        assertThat(appSource).contains("resolveManagedServerWorkspaceDirectory(")
-        assertThat(appSource).contains("prepareManagedServerWorkspaceForForegroundAccess(")
+        assertThat(appSource).contains("prepareManagedServerWorkspaceAccess(")
         assertThat(appSource).contains("releaseManagedServerWorkspaceAfterForegroundAccess(")
 
         assertThat(serviceSource).contains("prepareManagedServerWorkspaceForForegroundAccess(")
@@ -53,6 +52,33 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(runtimePermissionModelsSource).contains("卸载 App 后重新授权同一目录，仍可找回服务器数据")
         assertThat(runtimePermissionModelsSource).doesNotContain("仅影响导入、备份与编辑")
         assertThat(authorizedSyncSource).contains("clearManagedServerWorkspace(")
+    }
+
+    @Test
+    fun appShell_doesNotKeepUnusedStartupWorkspaceRestoreShim() {
+        assertThat(appSource).doesNotContain("private fun restoreManagedManagedServerWorkspaceOnStartup(")
+        assertThat(appSource).doesNotContain("import com.mcgo.app.server.restoreManagedServerWorkspaceFromAuthorizedDirectory")
+        assertThat(appSource).doesNotContain("import com.mcgo.app.server.resolveManagedServerWorkspaceDirectory")
+        assertThat(appSource).doesNotContain("import com.mcgo.app.server.prepareManagedServerWorkspaceForForegroundAccess")
+        assertThat(authorizedSyncSource).contains("fun restoreManagedServerWorkspaceFromAuthorizedDirectory(")
+        assertThat(authorizedSyncSource).contains("fun resolveManagedServerWorkspaceDirectory(")
+        assertThat(authorizedSyncSource).contains("fun prepareManagedServerWorkspaceForForegroundAccess(")
+    }
+
+    @Test
+    fun modpackImport_usesWorkspaceModeDirectlyInsteadOfAlwaysTrueSyncPolicyHelper() {
+        val importSlice = appSource.substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest)")
+        val approvalSlice = appSource.substringAfter("pendingModpackSetupApproval?.let { pendingApproval ->")
+            .substringBefore("AnimatedContent(targetState = destination, label = \"appDestination\")")
+
+        assertThat(authorizedSyncSource).doesNotContain("shouldSyncImportedModpackWorkspaceImmediately(")
+        assertThat(appSource).doesNotContain("import com.mcgo.app.server.shouldSyncImportedModpackWorkspaceImmediately")
+        assertThat(importSlice).doesNotContain("val shouldSyncImportedWorkspaceImmediately")
+        assertThat(importSlice).contains("if (workspaceAccess.mode.shouldSyncBack) {")
+        assertThat(approvalSlice).doesNotContain("val containsInstallerBootstrap = isInstallerBootstrapScript(")
+        assertThat(approvalSlice).doesNotContain("shouldSyncImportedModpackWorkspaceImmediately(")
+        assertThat(approvalSlice).contains("if (workspaceAccess.mode.shouldSyncBack) {")
     }
 
     @Test

@@ -123,34 +123,6 @@ class AuthorizedServerDirectoryWorkspaceRoutingTest {
     }
 
     @Test
-    fun shouldSyncImportedModpackWorkspaceImmediately_keepsAuthorizedCopiesForInstallerBootstrapPacks() {
-        assertThat(
-            shouldSyncImportedModpackWorkspaceImmediately(
-                workspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
-                containsInstallerBootstrap = true,
-            ),
-        ).isTrue()
-        assertThat(
-            shouldSyncImportedModpackWorkspaceImmediately(
-                workspaceMode = ManagedServerWorkspaceMode.PrivatePersistentFallback,
-                containsInstallerBootstrap = true,
-            ),
-        ).isTrue()
-        assertThat(
-            shouldSyncImportedModpackWorkspaceImmediately(
-                workspaceMode = ManagedServerWorkspaceMode.DirectExternal,
-                containsInstallerBootstrap = true,
-            ),
-        ).isTrue()
-        assertThat(
-            shouldSyncImportedModpackWorkspaceImmediately(
-                workspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
-                containsInstallerBootstrap = false,
-            ),
-        ).isTrue()
-    }
-
-    @Test
     fun detectImportedModpackServerMetadataFromEntryNames_detectsSafDirectExtractionWithoutPrivateMirror() {
         val metadata = detectImportedModpackServerMetadataFromEntryNames(
             listOf(
