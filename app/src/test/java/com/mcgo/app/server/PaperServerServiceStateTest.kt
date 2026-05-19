@@ -38,6 +38,34 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun serviceIntentExtraDecoders_liveOutsideAndroidServiceClass() {
+        val serviceSource = readSource("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")
+        val extrasSource = readSource("app/src/main/java/com/mcgo/app/server/PaperServerServiceIntentExtras.kt")
+
+        listOf(
+            "internal fun decodeServerCardStateExtrasForTest(",
+            "internal fun decodeTunnelProfileExtrasForTest(",
+            "internal fun decodeTunnelProfilesExtrasForTest(",
+            "internal fun hydrateLaunchTunnelProfilesForTest(",
+            "private fun Intent.toServerCardState(",
+            "private fun decodeServerCardStateExtras(",
+            "private fun Intent.toTunnelProfiles(",
+            "private fun decodeTunnelProfilesExtras(",
+            "private fun hydrateLaunchTunnelProfiles(",
+            "private fun Intent.toTunnelProfile(",
+            "private fun decodeTunnelProfileExtras(",
+        ).forEach { oldDefinition -> assertThat(serviceSource).doesNotContain(oldDefinition) }
+        assertThat(serviceSource).contains("val server = intent.toServerCardState()")
+        assertThat(serviceSource).contains("launchProfiles = intent.toTunnelProfiles()")
+        assertThat(extrasSource).contains("internal fun Intent.toServerCardState(): ServerCardState")
+        assertThat(extrasSource).contains("internal fun Intent.toTunnelProfiles(): List<TunnelProfile>")
+        assertThat(extrasSource).contains("internal fun Intent.toTunnelProfile(): TunnelProfile?")
+        assertThat(extrasSource).contains("fun decodeServerCardStateExtras(")
+        assertThat(extrasSource).contains("createNeoForgeServer(")
+        assertThat(extrasSource).contains("rawConfigText")
+    }
+
+    @Test
     fun startConflictMessage_rejectsDuplicateOrConcurrentServerStarts() {
         assertThat(startConflictMessage(currentServerId = null, requestedServerId = "alpha")).isNull()
         assertThat(startConflictMessage(currentServerId = "alpha", requestedServerId = "alpha")).contains("已在启动或运行中")
@@ -74,13 +102,14 @@ class PaperServerServiceStateTest {
     fun serviceLaunchFlow_tracksIndependentFrpcProcessesForMultipleTunnels() {
         val source = readSource("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")
         val stateSource = readSource("app/src/main/java/com/mcgo/app/server/PaperServerServiceRuntimeState.kt")
+        val extrasSource = readSource("app/src/main/java/com/mcgo/app/server/PaperServerServiceIntentExtras.kt")
 
         assertThat(source).contains("private val frpcProcesses = mutableMapOf<String, Process>()")
         assertThat(source).contains("private val frpcWatchJobs = mutableMapOf<String, Job>()")
         assertThat(source).contains("private val tunnelRuntimeStateLock = Any()")
         assertThat(source).contains("synchronized(tunnelRuntimeStateLock)")
         assertThat(source).contains("if (!isActive) return@launch")
-        assertThat(source).contains("private fun Intent.toTunnelProfiles(): List<TunnelProfile>")
+        assertThat(extrasSource).contains("internal fun Intent.toTunnelProfiles(): List<TunnelProfile>")
         assertThat(source).contains("val tunnelPlans = tunnelRuntimePlansForStart(")
         assertThat(source).contains("startFrpcForPlans(server, tunnelPlans)")
         assertThat(source).contains("frpcProcesses[plan.tunnelId] = process")
