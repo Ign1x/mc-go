@@ -8,8 +8,11 @@ import androidx.core.content.FileProvider
 import com.mcgo.app.server.appendMcGoAppDebugLog
 import com.mcgo.app.server.buildManagedServerDebugLogLine
 import com.mcgo.app.server.mcGoAppDebugLogFile
+import java.nio.channels.Channels
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -49,9 +52,9 @@ internal fun exportDebugLogs(context: Context): Intent {
         add(readLogExportSection("appearance_preferences.properties", filesDir.resolve("appearance_preferences.properties")))
         add(readRuntimePrefsExportSection(context))
         val serversRoot = filesDir.resolve("servers")
-        if (Files.isDirectory(serversRoot)) {
+        if (Files.isDirectory(serversRoot, LinkOption.NOFOLLOW_LINKS)) {
             Files.walk(serversRoot).use { paths ->
-                paths.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(".log") }
+                paths.filter { isReadableLogExportFile(it) && it.fileName.toString().endsWith(".log") }
                     .sorted()
                     .forEach { logPath -> add(readLogExportSection(filesDir.relativize(logPath).toString(), logPath)) }
             }
@@ -75,9 +78,19 @@ internal fun exportDebugLogs(context: Context): Intent {
     }
 }
 
+internal fun isReadableLogExportFile(path: Path): Boolean =
+    Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path)
+
+internal fun readNoFollowLogExportText(path: Path): String =
+    Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use { channel ->
+        Channels.newInputStream(channel).use { input ->
+            input.readBytes().toString(Charsets.UTF_8)
+        }
+    }
+
 private fun readLogExportSection(title: String, path: Path): String {
-    val body = if (Files.isRegularFile(path)) {
-        runCatching { redactSensitiveLogExportText(String(Files.readAllBytes(path), Charsets.UTF_8)) }
+    val body = if (isReadableLogExportFile(path)) {
+        runCatching { redactSensitiveLogExportText(readNoFollowLogExportText(path)) }
             .getOrElse { "<read failed: ${it.message}>" }
     } else {
         "<missing>"

@@ -69,6 +69,14 @@ class MCGoSettingsHelpContractTest {
         assertThat(debugExportSource).contains("Intent.createChooser(")
         assertThat(debugExportSource).contains("FileProvider.getUriForFile(")
         assertThat(debugExportSource).contains("mcgo_debug_logs")
+        assertThat(debugExportSource).contains("isReadableLogExportFile")
+        assertThat(debugExportSource).contains("readNoFollowLogExportText")
+        assertThat(debugExportSource).contains("Files.newByteChannel")
+        assertThat(debugExportSource).contains("StandardOpenOption.READ")
+        assertThat(debugExportSource).doesNotContain("Files.readAllBytes(path)")
+        assertThat(debugExportSource).contains("LinkOption.NOFOLLOW_LINKS")
+        assertThat(debugExportSource).contains("Files.isSymbolicLink")
+        assertThat(debugExportSource).contains("Files.isDirectory(serversRoot, LinkOption.NOFOLLOW_LINKS)")
         assertThat(debugExportSource).contains("===== export_metadata =====")
         assertThat(debugExportSource).contains("supportedAbis=")
         assertThat(debugExportSource).contains("[debug] 行会写入托管运行日志")
@@ -85,6 +93,28 @@ class MCGoSettingsHelpContractTest {
         assertThat(settingsScreenSource).contains("默认会自动隐藏隧道凭据")
         assertThat(manifestSource).contains("androidx.core.content.FileProvider")
         assertThat(manifestSource).contains(".fileprovider")
+    }
+
+    @Test
+    fun logExportFileReadability_rejectsSymlinkedLogs() {
+        val tempDir = Files.createTempDirectory("mcgo-log-export-symlink")
+        val regularLog = tempDir.resolve("mcgo-latest.log")
+        val externalSecret = Files.createTempFile("mcgo-external-log", ".txt")
+        val symlinkLog = tempDir.resolve("linked.log")
+        try {
+            Files.write(regularLog, "safe log".toByteArray())
+            Files.write(externalSecret, "secret outside log".toByteArray())
+            Files.createSymbolicLink(symlinkLog, externalSecret)
+
+            assertThat(isReadableLogExportFile(regularLog)).isTrue()
+            assertThat(readNoFollowLogExportText(regularLog)).isEqualTo("safe log")
+            assertThat(isReadableLogExportFile(symlinkLog)).isFalse()
+        } finally {
+            Files.deleteIfExists(symlinkLog)
+            Files.deleteIfExists(regularLog)
+            Files.deleteIfExists(externalSecret)
+            Files.deleteIfExists(tempDir)
+        }
     }
 
     @Test
