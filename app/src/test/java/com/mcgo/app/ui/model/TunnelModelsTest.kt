@@ -1,6 +1,7 @@
 package com.mcgo.app.ui.model
 
 import com.google.common.truth.Truth.assertThat
+import com.mcgo.app.network.parseTcpEndpoint
 import kotlin.test.Test
 
 class TunnelModelsTest {
@@ -36,6 +37,24 @@ class TunnelModelsTest {
         assertThat(imported.latencyLabel()).isEqualTo("--")
         assertThat(imported.latencyBadgeLines()).containsExactly("--")
         assertThat(imported.supportsCustomPortOnStart()).isFalse()
+    }
+
+    @Test
+    fun importTunnelProfile_bracketsIpv6HostWhenAppendingServerPort() {
+        val rawConfig = """
+            server_addr = "2001:db8::10"
+            server_port = 7000
+            remote_port = 37001
+        """.trimIndent()
+
+        val imported = importTunnelProfile(
+            rawConfig = rawConfig,
+            fallbackName = "IPv6 FRP",
+        )
+
+        assertThat(imported.serverAddress).isEqualTo("[2001:db8::10]:7000")
+        assertThat(parseTcpEndpoint(imported.serverAddress))
+            .isEqualTo(com.mcgo.app.network.TcpEndpoint(host = "2001:db8::10", port = 7000))
     }
 
     @Test

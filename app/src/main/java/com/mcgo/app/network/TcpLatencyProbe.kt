@@ -30,6 +30,20 @@ fun parseTcpEndpoint(rawEndpoint: String): TcpEndpoint? {
     return TcpEndpoint(host.trim().takeIf { it.isNotBlank() } ?: return null, port)
 }
 
+fun formatTcpEndpoint(host: String, port: Int): String {
+    require(port in 1..65535) { "TCP 端口无效：$port" }
+    val trimmedHost = host.trim()
+    require(trimmedHost.isNotBlank()) { "TCP 主机不能为空" }
+    val displayHost = if (trimmedHost.startsWith("[") && trimmedHost.endsWith("]")) {
+        trimmedHost
+    } else if (':' in trimmedHost) {
+        "[$trimmedHost]"
+    } else {
+        trimmedHost
+    }
+    return "$displayHost:$port"
+}
+
 fun measureTcpLatency(
     endpoint: TcpEndpoint,
     timeoutMillis: Int = 1500,

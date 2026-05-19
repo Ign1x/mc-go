@@ -1,6 +1,7 @@
 package com.mcgo.app.server
 
 import com.mcgo.app.network.TcpEndpoint
+import com.mcgo.app.network.formatTcpEndpoint
 import com.mcgo.app.network.parseTcpEndpoint
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.TunnelKind
@@ -125,11 +126,7 @@ fun tunnelRuntimePlansForStart(
 private fun requireFrpServerEndpoint(serverAddress: String): TcpEndpoint =
     parseTcpEndpoint(serverAddress) ?: error("FRP 服务端地址无效")
 
-private fun TcpEndpoint.runtimeAddress(remotePort: Int): String =
-    "${host.forHostPortDisplay()}:$remotePort"
-
-private fun String.forHostPortDisplay(): String =
-    if (':' in this && !(startsWith("[") && endsWith("]"))) "[$this]" else this
+private fun TcpEndpoint.runtimeAddress(remotePort: Int): String = formatTcpEndpoint(host, remotePort)
 
 fun tunnelRuntimePlanForStart(
     filesDir: java.nio.file.Path,

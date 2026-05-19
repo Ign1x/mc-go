@@ -1,5 +1,8 @@
 package com.mcgo.app.ui.model
 
+import com.mcgo.app.network.formatTcpEndpoint
+import com.mcgo.app.network.parseTcpEndpoint
+
 private const val PendingLatencyMs = 0
 private const val UnreachableLatencyMs = -1
 
@@ -227,7 +230,7 @@ fun ServerCardState.startPaperServer(
             remotePort = resolvedRemotePort,
             activeLabel = null,
             runtimeAddress = if (resolvedRemotePort != null) {
-                "${tunnel.serverAddress.substringBefore(':')}:$resolvedRemotePort"
+                formatTcpEndpoint(runtimeHostFromServerAddress(tunnel.serverAddress), resolvedRemotePort)
             } else {
                 "127.0.0.1:$resolvedPort"
             },
@@ -450,7 +453,17 @@ private fun combineHostAndPort(host: String, port: Int?): String {
     if (Regex("^\\[[^]]+]:\\d+$").matches(trimmedHost) || Regex("^[^:]+:\\d+$").matches(trimmedHost)) {
         return trimmedHost
     }
-    return "$trimmedHost:$port"
+    return formatTcpEndpoint(trimmedHost, port)
+}
+
+private fun runtimeHostFromServerAddress(serverAddress: String): String {
+    val trimmedAddress = serverAddress.trim()
+    parseTcpEndpoint(trimmedAddress)?.let { return it.host }
+    return if (trimmedAddress.startsWith("[")) {
+        trimmedAddress.substringAfter('[').substringBefore(']')
+    } else {
+        trimmedAddress.substringBefore(':').trim()
+    }
 }
 
 private fun detectTunnelConfigFormat(rawConfig: String): TunnelConfigFormat {

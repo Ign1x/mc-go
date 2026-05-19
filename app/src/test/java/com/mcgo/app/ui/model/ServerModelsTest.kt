@@ -258,6 +258,27 @@ class ServerModelsTest {
     }
 
     @Test
+    fun startPaperServer_withIpv6TunnelPreservesBracketedRuntimeAddress() {
+        val tunnel = TunnelProfile.manualServer(
+            name = "IPv6 FRP",
+            kind = TunnelKind.Frp,
+            serverAddress = "[2001:db8::10]:7000",
+            credentialValue = "secret-token",
+            portRange = "38000-38100",
+        )
+        val started = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+            port = 25565,
+        ).copy(tunnelRemotePort = 38009)
+            .startPaperServer(tunnel = tunnel, startupPort = 25577)
+
+        assertThat(started.runtimeAddress).isEqualTo("[2001:db8::10]:38009")
+    }
+
+    @Test
     fun startPaperServer_withSwitchedSingleManualTunnelPrefersFreshAssignedRemotePortOverLegacyField() {
         val switchedTunnel = TunnelProfile.manualServer(
             name = "阿里云 FRP",
