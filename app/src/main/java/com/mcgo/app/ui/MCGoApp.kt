@@ -1592,9 +1592,11 @@ private fun MCGoAppScaffold(
                             editingTunnelId = null
                         },
                         onSaveTunnel = { profile ->
+                            val saveMessage = if (editingTunnelId == null) "已新增隧道 ${profile.name}" else "已更新隧道 ${profile.name}"
                             val updated = upsertTunnelProfile(tunnels, profile)
                             onTunnelsChangeAndPersist(updated)
                             editingTunnelId = null
+                            scope.launch { snackbarHostState.showSnackbar(saveMessage) }
                         },
                         onEditTunnel = { tunnelId ->
                             editingTunnelId = tunnelId

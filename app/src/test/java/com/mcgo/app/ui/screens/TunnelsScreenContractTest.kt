@@ -57,6 +57,20 @@ class TunnelsScreenContractTest {
             .isLessThan(deleteHandlerSource.indexOf("snackbarHostState.showSnackbar(\"已删除隧道"))
     }
 
+    @Test
+    fun tunnelSaveShowsCreateOrUpdateFeedbackAfterPersistence() {
+        val saveHandlerSource = appSource
+            .substringAfter("onSaveTunnel = { profile ->")
+            .substringBefore("                        onEditTunnel = { tunnelId ->")
+
+        assertThat(saveHandlerSource).contains("val saveMessage = if (editingTunnelId == null) \"已新增隧道 \${profile.name}\" else \"已更新隧道 \${profile.name}\"")
+        assertThat(saveHandlerSource).contains("onTunnelsChangeAndPersist(updated)")
+        assertThat(saveHandlerSource).contains("editingTunnelId = null")
+        assertThat(saveHandlerSource).contains("snackbarHostState.showSnackbar(saveMessage)")
+        assertThat(saveHandlerSource.indexOf("onTunnelsChangeAndPersist(updated)"))
+            .isLessThan(saveHandlerSource.indexOf("snackbarHostState.showSnackbar(saveMessage)"))
+    }
+
     private fun readSource(relativePath: String): String =
         String(Files.readAllBytes(projectRoot().resolve(relativePath)))
 
