@@ -178,6 +178,47 @@ class JavaRuntimeManagerTest {
     }
 
     @Test
+    fun resolvePojavRuntimeComponent_readsReleaseMetadataWithBoundedProbe() {
+        val source = readSource("app/src/main/java/com/mcgo/app/server/JavaRuntimeManager.kt")
+        val detectionSlice = source
+            .substringAfter("private fun detectPojavComponentMajorVersion(")
+            .substringBefore("private fun parseJavaMajorVersionFromReleaseText(")
+
+        assertThat(detectionSlice).contains("MaxRuntimeReleaseProbeBytes")
+        assertThat(detectionSlice).contains("readTarEntryTextBounded(tar, MaxRuntimeReleaseProbeBytes)")
+        assertThat(detectionSlice).doesNotContain("tar.readBytes()")
+    }
+
+    @Test
+    fun resolvePojavRuntimeComponent_rejectsOversizedReleaseMetadataInsteadOfReadingAllBytes() {
+        val filesDir = Files.createTempDirectory("mcgo-jre-install-huge-release")
+        val apk = filesDir.resolve("pojav-huge-release.apk")
+        writeFakePojavApk(
+            apk = apk,
+            component = "jre-new",
+            universal = tarXz(directory("./conf")),
+            abiArchiveName = "bin-arm64.tar.xz",
+            abi = tarXz(
+                file("./release", "JAVA_VERSION=\"17.0.14\"\n" + "x".repeat(MaxRuntimeReleaseProbeBytes + 1)),
+                directory("./bin"),
+                file("./bin/java", "#!/system/bin/sh\n", mode = 0b111_101_101),
+            ),
+        )
+
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            installPojavRuntimeFromApk(
+                apkPath = apk,
+                filesDir = filesDir,
+                majorVersion = 17,
+                androidAbi = "arm64-v8a",
+            )
+        }
+
+        assertThat(error).hasMessageThat().contains("release 元数据过大")
+        assertThat(Files.exists(filesDir.resolve("jre/java-17/bin/java"))).isFalse()
+    }
+
+    @Test
     fun installRuntimeFromTarXz_installsJava11FromTrustedDirectRuntimeArchive() {
         val filesDir = Files.createTempDirectory("mcgo-jre-install-java11-tarxz")
         val archive = filesDir.resolve("jre11.tar.xz")
@@ -382,6 +423,13 @@ class JavaRuntimeManagerTest {
             zip.closeEntry()
         }
     }
+
+    private fun readSource(relativePath: String): String = String(Files.readAllBytes(projectRoot().resolve(relativePath)))
+
+    private fun projectRoot(): Path =
+        generateSequence(Path.of(".").toAbsolutePath().normalize()) { it.parent }
+            .firstOrNull { Files.exists(it.resolve("app/build.gradle.kts")) }
+            ?: error("project root not found")
 
     private fun String.ensureTrailingSlash(): String = if (endsWith("/")) this else "$this/"
 }

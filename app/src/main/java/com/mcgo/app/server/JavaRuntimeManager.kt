@@ -1,6 +1,7 @@
 package com.mcgo.app.server
 
 import android.os.Build
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.nio.file.AtomicMoveNotSupportedException
@@ -317,6 +318,8 @@ fun resolvePojavRuntimeComponent(zip: ZipFile, majorVersion: Int): String {
         ?: throw JavaRuntimeInstallException("Java $majorVersion 暂未在所选 Pojav APK 中找到可用组件，请导入匹配的 Android JRE 包")
 }
 
+internal const val MaxRuntimeReleaseProbeBytes = 16 * 1024
+
 private fun detectPojavComponentMajorVersion(zip: ZipFile, component: String): Int? {
     val candidateArchives = listOf(
         "bin-arm64.tar.xz",
@@ -334,7 +337,7 @@ private fun detectPojavComponentMajorVersion(zip: ZipFile, component: String): I
                     while (entry != null) {
                         val normalized = entry.name.replace('\\', '/').removePrefix("./").trimEnd('/')
                         if (!entry.isDirectory && normalized == "release") {
-                            val releaseText = tar.readBytes().toString(Charsets.UTF_8)
+                            val releaseText = readTarEntryTextBounded(tar, MaxRuntimeReleaseProbeBytes)
                             return@use parseJavaMajorVersionFromReleaseText(releaseText)
                         }
                         entry = tar.nextTarEntry
@@ -346,6 +349,23 @@ private fun detectPojavComponentMajorVersion(zip: ZipFile, component: String): I
         if (detectedVersion != null) return detectedVersion
     }
     return null
+}
+
+private fun readTarEntryTextBounded(input: InputStream, maxBytes: Int): String {
+    val limit = maxBytes.coerceAtLeast(1)
+    val buffer = ByteArrayOutputStream(limit + 1)
+    val chunk = ByteArray(DEFAULT_BUFFER_SIZE)
+    var remaining = limit + 1
+    while (remaining > 0) {
+        val read = input.read(chunk, 0, minOf(chunk.size, remaining))
+        if (read <= 0) break
+        buffer.write(chunk, 0, read)
+        remaining -= read
+    }
+    if (buffer.size() > limit) {
+        throw JavaRuntimeInstallException("Pojav 运行时 release 元数据过大")
+    }
+    return buffer.toByteArray().toString(Charsets.UTF_8)
 }
 
 private fun parseJavaMajorVersionFromReleaseText(releaseText: String): Int? {
