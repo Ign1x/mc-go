@@ -1213,7 +1213,7 @@ fi
             "fun validateBundledAndroidJnaCompatibility(",
             "fun validateBundledAndroidJnaCompatibilityForLaunchTarget(",
         ).forEach { oldDefinition -> assertThat(runtimeSource).doesNotContain(oldDefinition) }
-        assertThat(compatibilitySource).contains("isBundledAndroidJnaCompatibleWithServerJar(targetJar)")
+        assertThat(compatibilitySource).contains("readServerJnaVersion(targetJar).let")
         assertThat(compatibilitySource).contains("fun shouldReusePaperJar(targetJar: Path): Boolean")
         assertThat(compatibilitySource).contains("fun shouldReuseInstalledServerPayload(serverWorkDir: Path, targetJar: Path): Boolean")
         assertThat(compatibilitySource).contains("private const val BundledAndroidJnaVersion")
@@ -1377,6 +1377,40 @@ fi
         )
 
         assertThat(detectServerJnaVersion(jarPath)).isEqualTo("5.18.1")
+    }
+
+    @Test
+    fun detectServerJnaVersion_boundsLibrariesListMetadataProbe() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerLaunchCompatibility.kt")))
+        val detectionSlice = source
+            .substringAfter("fun detectServerJnaVersion(")
+            .substringBefore("fun isBundledAndroidJnaCompatibleWithServerJar(")
+
+        assertThat(detectionSlice).contains("MaxServerLibrariesListProbeBytes")
+        assertThat(detectionSlice).contains("readZipEntryTextBounded(input, MaxServerLibrariesListProbeBytes)")
+        assertThat(detectionSlice).doesNotContain("bufferedReader()")
+        assertThat(detectionSlice).doesNotContain("lineSequence()")
+    }
+
+    @Test
+    fun shouldReusePaperJar_rejectsJarWithOversizedLibrariesListMetadata() {
+        val jarPath = createServerJarWithLibrariesList("x".repeat(MaxServerLibrariesListProbeBytes + 1))
+        Files.write(paperJarSha256File(jarPath), (sha256Hex(jarPath) + "\n").toByteArray())
+
+        assertThat(detectServerJnaVersion(jarPath)).isNull()
+        assertThat(shouldReusePaperJar(jarPath)).isFalse()
+    }
+
+    @Test
+    fun validateBundledAndroidJnaCompatibility_rejectsOversizedLibrariesListMetadata() {
+        val jarPath = createServerJarWithLibrariesList("x".repeat(MaxServerLibrariesListProbeBytes + 1))
+        val server = createPaperServer("兼容服", "26.1.2", maxPlayers = 20, memoryMb = 2048, port = 25565)
+
+        val error = assertFailsWith<JavaRuntimeInstallException> {
+            validateBundledAndroidJnaCompatibility(server, jarPath)
+        }
+
+        assertThat(error).hasMessageThat().contains("libraries.list 元数据过大")
     }
 
     @Test

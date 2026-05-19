@@ -1,11 +1,15 @@
 package com.mcgo.app.server
 
 import com.mcgo.app.ui.model.ServerCardState
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.zip.ZipException
 import java.util.zip.ZipFile
 
 private const val BundledAndroidJnaVersion = "5.18.1"
+internal const val MaxServerLibrariesListProbeBytes = 64 * 1024
 
 private fun String.shouldIgnorePaperJavaVersionGate(): Boolean {
     val parts = split('.').mapNotNull { it.toIntOrNull() }
@@ -79,7 +83,9 @@ fun shouldReusePaperJar(targetJar: Path): Boolean = runCatching {
         }
         !recordedSha256.isNullOrBlank() &&
             recordedSha256 == sha256Hex(targetJar) &&
-            isBundledAndroidJnaCompatibleWithServerJar(targetJar)
+            readServerJnaVersion(targetJar).let { serverJnaVersion ->
+                serverJnaVersion == null || isBundledAndroidJnaVersionCompatible(serverJnaVersion)
+            }
     }
 }.getOrDefault(false)
 
@@ -90,19 +96,57 @@ fun shouldReuseInstalledServerPayload(serverWorkDir: Path, targetJar: Path): Boo
 }
 
 fun detectServerJnaVersion(serverJar: Path): String? = runCatching {
+    readServerJnaVersion(serverJar)
+}.getOrNull()
+
+private fun readServerJnaVersion(serverJar: Path): String? = try {
     ZipFile(serverJar.toFile()).use { zip ->
         val librariesEntry = zip.getEntry("META-INF/libraries.list") ?: return@use null
-        zip.getInputStream(librariesEntry)
-            .bufferedReader()
-            .lineSequence()
-            .mapNotNull { line ->
-                line.split('\t').getOrNull(1)
-                    ?.takeIf { it.startsWith("net.java.dev.jna:jna:") }
-                    ?.substringAfterLast(':')
-            }
-            .firstOrNull()
+        zip.getInputStream(librariesEntry).use { input ->
+            parseServerJnaVersionFromLibrariesList(
+                readZipEntryTextBounded(input, MaxServerLibrariesListProbeBytes),
+            )
+        }
     }
-}.getOrNull()
+} catch (_: ZipException) {
+    null
+}
+
+private fun parseServerJnaVersionFromLibrariesList(librariesList: String): String? {
+    var lineStart = 0
+    while (lineStart <= librariesList.length) {
+        val newlineIndex = librariesList.indexOf('\n', startIndex = lineStart)
+        val lineEnd = if (newlineIndex < 0) librariesList.length else newlineIndex
+        extractServerJnaVersionFromLibrariesListLine(librariesList.substring(lineStart, lineEnd))?.let { return it }
+        if (lineEnd >= librariesList.length) break
+        lineStart = lineEnd + 1
+    }
+    return null
+}
+
+private fun extractServerJnaVersionFromLibrariesListLine(line: String): String? =
+    line.trimEnd('\r')
+        .split('\t')
+        .getOrNull(1)
+        ?.takeIf { it.startsWith("net.java.dev.jna:jna:") }
+        ?.substringAfterLast(':')
+
+private fun readZipEntryTextBounded(input: InputStream, maxBytes: Int): String {
+    val limit = maxBytes.coerceAtLeast(1)
+    val buffer = ByteArrayOutputStream(limit + 1)
+    val chunk = ByteArray(DEFAULT_BUFFER_SIZE)
+    var remaining = limit + 1
+    while (remaining > 0) {
+        val read = input.read(chunk, 0, minOf(chunk.size, remaining))
+        if (read <= 0) break
+        buffer.write(chunk, 0, read)
+        remaining -= read
+    }
+    if (buffer.size() > limit) {
+        throw JavaRuntimeInstallException("服务端 libraries.list 元数据过大")
+    }
+    return buffer.toByteArray().toString(Charsets.UTF_8)
+}
 
 fun isBundledAndroidJnaCompatibleWithServerJar(serverJar: Path): Boolean {
     val serverJnaVersion = detectServerJnaVersion(serverJar) ?: return true
@@ -110,7 +154,7 @@ fun isBundledAndroidJnaCompatibleWithServerJar(serverJar: Path): Boolean {
 }
 
 fun validateBundledAndroidJnaCompatibility(server: ServerCardState, serverJar: Path) {
-    val serverJnaVersion = detectServerJnaVersion(serverJar) ?: return
+    val serverJnaVersion = readServerJnaVersion(serverJar) ?: return
     if (!isBundledAndroidJnaVersionCompatible(serverJnaVersion)) {
         throw JavaRuntimeInstallException(
             "${server.name} 依赖 JNA $serverJnaVersion，但当前 MC-GO 内置 Android JNA 为 $BundledAndroidJnaVersion；请更新 MC-GO 后再启动该服务端",
