@@ -1619,6 +1619,7 @@ private fun MCGoAppScaffold(
                         },
                         modifier = Modifier.fillMaxSize(),
                         bottomContentPadding = bottomContentPadding,
+                        onRequestCreateTunnel = { showTunnelComposer = true },
                     )
                     McGoDestination.Settings -> SettingsScreen(
                         modifier = Modifier.fillMaxSize(),

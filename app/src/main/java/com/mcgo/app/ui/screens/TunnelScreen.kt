@@ -66,6 +66,7 @@ fun TunnelsScreen(
     onDeleteTunnel: (String) -> Unit,
     modifier: Modifier = Modifier,
     bottomContentPadding: Dp = 0.dp,
+    onRequestCreateTunnel: () -> Unit = {},
 ) {
     val editingTunnel = remember(editingTunnelId, tunnels) {
         tunnels.firstOrNull { it.id == editingTunnelId }
@@ -105,10 +106,14 @@ fun TunnelsScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "添加后的隧道都可以继续编辑或删除。",
+                        text = "添加后的隧道都可以继续编辑或删除。可先从粘贴配置开始，也可以手动填写参数。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = onRequestCreateTunnel) {
+                        Text("添加第一个隧道")
+                    }
                 }
             }
         } else {
