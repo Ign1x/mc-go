@@ -44,6 +44,19 @@ class TunnelsScreenContractTest {
         assertThat(screenBodySource).contains("pendingDeleteTunnel = null")
     }
 
+    @Test
+    fun tunnelDeletionShowsSuccessFeedbackAfterProfileRemoval() {
+        val deleteHandlerSource = appSource
+            .substringAfter("onDeleteTunnel = { tunnelId ->")
+            .substringBefore("                        modifier = Modifier.fillMaxSize(),")
+
+        assertThat(deleteHandlerSource).contains("val targetTunnel = tunnels.firstOrNull { it.id == tunnelId } ?: return@TunnelsScreen")
+        assertThat(deleteHandlerSource).contains("onTunnelsChangeAndPersist(updatedTunnels)")
+        assertThat(deleteHandlerSource).contains("snackbarHostState.showSnackbar(\"已删除隧道 \${targetTunnel.name}\")")
+        assertThat(deleteHandlerSource.indexOf("onTunnelsChangeAndPersist(updatedTunnels)"))
+            .isLessThan(deleteHandlerSource.indexOf("snackbarHostState.showSnackbar(\"已删除隧道"))
+    }
+
     private fun readSource(relativePath: String): String =
         String(Files.readAllBytes(projectRoot().resolve(relativePath)))
 

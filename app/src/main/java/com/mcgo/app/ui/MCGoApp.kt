@@ -1601,6 +1601,7 @@ private fun MCGoAppScaffold(
                             showTunnelComposer = true
                         },
                         onDeleteTunnel = { tunnelId ->
+                            val targetTunnel = tunnels.firstOrNull { it.id == tunnelId } ?: return@TunnelsScreen
                             val inUseServers = servers.filter { it.usesTunnel(tunnelId) && it.isRuntimeBusy() }
                             if (inUseServers.isNotEmpty()) {
                                 inUseServers.forEach { runningServer ->
@@ -1616,6 +1617,7 @@ private fun MCGoAppScaffold(
                             val updatedServers = detachDeletedTunnel(servers, tunnelId)
                             onServersChange(updatedServers)
                             syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+                            scope.launch { snackbarHostState.showSnackbar("已删除隧道 ${targetTunnel.name}") }
                         },
                         modifier = Modifier.fillMaxSize(),
                         bottomContentPadding = bottomContentPadding,
