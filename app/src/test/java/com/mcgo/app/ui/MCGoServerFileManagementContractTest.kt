@@ -44,11 +44,11 @@ class MCGoServerFileManagementContractTest {
         assertThat(appSource).contains("installManagedServerModFile(")
         assertThat(appSource).contains("importManagedServerModpackArchive(")
         assertThat(appSource).doesNotContain("runManagedServerSetupScriptIfNeeded(")
-        assertThat(appSource).contains("findManagedServerSetupScript(workDir)")
+        assertThat(appSource).contains("discoverManagedServerSetupScripts(workDir)")
         assertThat(appSource).contains("requiresManagedServerSetupApproval(workDir)")
-        assertThat(appSource).contains("approveManagedServerSetupScript(workspaceAccess.path)")
-        assertThat(appSource).contains("整合包包含安装脚本")
-        assertThat(appSource).contains("请先确认执行整合包安装脚本")
+        assertThat(appSource).contains("approveManagedServerSetupScript(workspaceAccess.path, selectedScriptRelativePath)")
+        assertThat(appSource).contains("请输入要执行的服务器目录相对路径")
+        assertThat(appSource).contains("脚本 stdout/stderr")
     }
 
     @Test
@@ -66,7 +66,7 @@ class MCGoServerFileManagementContractTest {
         assertThat(appSource).contains("if (recovery.keepServerEntry)")
         assertThat(appSource).contains("recoveredImportedServer")
         assertThat(appSource).contains("markModpackImportRecoveredAfterSyncFailure(")
-        assertThat(appSource).contains("containsInstallerBootstrap = isInstallerBootstrapScript(")
+        assertThat(appSource).contains("val containsInstallerBootstrap = isInstallerBootstrapScript(")
         assertThat(appSource).contains("确认整合包安装脚本后同步服务器目录失败")
     }
 

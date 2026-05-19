@@ -211,6 +211,16 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun serviceControlFlow_appendsDebugMarkersForStopAndConsoleCommands() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+
+        assertThat(source).contains("\"停止请求已接收\"")
+        assertThat(source).contains("\"控制台指令已提交\"")
+        assertThat(source).contains("\"控制台指令发送失败\"")
+        assertThat(source).doesNotContain("commandPreview")
+    }
+
+    @Test
     fun runtimeMonitorEventStatus_prefersStoppingOverRunningOrLaunching() {
         assertThat(runtimeMonitorEventStatus(runtimeRunning = false, stopRequested = false))
             .isEqualTo(PaperServerEventStatus.Launching)

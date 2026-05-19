@@ -34,6 +34,27 @@ class MCGoSettingsHelpContractTest {
     }
 
     @Test
+    fun helpAndDebugScreen_showsRecentLogsPreviewAndRefreshAction() {
+        assertThat(settingsScreenSource).contains("recentLogPreview: String")
+        assertThat(settingsScreenSource).contains("onRefreshRecentLogs: () -> Unit")
+        assertThat(settingsScreenSource).contains("text = \"最近日志\"")
+        assertThat(settingsScreenSource).contains("Text(\"刷新日志\")")
+        assertThat(settingsScreenSource).contains("recentLogPreview.ifBlank")
+        assertThat(settingsScreenSource).contains("最近还没有日志")
+        assertThat(appSource).contains("readRecentDebugLogPreview(")
+        assertThat(appSource).contains("appendMcGoAppDebugLog(")
+        assertThat(appSource).contains("\"打开帮助与调试页面\"")
+    }
+
+    @Test
+    fun appDebugLog_recordsStartAndDirectoryEvents() {
+        assertThat(appSource).contains("\"提交服务器启动\"")
+        assertThat(appSource).contains("\"服务器启动任务已派发\"")
+        assertThat(appSource).contains("\"服务器目录已授权\"")
+        assertThat(appSource).contains("\"整合包脚本已确认\"")
+    }
+
+    @Test
     fun logExport_usesFileProviderAndSystemShareSheet() {
         val debugExportSource = readSource("app/src/main/java/com/mcgo/app/ui/DebugLogExport.kt")
         val settingsExportCallback = appSource.substringAfter("onExportLogs = {").substringBefore("                        },")

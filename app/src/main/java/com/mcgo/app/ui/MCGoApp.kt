@@ -16,11 +16,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -31,6 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -61,6 +64,7 @@ import com.mcgo.app.server.PaperServerEvents
 import com.mcgo.app.server.PaperServerService
 import com.mcgo.app.server.activePaperRuntimeSlots
 import com.mcgo.app.server.allocateRuntimeSlot
+import com.mcgo.app.server.appendMcGoAppDebugLog
 import com.mcgo.app.server.authorizedServerProfilesAvailable
 import com.mcgo.app.server.managedPaperServerIconFile
 import com.mcgo.app.server.deleteJavaRuntime
@@ -86,9 +90,11 @@ import com.mcgo.app.server.importManagedServerWorldArchive
 import com.mcgo.app.server.isInstallerBootstrapScript
 import com.mcgo.app.server.installManagedServerModFile
 import com.mcgo.app.server.approveManagedServerSetupScript
-import com.mcgo.app.server.findManagedServerSetupScript
+import com.mcgo.app.server.discoverManagedServerSetupScripts
 import com.mcgo.app.server.detectImportedModpackServerMetadata
 import com.mcgo.app.server.managedServerTargetJarPath
+import com.mcgo.app.server.resolveManagedServerSetupScript
+import com.mcgo.app.server.readRecentDebugLogPreview
 import com.mcgo.app.server.writeManagedServerPayloadSha
 import com.mcgo.app.server.managedPaperServerLogFile
 import com.mcgo.app.server.ManagedServerWorkspaceMode
@@ -186,15 +192,21 @@ private data class PendingManagedRuntimeStart(
 private data class PendingModpackSetupApproval(
     val request: PendingStartRequest,
     val serverName: String,
-    val scriptName: String,
+    val defaultScriptRelativePath: String,
+    val scriptCandidates: List<String>,
     val workspaceMode: ManagedServerWorkspaceMode,
-    val containsInstallerBootstrap: Boolean = false,
 )
 
 private data class PendingCreateServerFromModpack(
     val server: ServerCardState,
     val archiveUri: Uri,
 )
+
+private fun managedSetupScriptRelativePath(serverWorkDir: Path, script: Path): String =
+    serverWorkDir.toAbsolutePath().normalize()
+        .relativize(script.toAbsolutePath().normalize())
+        .toString()
+        .replace('\\', '/')
 
 private enum class PendingServerDirectoryAction {
     StartServer,
@@ -422,6 +434,31 @@ private fun MCGoAppScaffold(
     val chrome = McGoPageChrome.forPage(destination.page)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var recentLogPreview by remember { mutableStateOf("") }
+    fun refreshRecentLogPreview() {
+        scope.launch {
+            recentLogPreview = withContext(Dispatchers.IO) {
+                appendMcGoAppDebugLog(
+                    filesDir = appContext.filesDir.toPath(),
+                    message = "刷新最近日志",
+                    details = mapOf("source" to "help_debug"),
+                )
+                readRecentDebugLogPreview(appContext.filesDir.toPath())
+            }
+        }
+    }
+    LaunchedEffect(settingsDestination) {
+        if (settingsDestination == SettingsDestination.HelpAndDebug) {
+            recentLogPreview = withContext(Dispatchers.IO) {
+                appendMcGoAppDebugLog(
+                    filesDir = appContext.filesDir.toPath(),
+                    message = "打开帮助与调试页面",
+                    details = mapOf("destination" to settingsDestination.name),
+                )
+                readRecentDebugLogPreview(appContext.filesDir.toPath())
+            }
+        }
+    }
     val unavailableMessage = stringResource(R.string.snackbar_unavailable_action)
     val notifyUnavailableFeature: () -> Unit = remember(scope, snackbarHostState, unavailableMessage) {
         {
@@ -553,6 +590,13 @@ private fun MCGoAppScaffold(
             }
             persistServerDirectoryUri(uri)
             scope.launch {
+                withContext(Dispatchers.IO) {
+                    appendMcGoAppDebugLog(
+                        filesDir = appContext.filesDir.toPath(),
+                        message = "服务器目录已授权",
+                        details = mapOf("pendingAction" to pendingServerDirectoryAction?.name),
+                    )
+                }
                 val restoredServers = withContext(Dispatchers.IO) {
                     val authorizedProfilesAvailable = authorizedServerProfilesAvailable(appContext, serverDirectoryUriText)
                     if (authorizedProfilesAvailable) {
@@ -680,6 +724,18 @@ private fun MCGoAppScaffold(
             pendingStartServerIds = pendingStartServerIds + request.serverId
             try {
                 val filesDir = appContext.filesDir.toPath()
+                withContext(Dispatchers.IO) {
+                    appendMcGoAppDebugLog(
+                        filesDir = filesDir,
+                        message = "提交服务器启动",
+                        details = mapOf(
+                            "serverId" to request.serverId,
+                            "serverName" to initialTargetServer.name,
+                            "startupPort" to request.startupPort,
+                            "tunnelSelectionCount" to request.tunnelSelections.size,
+                        ),
+                    )
+                }
                 val workspaceAccess = runCatching {
                     withContext(Dispatchers.IO) {
                         prepareManagedServerWorkspaceAccess(
@@ -755,12 +811,14 @@ private fun MCGoAppScaffold(
                 val currentTunnels = latestTunnels
                 val pendingSetupScript = requiresManagedServerSetupApproval(workDir)
                 if (pendingSetupScript != null) {
+                    val setupScriptCandidates = discoverManagedServerSetupScripts(workDir)
+                        .map { script -> managedSetupScriptRelativePath(workDir, script) }
                     pendingModpackSetupApproval = PendingModpackSetupApproval(
                         request = request,
                         serverName = targetServer.name,
-                        scriptName = pendingSetupScript.fileName.toString(),
+                        defaultScriptRelativePath = managedSetupScriptRelativePath(workDir, pendingSetupScript),
+                        scriptCandidates = setupScriptCandidates,
                         workspaceMode = workspaceMode,
-                        containsInstallerBootstrap = isInstallerBootstrapScript(pendingSetupScript, workDir),
                     )
                     return@launch
                 }
@@ -877,6 +935,18 @@ private fun MCGoAppScaffold(
                         workspacePath = workDir.toString(),
                         workspaceMode = workspaceMode,
                     )
+                    withContext(Dispatchers.IO) {
+                        appendMcGoAppDebugLog(
+                            filesDir = filesDir,
+                            message = "服务器启动任务已派发",
+                            details = mapOf(
+                                "serverId" to request.serverId,
+                                "runtimeSlot" to allocatedSlot,
+                                "workspaceMode" to workspaceMode.name,
+                                "tunnelCount" to selectedTunnelsWithPorts.size,
+                            ),
+                        )
+                    }
                 }
                 snackbarHostState.showSnackbar(
                     if (selectedTunnelsWithPorts.isNotEmpty()) {
@@ -1087,6 +1157,13 @@ private fun MCGoAppScaffold(
                     }
                 }
                 pendingModpackSetupApproval?.let { pendingApproval ->
+                    var setupScriptInput by rememberSaveable(
+                        pendingApproval.request.serverId,
+                        pendingApproval.defaultScriptRelativePath,
+                    ) { mutableStateOf("") }
+                    val candidateScriptSummary = pendingApproval.scriptCandidates
+                        .take(6)
+                        .joinToString("、")
                     AlertDialog(
                         onDismissRequest = {
                             scope.launch {
@@ -1109,14 +1186,33 @@ private fun MCGoAppScaffold(
                                 }
                             }
                         },
-                        title = { Text("执行整合包安装脚本？") },
+                        title = { Text("输入整合包启动脚本") },
                         text = {
-                            Text("${pendingApproval.serverName} 检测到整合包安装脚本 ${pendingApproval.scriptName}。确认后立即执行安装脚本，并继续启动服务器。")
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("${pendingApproval.serverName} 包含可执行脚本。MC-GO 不再猜测脚本名称，请输入要执行的服务器目录相对路径。")
+                                if (candidateScriptSummary.isNotBlank()) {
+                                    Text("可选脚本：$candidateScriptSummary")
+                                }
+                                OutlinedTextField(
+                                    value = setupScriptInput,
+                                    onValueChange = { setupScriptInput = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text("脚本相对路径") },
+                                    placeholder = { Text("例如：run.sh 或 pack scripts/start.sh") },
+                                )
+                                Text("确认后会执行该脚本；脚本 stdout/stderr 会实时写入服务器运行日志，并显示在启动进度中。")
+                            }
                         },
                         confirmButton = {
                             TextButton(
                                 onClick = {
                                     scope.launch {
+                                        val selectedScriptRelativePath = setupScriptInput.trim()
+                                        if (selectedScriptRelativePath.isBlank()) {
+                                            snackbarHostState.showSnackbar("请输入整合包启动脚本相对路径")
+                                            return@launch
+                                        }
                                         runCatching {
                                             withContext(Dispatchers.IO) {
                                                 val filesDir = appContext.filesDir.toPath()
@@ -1126,12 +1222,26 @@ private fun MCGoAppScaffold(
                                                     filesDir = filesDir,
                                                     serverId = pendingApproval.request.serverId,
                                                 )
-                                                approveManagedServerSetupScript(workspaceAccess.path)
+                                                val approvedScript = resolveManagedServerSetupScript(
+                                                    workspaceAccess.path,
+                                                    selectedScriptRelativePath,
+                                                )
+                                                approveManagedServerSetupScript(workspaceAccess.path, selectedScriptRelativePath)
+                                                appendMcGoAppDebugLog(
+                                                    filesDir = filesDir,
+                                                    message = "整合包脚本已确认",
+                                                    details = mapOf(
+                                                        "serverId" to pendingApproval.request.serverId,
+                                                        "script" to selectedScriptRelativePath,
+                                                        "workspaceMode" to workspaceAccess.mode.name,
+                                                    ),
+                                                )
+                                                val containsInstallerBootstrap = isInstallerBootstrapScript(approvedScript, workspaceAccess.path)
                                                 if (
                                                     workspaceAccess.mode.shouldSyncBack &&
                                                     shouldSyncImportedModpackWorkspaceImmediately(
                                                         workspaceMode = workspaceAccess.mode,
-                                                        containsInstallerBootstrap = pendingApproval.containsInstallerBootstrap,
+                                                        containsInstallerBootstrap = containsInstallerBootstrap,
                                                     )
                                                 ) {
                                                     check(
@@ -1278,7 +1388,8 @@ private fun MCGoAppScaffold(
                                                     minecraftVersion = metadata.minecraftVersion,
                                                 )
                                                 writeManagedServerPayloadSha(workDir, detectedTargetJar)
-                                                val setupScriptName = findManagedServerSetupScript(workDir)?.fileName?.toString()
+                                                val setupScriptNames = discoverManagedServerSetupScripts(workDir)
+                                                    .map { script -> managedSetupScriptRelativePath(workDir, script) }
                                                 val updatedServer = server.copy(
                                                     edition = "${metadata.serverType.label} ${metadata.minecraftVersion}",
                                                     serverType = metadata.serverType,
@@ -1291,7 +1402,7 @@ private fun MCGoAppScaffold(
                                                 operationSucceeded = true
                                                 val shouldSyncImportedWorkspaceImmediately = shouldSyncImportedModpackWorkspaceImmediately(
                                                     workspaceMode = workspaceAccess.mode,
-                                                    containsInstallerBootstrap = setupScriptName != null,
+                                                    containsInstallerBootstrap = setupScriptNames.isNotEmpty(),
                                                 )
                                                 if (workspaceAccess.mode.shouldSyncBack && shouldSyncImportedWorkspaceImmediately) {
                                                     updateImportProgress(96, "正在同步整合包到已授权目录")
@@ -1306,7 +1417,7 @@ private fun MCGoAppScaffold(
                                                     ) { "同步服务器目录到已授权位置失败" }
                                                 }
                                                 updateImportProgress(100, "整合包导入完成")
-                                                Pair(updatedServer, setupScriptName)
+                                                Pair(updatedServer, setupScriptNames)
                                             } finally {
                                                 if (!operationSucceeded && workspaceAccess.mode.shouldSyncBack && !importCompleted) {
                                                     deleteManagedServerWorkspaceFromPrivateDirectory(filesDir, server.id)
@@ -1316,14 +1427,18 @@ private fun MCGoAppScaffold(
                                             Files.deleteIfExists(tempPack)
                                         }
                                     }
-                                }.onSuccess { (updatedServer, setupScriptName) ->
+                                }.onSuccess { (updatedServer, setupScriptNames) ->
                                     val updatedServers = latestServers.filterNot { it.id == server.id } + updatedServer
                                     onServersChange(updatedServers)
                                     syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
                                     showServerComposer = false
                                     pendingCreateServerFromModpack = null
                                     currentModpackImportServerIds = currentModpackImportServerIds - server.id
-                                    val suffix = if (setupScriptName != null) "；整合包包含安装脚本 ${setupScriptName}，请先确认执行整合包安装脚本后再启动" else ""
+                                    val suffix = if (setupScriptNames.isNotEmpty()) {
+                                        "；整合包包含可执行脚本 ${setupScriptNames.take(3).joinToString("、")}，启动时请输入要执行的脚本相对路径"
+                                    } else {
+                                        ""
+                                    }
                                     snackbarHostState.showSnackbar("已导入整合包并创建 ${updatedServer.name}${suffix}")
                                 }.onFailure {
                                     val errorMessage = it.message ?: "未知错误"
@@ -1544,6 +1659,8 @@ private fun MCGoAppScaffold(
                         onInstallJavaArchive = onInstallJavaArchive,
                         onDeleteJava = onDeleteJava,
                         serverDirectoryUri = serverDirectoryUriText,
+                        recentLogPreview = recentLogPreview,
+                        onRefreshRecentLogs = ::refreshRecentLogPreview,
                         settingsDestination = settingsDestination,
                         onSettingsDestinationChange = { settingsDestination = it },
                         onRequestServerDirectory = {

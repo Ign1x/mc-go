@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.content.FileProvider
+import com.mcgo.app.server.appendMcGoAppDebugLog
 import com.mcgo.app.server.buildManagedServerDebugLogLine
+import com.mcgo.app.server.mcGoAppDebugLogFile
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -20,6 +22,11 @@ internal fun exportDebugLogs(context: Context): Intent {
     Files.createDirectories(exportDir)
     val exportFile = exportDir.resolve("mcgo_debug_logs-$timestamp.txt")
     val filesDir = context.filesDir.toPath()
+    appendMcGoAppDebugLog(
+        filesDir = filesDir,
+        message = "导出调试日志",
+        details = mapOf("versionName" to com.mcgo.app.BuildConfig.VERSION_NAME, "versionCode" to com.mcgo.app.BuildConfig.VERSION_CODE),
+    )
     val sections = buildList {
         add("== mcgo debug export ==")
         add("generatedAt=$timestamp")
@@ -36,6 +43,7 @@ internal fun exportDebugLogs(context: Context): Intent {
             |
             """.trimMargin(),
         )
+        add(readLogExportSection("logs/mcgo-debug.log", mcGoAppDebugLogFile(filesDir)))
         add(readLogExportSection("server_profiles.properties", filesDir.resolve("server_profiles.properties")))
         add(readLogExportSection("tunnel_profiles.properties", filesDir.resolve("tunnel_profiles.properties")))
         add(readLogExportSection("appearance_preferences.properties", filesDir.resolve("appearance_preferences.properties")))

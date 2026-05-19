@@ -9,6 +9,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.time.LocalDateTime
@@ -1061,15 +1062,72 @@ private fun shouldImportModpackDirectlyIntoTarget(serverWorkDir: Path): Boolean 
     return Files.list(serverWorkDir).use { children -> !children.findAny().isPresent }
 }
 
+private fun isManagedServerRegularFile(path: Path): Boolean =
+    Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path)
+
+internal fun discoverManagedServerSetupScripts(serverWorkDir: Path): List<Path> {
+    if (!Files.isDirectory(serverWorkDir, LinkOption.NOFOLLOW_LINKS)) return emptyList()
+    return Files.walk(serverWorkDir, 3).use { paths ->
+        paths
+            .filter { path -> isManagedServerRegularFile(path) }
+            .filter { path -> isManagedServerSetupScriptCandidate(path, serverWorkDir) }
+            .sorted(compareBy<Path> { serverWorkDir.relativize(it).toString().replace('\\', '/') })
+            .iterator()
+            .asSequence()
+            .toList()
+    }
+}
+
 internal fun findManagedServerSetupScript(serverWorkDir: Path): Path? =
-    listOf("server-setup.sh", "setup.sh", "install.sh")
-        .map(serverWorkDir::resolve)
-        .firstOrNull { Files.isRegularFile(it) }
-        ?: serverWorkDir.resolve("startserver.sh")
-            .takeIf { Files.isRegularFile(it) && isInstallerBootstrapScript(it, serverWorkDir) }
+    discoverManagedServerSetupScripts(serverWorkDir).firstOrNull()
+
+internal fun resolveManagedServerSetupScript(serverWorkDir: Path, scriptRelativePath: String): Path {
+    val normalizedWorkDir = serverWorkDir.toAbsolutePath().normalize()
+    val requestedRelativePath = scriptRelativePath.trim().replace('\\', '/')
+    require(requestedRelativePath.isNotBlank()) { "整合包安装脚本路径不能为空" }
+    require(!serverWorkDir.fileSystem.getPath(requestedRelativePath).isAbsolute) { "整合包安装脚本路径必须是服务器目录内的相对路径" }
+    require(
+        requestedRelativePath.split('/').none { segment -> segment.isBlank() || segment == "." || segment == ".." },
+    ) { "整合包安装脚本路径不能包含空目录、. 或 .." }
+    val script = normalizedWorkDir.resolve(requestedRelativePath).normalize()
+    require(script.startsWith(normalizedWorkDir)) { "整合包安装脚本路径不能越界" }
+    require(!hasSymbolicLinkComponent(normalizedWorkDir, requestedRelativePath)) { "整合包安装脚本路径不能包含符号链接" }
+    require(isManagedServerRegularFile(script)) { "整合包安装脚本不存在：$requestedRelativePath" }
+    require(isManagedServerSetupScriptCandidate(script, normalizedWorkDir)) { "不是可识别的整合包安装脚本：$requestedRelativePath" }
+    return script
+}
+
+private fun hasSymbolicLinkComponent(baseDir: Path, relativePath: String): Boolean {
+    var current = baseDir
+    relativePath.split('/').forEach { segment ->
+        current = current.resolve(segment).normalize()
+        if (Files.isSymbolicLink(current)) return true
+    }
+    return false
+}
+
+private fun isManagedServerSetupScriptCandidate(script: Path, serverWorkDir: Path): Boolean {
+    if (!isManagedServerRegularFile(script)) return false
+    val relativeName = serverWorkDir.toAbsolutePath().normalize()
+        .relativize(script.toAbsolutePath().normalize())
+        .toString()
+        .replace('\\', '/')
+    if (relativeName.substringAfterLast('/') in ReservedManagedServerImportEntries) return false
+    val fileName = script.fileName.toString()
+    if (fileName.startsWith(".mcgo-") || fileName.contains(".mcgo-android-")) return false
+    if (fileName.endsWith(".sh", ignoreCase = true)) return true
+    val contentPrefix = runCatching {
+        Files.newInputStream(script).use { input ->
+            val buffer = ByteArray(512)
+            val read = input.read(buffer)
+            if (read <= 0) "" else String(buffer, 0, read)
+        }
+    }.getOrDefault("")
+    return contentPrefix.startsWith("#!") && contentPrefix.contains("sh", ignoreCase = true)
+}
 
 internal fun isInstallerBootstrapScript(script: Path, serverWorkDir: Path): Boolean {
-    if (!Files.isRegularFile(script)) return false
+    if (!isManagedServerRegularFile(script)) return false
     val content = runCatching { String(Files.readAllBytes(script)) }.getOrDefault("")
     if (!content.contains("-installServer", ignoreCase = true)) return false
     if (!content.contains("installer", ignoreCase = true) && !content.contains("libraries", ignoreCase = true)) return false
@@ -1130,23 +1188,42 @@ private fun readManagedServerSetupApprovalRecord(serverWorkDir: Path): ManagedSe
     return ManagedServerSetupApprovalRecord(relativePath, sha256)
 }
 
+internal fun approvedManagedServerSetupScript(serverWorkDir: Path): Path? {
+    val approval = readManagedServerSetupApprovalRecord(serverWorkDir) ?: return null
+    val script = runCatching {
+        resolveManagedServerSetupScript(serverWorkDir, approval.scriptRelativePath)
+    }.getOrNull() ?: return null
+    return script.takeIf { approval.scriptSha256 == sha256Hex(it) }
+}
+
 private fun matchesManagedServerSetupApproval(serverWorkDir: Path, script: Path): Boolean {
     val approval = readManagedServerSetupApprovalRecord(serverWorkDir) ?: return false
-    val relativePath = serverWorkDir.relativize(script).toString().replace('\\', '/')
+    val relativePath = serverWorkDir.toAbsolutePath().normalize()
+        .relativize(script.toAbsolutePath().normalize())
+        .toString()
+        .replace('\\', '/')
     return approval.scriptRelativePath == relativePath && approval.scriptSha256 == sha256Hex(script)
 }
 
 internal fun requiresManagedServerSetupApproval(serverWorkDir: Path): Path? {
-    val script = findManagedServerSetupScript(serverWorkDir) ?: return null
     if (Files.isRegularFile(managedServerSetupCompletionMarker(serverWorkDir))) return null
-    if (matchesManagedServerSetupApproval(serverWorkDir, script)) return null
-    return script
+    readManagedServerSetupApprovalRecord(serverWorkDir)?.let { approval ->
+        val script = runCatching {
+            resolveManagedServerSetupScript(serverWorkDir, approval.scriptRelativePath)
+        }.getOrNull()
+        if (script != null) {
+            return script.takeUnless { matchesManagedServerSetupApproval(serverWorkDir, it) }
+        }
+    }
+    return discoverManagedServerSetupScripts(serverWorkDir).firstOrNull()
 }
 
-internal fun approveManagedServerSetupScript(serverWorkDir: Path) {
-    val script = findManagedServerSetupScript(serverWorkDir)
-        ?: error("未找到可执行的整合包安装脚本")
-    val relativePath = serverWorkDir.relativize(script).toString().replace('\\', '/')
+internal fun approveManagedServerSetupScript(serverWorkDir: Path, scriptRelativePath: String) {
+    val script = resolveManagedServerSetupScript(serverWorkDir, scriptRelativePath)
+    val relativePath = serverWorkDir.toAbsolutePath().normalize()
+        .relativize(script.toAbsolutePath().normalize())
+        .toString()
+        .replace('\\', '/')
     Files.write(
         managedServerSetupApprovalMarker(serverWorkDir),
         "$relativePath\n${sha256Hex(script)}\n".toByteArray(),
@@ -1177,12 +1254,16 @@ fun runManagedServerSetupScriptIfNeeded(
             java.nio.file.StandardOpenOption.APPEND,
         )
     }
-    val script = findManagedServerSetupScript(serverWorkDir) ?: return false
     val marker = managedServerSetupCompletionMarker(serverWorkDir)
     if (Files.isRegularFile(marker)) return false
-    check(matchesManagedServerSetupApproval(serverWorkDir, script)) {
-        "检测到整合包安装脚本 ${script.fileName}，请先确认执行整合包安装脚本后再启动"
-    }
+    val script = approvedManagedServerSetupScript(serverWorkDir)
+        ?: discoverManagedServerSetupScripts(serverWorkDir).firstOrNull()?.let { detectedScript ->
+            check(matchesManagedServerSetupApproval(serverWorkDir, detectedScript)) {
+                "检测到整合包安装脚本 ${serverWorkDir.toAbsolutePath().normalize().relativize(detectedScript.toAbsolutePath().normalize()).toString().replace('\\', '/')}，请先输入并确认整合包安装脚本后再启动"
+            }
+            detectedScript
+        }
+        ?: return false
     script.toFile().setExecutable(true, false)
     val baseEnvironment = environment.associate { entry ->
         val separator = entry.indexOf('=')

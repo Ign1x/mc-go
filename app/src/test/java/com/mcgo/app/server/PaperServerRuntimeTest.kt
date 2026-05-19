@@ -13,6 +13,7 @@ import com.mcgo.app.ui.model.createPurpurServer
 import com.mcgo.app.ui.model.createQuiltServer
 import com.mcgo.app.ui.model.createVanillaServer
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.Test
@@ -362,7 +363,7 @@ class PaperServerRuntimeTest {
         assertThat(Files.exists(targetDir.resolve(".mcgo-modpack-setup-approved"))).isFalse()
         assertThat(Files.exists(targetDir.resolve(".mcgo-modpack-setup-complete"))).isFalse()
         assertThat(requiresManagedServerSetupApproval(targetDir)?.fileName?.toString()).isEqualTo("setup.sh")
-        approveManagedServerSetupScript(targetDir)
+        approveManagedServerSetupScript(targetDir, "setup.sh")
         assertThat(requiresManagedServerSetupApproval(targetDir)).isNull()
     }
 
@@ -404,20 +405,82 @@ class PaperServerRuntimeTest {
     }
 
     @Test
-    fun findManagedServerSetupScript_onlyTreatsOneTimeSetupScriptsAsInstallers() {
-        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-detect")
-        Files.write(targetDir.resolve("run.sh"), "#!/system/bin/sh\n".toByteArray())
-        Files.write(targetDir.resolve("start.sh"), "#!/system/bin/sh\n".toByteArray())
-        Files.write(targetDir.resolve("setup.sh"), "#!/system/bin/sh\n".toByteArray())
+    fun managedServerSetupScriptSelection_doesNotUseHardcodedScriptNameAllowList() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
 
-        assertThat(findManagedServerSetupScript(targetDir)).isEqualTo(targetDir.resolve("setup.sh"))
+        assertThat(source).doesNotContain("listOf(\"server-setup.sh\", \"setup.sh\", \"install.sh\")")
+        assertThat(source).doesNotContain("resolve(\"startserver.sh\")")
+        assertThat(source).contains("fun discoverManagedServerSetupScripts(")
+        assertThat(source).contains("fun resolveManagedServerSetupScript(")
+        assertThat(source).contains("scriptRelativePath: String")
     }
 
     @Test
-    fun findManagedServerSetupScript_recognizesCurseforgeStyleStartserverInstallerScripts() {
-        val targetDir = Files.createTempDirectory("mcgo-modpack-startserver-detect")
+    fun approveManagedServerSetupScript_usesUserProvidedRelativePathInsteadOfNameGuessing() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-user-script")
+        Files.write(targetDir.resolve("setup.sh"), "#!/bin/sh\necho wrong > selected-script.txt\n".toByteArray())
+        val customScript = targetDir.resolve("pack scripts/run custom.sh")
+        Files.createDirectories(customScript.parent)
         Files.write(
-            targetDir.resolve("startserver.sh"),
+            customScript,
+            "#!/bin/sh\necho selected-custom\necho custom > selected-script.txt\necho payload > server.jar\n".toByteArray(),
+        )
+        customScript.toFile().setExecutable(true, false)
+
+        approveManagedServerSetupScript(targetDir, "pack scripts/run custom.sh")
+        val observedLines = mutableListOf<String>()
+        val executed = runManagedServerSetupScriptIfNeeded(
+            serverWorkDir = targetDir,
+            shellBinary = "/bin/sh",
+            onOutputLine = { line -> observedLines += line },
+        )
+
+        assertThat(executed).isTrue()
+        assertThat(requiresManagedServerSetupApproval(targetDir)).isNull()
+        assertThat(String(Files.readAllBytes(targetDir.resolve("selected-script.txt"))).trim()).isEqualTo("custom")
+        assertThat(observedLines).contains("selected-custom")
+    }
+
+    @Test
+    fun approveManagedServerSetupScript_rejectsEscapingUserProvidedPath() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-user-script-escape")
+        Files.write(targetDir.resolve("setup.sh"), "#!/bin/sh\necho ok\n".toByteArray())
+
+        assertFailsWith<IllegalArgumentException> {
+            approveManagedServerSetupScript(targetDir, "../setup.sh")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            approveManagedServerSetupScript(targetDir, "/tmp/setup.sh")
+        }
+    }
+
+    @Test
+    fun approveManagedServerSetupScript_rejectsSymlinkUserProvidedPath() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-user-script-link")
+        val outsideScript = Files.createTempFile("mcgo-outside-setup", ".sh")
+        Files.write(outsideScript, "#!/bin/sh\necho escaped\n".toByteArray())
+        val linkedScript = targetDir.resolve("linked.sh")
+        Files.createSymbolicLink(linkedScript, outsideScript)
+        val outsideDir = Files.createTempDirectory("mcgo-outside-setup-dir")
+        Files.write(outsideDir.resolve("nested.sh"), "#!/bin/sh\necho escaped dir\n".toByteArray())
+        Files.createSymbolicLink(targetDir.resolve("linked-dir"), outsideDir)
+
+        assertFailsWith<IllegalArgumentException> {
+            approveManagedServerSetupScript(targetDir, "linked.sh")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            approveManagedServerSetupScript(targetDir, "linked-dir/nested.sh")
+        }
+        assertThat(discoverManagedServerSetupScripts(targetDir)).isEmpty()
+    }
+
+    @Test
+    fun discoverManagedServerSetupScripts_recognizesUserNamedInstallerBootstrapScripts() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-startserver-detect")
+        val script = targetDir.resolve("pack-scripts/bootstrap-server")
+        Files.createDirectories(script.parent)
+        Files.write(
+            script,
             """#!/bin/sh
 INSTALLER="neoforge-21.1.224-installer.jar"
 if [ ! -d libraries ]; then
@@ -427,7 +490,8 @@ fi
         )
         Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
 
-        assertThat(findManagedServerSetupScript(targetDir)).isEqualTo(targetDir.resolve("startserver.sh"))
+        assertThat(discoverManagedServerSetupScripts(targetDir)).contains(script)
+        assertThat(isInstallerBootstrapScript(script, targetDir)).isTrue()
     }
 
     @Test
@@ -439,7 +503,7 @@ fi
             "#!/bin/sh\nif [ -f setup-count.txt ]; then\n  echo 2 > setup-count.txt\nelse\n  echo 1 > setup-count.txt\nfi\necho payload > server.jar\n".toByteArray(),
         )
         script.toFile().setExecutable(true, false)
-        approveManagedServerSetupScript(targetDir)
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
 
         val firstRun = runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
         val secondRun = runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
@@ -456,22 +520,23 @@ fi
         val targetDir = Files.createTempDirectory("mcgo-modpack-setup-stale")
         val script = targetDir.resolve("setup.sh")
         Files.write(script, "#!/bin/sh\necho first\n".toByteArray())
-        approveManagedServerSetupScript(targetDir)
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
         Files.write(script, "#!/bin/sh\necho second\n".toByteArray())
 
         assertThat(requiresManagedServerSetupApproval(targetDir)).isEqualTo(script)
     }
 
     @Test
-    fun requiresManagedServerSetupApproval_rejectsApprovalWhenHigherPriorityScriptAppears() {
-        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-priority")
+    fun requiresManagedServerSetupApproval_rechecksTheUserSelectedScriptWhenContentsChange() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-selected-stale")
         val setup = targetDir.resolve("setup.sh")
         Files.write(setup, "#!/bin/sh\necho setup\n".toByteArray())
-        approveManagedServerSetupScript(targetDir)
-        val higherPriority = targetDir.resolve("server-setup.sh")
-        Files.write(higherPriority, "#!/bin/sh\necho priority\n".toByteArray())
+        val customScript = targetDir.resolve("custom-start.sh")
+        Files.write(customScript, "#!/bin/sh\necho custom first\n".toByteArray())
+        approveManagedServerSetupScript(targetDir, customScript.fileName.toString())
+        Files.write(customScript, "#!/bin/sh\necho custom second\n".toByteArray())
 
-        assertThat(requiresManagedServerSetupApproval(targetDir)).isEqualTo(higherPriority)
+        assertThat(requiresManagedServerSetupApproval(targetDir)).isEqualTo(customScript)
     }
 
     @Test
@@ -488,7 +553,7 @@ fi
             runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
         }
 
-        assertThat(error).hasMessageThat().contains("请先确认执行整合包安装脚本")
+        assertThat(error).hasMessageThat().contains("请先输入并确认整合包安装脚本")
         assertThat(Files.exists(targetDir.resolve("setup-count.txt"))).isFalse()
         assertThat(Files.exists(targetDir.resolve(".mcgo-modpack-setup-complete"))).isFalse()
     }
@@ -509,7 +574,7 @@ exit 0
         )
         Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
         script.toFile().setExecutable(true, false)
-        approveManagedServerSetupScript(targetDir)
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
 
         val executed = runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
 
@@ -527,7 +592,7 @@ exit 0
             "#!/bin/sh\necho install-step-1\necho install-step-2\necho payload > server.jar\n".toByteArray(),
         )
         script.toFile().setExecutable(true, false)
-        approveManagedServerSetupScript(targetDir)
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
         val logFile = targetDir.resolve("logs/mcgo-latest.log")
         val observedLines = mutableListOf<String>()
 
@@ -564,7 +629,7 @@ exit 0
         )
         Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
         script.toFile().setExecutable(true, false)
-        approveManagedServerSetupScript(targetDir)
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
 
         runManagedServerSetupScriptIfNeeded(
             serverWorkDir = targetDir,
@@ -596,7 +661,7 @@ exit 0
         )
         Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
         script.toFile().setExecutable(true, false)
-        approveManagedServerSetupScript(targetDir)
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
 
         runManagedServerSetupScriptIfNeeded(
             serverWorkDir = targetDir,
@@ -1238,4 +1303,9 @@ fi
         }
         return jarPath
     }
+
+    private fun projectRoot(): Path =
+        generateSequence(Path.of(".").toAbsolutePath().normalize()) { it.parent }
+            .firstOrNull { Files.exists(it.resolve("app/build.gradle.kts")) }
+            ?: error("project root not found")
 }

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Tune
@@ -89,6 +90,8 @@ fun SettingsScreen(
     onServerDirectorySelected: (Uri?) -> Unit = {},
     onRequestServerDirectory: () -> Unit = {},
     onExportLogs: () -> Unit = {},
+    recentLogPreview: String = "",
+    onRefreshRecentLogs: () -> Unit = {},
     modifier: Modifier = Modifier,
     bottomContentPadding: Dp = 0.dp,
     settingsDestination: SettingsDestination = SettingsDestination.Overview,
@@ -236,6 +239,8 @@ fun SettingsScreen(
             section = helpAndDebugSection,
             onNavigateBack = { onSettingsDestinationChange(navigationState.navigateBack().destination) },
             onExportLogs = onExportLogs,
+            recentLogPreview = recentLogPreview,
+            onRefreshRecentLogs = onRefreshRecentLogs,
         )
     }
 }
@@ -441,6 +446,8 @@ private fun HelpAndDebugDetailScreen(
     section: SettingsSectionState,
     onNavigateBack: () -> Unit,
     onExportLogs: () -> Unit,
+    recentLogPreview: String,
+    onRefreshRecentLogs: () -> Unit,
     modifier: Modifier = Modifier,
     bottomContentPadding: Dp = 0.dp,
 ) {
@@ -463,6 +470,8 @@ private fun HelpAndDebugDetailScreen(
         item {
             HelpAndDebugCard(
                 onExportLogs = onExportLogs,
+                recentLogPreview = recentLogPreview,
+                onRefreshRecentLogs = onRefreshRecentLogs,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
@@ -473,6 +482,8 @@ private fun HelpAndDebugDetailScreen(
 @Composable
 private fun HelpAndDebugCard(
     onExportLogs: () -> Unit,
+    recentLogPreview: String,
+    onRefreshRecentLogs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = screenTextColors(LocalMcGoVisualTokens.current)
@@ -558,6 +569,40 @@ private fun HelpAndDebugCard(
                 )
                 Text(
                     text = "默认会自动隐藏隧道凭据、原始隧道配置和目录授权 URI；如仍涉及服务器名、连接地址或异常栈，请分享前自行再检查一遍。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(14.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "最近日志",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = colors.primary,
+                    )
+                    TextButton(onClick = onRefreshRecentLogs) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("刷新日志")
+                    }
+                }
+                Text(
+                    text = recentLogPreview.ifBlank { "最近还没有日志，启动/停止服务器或导出日志后会在这里显示。" },
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.secondary,
                 )

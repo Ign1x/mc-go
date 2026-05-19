@@ -261,7 +261,7 @@ open class PaperServerService : Service() {
                         },
                     )
                     if (setupScriptExecuted) {
-                        if (findManagedServerSetupScript(runtimeContext.workingDirectory)?.let { script ->
+                        if (approvedManagedServerSetupScript(runtimeContext.workingDirectory)?.let { script ->
                                 isInstallerBootstrapScript(script, runtimeContext.workingDirectory)
                             } == true
                         ) {
@@ -501,6 +501,15 @@ open class PaperServerService : Service() {
             stopSelf()
             return
         }
+        appendRuntimeDebugLog(
+            serverId,
+            "停止请求已接收",
+            mapOf(
+                "requestedServerId" to requestedServerId,
+                "runtimeLaunchSubmitted" to runtimeLaunchSubmitted,
+                "runtimeRunning" to runtimeRunning,
+            ),
+        )
         stopRequested = true
         publish(serverId, PaperServerEventStatus.Stopping, 0, stopRequestMessage())
         stopSignalDelivered = if (runtimeLaunchSubmitted) {
@@ -543,12 +552,19 @@ open class PaperServerService : Service() {
         }
         val serverId = currentServerId ?: requestedServerId ?: return
         if (rawCommand.isBlank()) {
+            appendRuntimeDebugLog(serverId, "控制台指令发送失败", mapOf("reason" to "blank"))
             publishEvent(PaperServerEvent(serverId, null, null, "控制台指令不能为空"))
             return
         }
         if (PaperJvmLauncher.submitCommand(rawCommand + "\n")) {
+            appendRuntimeDebugLog(
+                serverId,
+                "控制台指令已提交",
+                mapOf("commandLength" to rawCommand.length),
+            )
             publish(serverId, runtimeMonitorEventStatus(runtimeRunning = runtimeRunning, stopRequested = stopRequested), if (runtimeRunning && !stopRequested) 100 else null, runtimeCommandMessage(rawCommand))
         } else {
+            appendRuntimeDebugLog(serverId, "控制台指令发送失败", mapOf("reason" to "stdin_not_ready"))
             publishEvent(PaperServerEvent(serverId, null, null, "当前服务器进程尚未接收标准输入，请稍后再试"))
         }
     }
@@ -668,6 +684,16 @@ open class PaperServerService : Service() {
         logTailJob = null
         portMonitorJob = null
         workspaceSyncJob = null
+    }
+
+    private fun appendRuntimeDebugLog(serverId: String, message: String, details: Map<String, Any?> = emptyMap()) {
+        runCatching {
+            appendManagedServerDebugLog(
+                managedPaperServerLogFile(filesDir.toPath(), serverId),
+                message,
+                details,
+            )
+        }
     }
 
     private fun publish(serverId: String, status: PaperServerEventStatus, progress: Int?, message: String) {
