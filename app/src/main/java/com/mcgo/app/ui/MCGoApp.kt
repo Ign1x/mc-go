@@ -16,29 +16,24 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -117,7 +112,6 @@ import com.mcgo.app.server.scanInstalledJavaVersions
 import com.mcgo.app.server.stopRequestMessage
 import com.mcgo.app.server.syncManagedServerWorkspaceToAuthorizedDirectory
 import com.mcgo.app.server.syncServerProfilesToAuthorizedDirectory
-import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.status.DevicePerformanceMonitor
 import com.mcgo.app.status.rememberStatusDashboardState
 
@@ -1157,15 +1151,68 @@ private fun MCGoAppScaffold(
                     }
                 }
                 pendingModpackSetupApproval?.let { pendingApproval ->
-                    var setupScriptInput by rememberSaveable(
-                        pendingApproval.request.serverId,
-                        pendingApproval.defaultScriptRelativePath,
-                    ) { mutableStateOf("") }
-                    val candidateScriptSummary = pendingApproval.scriptCandidates
-                        .take(6)
-                        .joinToString("、")
-                    AlertDialog(
-                        onDismissRequest = {
+                    ModpackSetupApprovalDialog(
+                        serverName = pendingApproval.serverName,
+                        defaultScriptRelativePath = pendingApproval.defaultScriptRelativePath,
+                        scriptCandidates = pendingApproval.scriptCandidates,
+                        onConfirm = { selectedScriptRelativePath ->
+                            scope.launch {
+                                if (selectedScriptRelativePath.isBlank()) {
+                                    snackbarHostState.showSnackbar("请输入整合包启动脚本相对路径")
+                                    return@launch
+                                }
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        val filesDir = appContext.filesDir.toPath()
+                                        val workspaceAccess = prepareManagedServerWorkspaceAccess(
+                                            context = appContext,
+                                            authorizedDirectoryUri = serverDirectoryUriText,
+                                            filesDir = filesDir,
+                                            serverId = pendingApproval.request.serverId,
+                                        )
+                                        val approvedScript = resolveManagedServerSetupScript(
+                                            workspaceAccess.path,
+                                            selectedScriptRelativePath,
+                                        )
+                                        approveManagedServerSetupScript(workspaceAccess.path, selectedScriptRelativePath)
+                                        appendMcGoAppDebugLog(
+                                            filesDir = filesDir,
+                                            message = "整合包脚本已确认",
+                                            details = mapOf(
+                                                "serverId" to pendingApproval.request.serverId,
+                                                "script" to selectedScriptRelativePath,
+                                                "workspaceMode" to workspaceAccess.mode.name,
+                                            ),
+                                        )
+                                        val containsInstallerBootstrap = isInstallerBootstrapScript(approvedScript, workspaceAccess.path)
+                                        if (
+                                            workspaceAccess.mode.shouldSyncBack &&
+                                            shouldSyncImportedModpackWorkspaceImmediately(
+                                                workspaceMode = workspaceAccess.mode,
+                                                containsInstallerBootstrap = containsInstallerBootstrap,
+                                            )
+                                        ) {
+                                            check(
+                                                releaseManagedServerWorkspaceAfterForegroundAccess(
+                                                    context = appContext,
+                                                    authorizedDirectoryUri = serverDirectoryUriText,
+                                                    filesDir = filesDir,
+                                                    serverId = pendingApproval.request.serverId,
+                                                    workspaceMode = workspaceAccess.mode,
+                                                ),
+                                            ) { "确认整合包安装脚本后同步服务器目录失败" }
+                                        }
+                                    }
+                                }.onSuccess {
+                                    pendingModpackSetupApproval = null
+                                    snackbarHostState.showSnackbar("已确认安装脚本并继续启动")
+                                    startServerNow(pendingApproval.request)
+                                }.onFailure {
+                                    snackbarHostState.showSnackbar(it.message ?: "确认整合包安装脚本失败")
+                                }
+                            }
+                        },
+                        onDismiss = {
                             scope.launch {
                                 try {
                                     withContext(Dispatchers.IO) {
@@ -1184,113 +1231,6 @@ private fun MCGoAppScaffold(
                                 } finally {
                                     pendingModpackSetupApproval = null
                                 }
-                            }
-                        },
-                        title = { Text("输入整合包启动脚本") },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text("${pendingApproval.serverName} 包含可执行脚本。MC-GO 不再猜测脚本名称，请输入要执行的服务器目录相对路径。")
-                                if (candidateScriptSummary.isNotBlank()) {
-                                    Text("可选脚本：$candidateScriptSummary")
-                                }
-                                OutlinedTextField(
-                                    value = setupScriptInput,
-                                    onValueChange = { setupScriptInput = it },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    label = { Text("脚本相对路径") },
-                                    placeholder = { Text("例如：run.sh 或 pack scripts/start.sh") },
-                                )
-                                Text("确认后会执行该脚本；脚本 stdout/stderr 会实时写入服务器运行日志，并显示在启动进度中。")
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    scope.launch {
-                                        val selectedScriptRelativePath = setupScriptInput.trim()
-                                        if (selectedScriptRelativePath.isBlank()) {
-                                            snackbarHostState.showSnackbar("请输入整合包启动脚本相对路径")
-                                            return@launch
-                                        }
-                                        runCatching {
-                                            withContext(Dispatchers.IO) {
-                                                val filesDir = appContext.filesDir.toPath()
-                                                val workspaceAccess = prepareManagedServerWorkspaceAccess(
-                                                    context = appContext,
-                                                    authorizedDirectoryUri = serverDirectoryUriText,
-                                                    filesDir = filesDir,
-                                                    serverId = pendingApproval.request.serverId,
-                                                )
-                                                val approvedScript = resolveManagedServerSetupScript(
-                                                    workspaceAccess.path,
-                                                    selectedScriptRelativePath,
-                                                )
-                                                approveManagedServerSetupScript(workspaceAccess.path, selectedScriptRelativePath)
-                                                appendMcGoAppDebugLog(
-                                                    filesDir = filesDir,
-                                                    message = "整合包脚本已确认",
-                                                    details = mapOf(
-                                                        "serverId" to pendingApproval.request.serverId,
-                                                        "script" to selectedScriptRelativePath,
-                                                        "workspaceMode" to workspaceAccess.mode.name,
-                                                    ),
-                                                )
-                                                val containsInstallerBootstrap = isInstallerBootstrapScript(approvedScript, workspaceAccess.path)
-                                                if (
-                                                    workspaceAccess.mode.shouldSyncBack &&
-                                                    shouldSyncImportedModpackWorkspaceImmediately(
-                                                        workspaceMode = workspaceAccess.mode,
-                                                        containsInstallerBootstrap = containsInstallerBootstrap,
-                                                    )
-                                                ) {
-                                                    check(
-                                                        releaseManagedServerWorkspaceAfterForegroundAccess(
-                                                            context = appContext,
-                                                            authorizedDirectoryUri = serverDirectoryUriText,
-                                                            filesDir = filesDir,
-                                                            serverId = pendingApproval.request.serverId,
-                                                            workspaceMode = workspaceAccess.mode,
-                                                        ),
-                                                    ) { "确认整合包安装脚本后同步服务器目录失败" }
-                                                }
-                                            }
-                                        }.onSuccess {
-                                            pendingModpackSetupApproval = null
-                                            snackbarHostState.showSnackbar("已确认安装脚本并继续启动")
-                                            startServerNow(pendingApproval.request)
-                                        }.onFailure {
-                                            snackbarHostState.showSnackbar(it.message ?: "确认整合包安装脚本失败")
-                                        }
-                                    }
-                                },
-                            ) {
-                                Text("确认安装并启动")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    try {
-                                        withContext(Dispatchers.IO) {
-                                            check(
-                                                discardManagedServerWorkspaceAfterForegroundAccess(
-                                                    context = appContext,
-                                                    authorizedDirectoryUri = serverDirectoryUriText,
-                                                    filesDir = appContext.filesDir.toPath(),
-                                                    serverId = pendingApproval.request.serverId,
-                                                    workspaceMode = pendingApproval.workspaceMode,
-                                                ),
-                                            ) { "清理临时服务器目录失败" }
-                                        }
-                                    } catch (cleanupError: Throwable) {
-                                        snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败")
-                                    } finally {
-                                        pendingModpackSetupApproval = null
-                                    }
-                                }
-                            }) {
-                                Text("取消")
                             }
                         },
                     )

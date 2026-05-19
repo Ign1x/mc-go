@@ -9,6 +9,7 @@ class MCGoServerFileManagementContractTest {
     private val appSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
     private val serverConsoleDialogSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ServerConsoleDialog.kt")))
     private val serversScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/ServersScreen.kt")))
+    private val modpackSetupDialogSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ModpackSetupApprovalDialog.kt")))
     private val modelSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/model/McGoUiModels.kt")))
     private val eventSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerEvents.kt")))
     private val archiveSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerWorldArchive.kt")))
@@ -47,8 +48,8 @@ class MCGoServerFileManagementContractTest {
         assertThat(appSource).contains("discoverManagedServerSetupScripts(workDir)")
         assertThat(appSource).contains("requiresManagedServerSetupApproval(workDir)")
         assertThat(appSource).contains("approveManagedServerSetupScript(workspaceAccess.path, selectedScriptRelativePath)")
-        assertThat(appSource).contains("请输入要执行的服务器目录相对路径")
-        assertThat(appSource).contains("脚本 stdout/stderr")
+        assertThat(modpackSetupDialogSource).contains("请输入要执行的服务器目录相对路径")
+        assertThat(modpackSetupDialogSource).contains("脚本 stdout/stderr")
     }
 
     @Test
@@ -77,7 +78,8 @@ class MCGoServerFileManagementContractTest {
             .substringBefore("AnimatedContent(targetState = destination, label = \"appDestination\")")
 
         assertThat(approvalDialogSource).doesNotContain("安装完成后，请再次点击启动服务器")
-        assertThat(approvalDialogSource).contains("Text(\"确认安装并启动\")")
+        assertThat(approvalDialogSource).contains("ModpackSetupApprovalDialog(")
+        assertThat(modpackSetupDialogSource).contains("Text(\"确认安装并启动\")")
         assertThat(approvalDialogSource).contains("startServerNow(pendingApproval.request)")
         assertThat(approvalDialogSource).contains("已确认安装脚本并继续启动")
     }
