@@ -198,7 +198,8 @@ internal fun CreateServerDialog(
                 enabled = canCreate,
                 onClick = {
                     if (pendingModpackImportUri != null) {
-                        onCreateFromModpack(modpackPreviewServer.copy(name = name), pendingModpackImportUri!!)
+                        val modpackImportUri = pendingModpackImportUri ?: return@TextButton
+                        onCreateFromModpack(modpackPreviewServer.copy(name = name), modpackImportUri)
                         pendingModpackImportUri = null
                         onDismiss()
                     } else {

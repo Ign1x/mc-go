@@ -1275,52 +1275,59 @@ fun runManagedServerSetupScriptIfNeeded(
             put("ATM10_RESTART", "false")
         }
     }
-    val effectiveScript = rewriteManagedInstallerBootstrapScriptForAndroid(script, scriptEnvironment) ?: script
-    appendSetupDebugLine(
-        "准备执行整合包安装脚本",
-        mapOf(
-            "script" to script.fileName,
-            "effectiveScript" to effectiveScript.fileName,
-            "workingDirectory" to serverWorkDir,
-            "environmentSize" to scriptEnvironment.size,
-        ),
-    )
-    Files.createDirectories(logFile.parent)
-    val process = ProcessBuilder(shellBinary, effectiveScript.toString())
-        .directory(serverWorkDir.toFile())
-        .redirectErrorStream(true)
-        .apply {
-            environment().putAll(scriptEnvironment)
-        }
-        .start()
-    Files.newOutputStream(
-        logFile,
-        java.nio.file.StandardOpenOption.CREATE,
-        java.nio.file.StandardOpenOption.APPEND,
-    ).bufferedWriter().use { logWriter ->
-        process.inputStream.bufferedReader().useLines { lines ->
-            lines.forEach { rawLine ->
-                val line = rawLine.trimEnd()
-                if (line.isBlank()) return@forEach
-                logWriter.appendLine(line)
-                logWriter.flush()
-                onOutputLine?.invoke(line)
+    val generatedBootstrapScript = rewriteManagedInstallerBootstrapScriptForAndroid(script, scriptEnvironment)
+    val effectiveScript = generatedBootstrapScript ?: script
+    try {
+        appendSetupDebugLine(
+            "准备执行整合包安装脚本",
+            mapOf(
+                "script" to script.fileName,
+                "effectiveScript" to effectiveScript.fileName,
+                "workingDirectory" to serverWorkDir,
+                "environmentSize" to scriptEnvironment.size,
+            ),
+        )
+        Files.createDirectories(logFile.parent)
+        val process = ProcessBuilder(shellBinary, effectiveScript.toString())
+            .directory(serverWorkDir.toFile())
+            .redirectErrorStream(true)
+            .apply {
+                environment().putAll(scriptEnvironment)
+            }
+            .start()
+        Files.newOutputStream(
+            logFile,
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.APPEND,
+        ).bufferedWriter().use { logWriter ->
+            process.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach { rawLine ->
+                    val line = rawLine.trimEnd()
+                    if (line.isBlank()) return@forEach
+                    logWriter.appendLine(line)
+                    logWriter.flush()
+                    onOutputLine?.invoke(line)
+                }
             }
         }
+        val exitCode = process.waitFor()
+        appendSetupDebugLine(
+            "整合包安装脚本执行完成",
+            mapOf(
+                "script" to script.fileName,
+                "exitCode" to exitCode,
+                "targetJar" to targetJar.fileName,
+            ),
+        )
+        require(exitCode == 0) { "整合包安装脚本执行失败：${script.fileName} (exit=$exitCode)" }
+        writeManagedServerPayloadSha(serverWorkDir, targetJar)
+        Files.write(marker, "done\n".toByteArray())
+        return true
+    } finally {
+        if (generatedBootstrapScript != null) {
+            runCatching { Files.deleteIfExists(generatedBootstrapScript) }
+        }
     }
-    val exitCode = process.waitFor()
-    appendSetupDebugLine(
-        "整合包安装脚本执行完成",
-        mapOf(
-            "script" to script.fileName,
-            "exitCode" to exitCode,
-            "targetJar" to targetJar.fileName,
-        ),
-    )
-    require(exitCode == 0) { "整合包安装脚本执行失败：${script.fileName} (exit=$exitCode)" }
-    writeManagedServerPayloadSha(serverWorkDir, targetJar)
-    Files.write(marker, "done\n".toByteArray())
-    return true
 }
 
 fun installManagedServerModFile(

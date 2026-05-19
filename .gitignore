@@ -7,5 +7,6 @@
 /captures/
 /dist/
 /tmp/
+/artifacts/
 /share/
 .DS_Store

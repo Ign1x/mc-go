@@ -682,6 +682,57 @@ exit 0
         assertThat(envText).contains("-Dmcgo.paperJvmLauncher.absoluteLibPath=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so")
         assertThat(envText).contains("/system/bin com.mcgo.app.server.ManagedJavaCli /data/user/0/com.mcgo.app/files/jre/java-21 -jar neoforge-21.1.224-installer.jar -installServer")
         assertThat(envText).doesNotContain("missing-java")
+        val generatedBootstrapScripts = Files.list(targetDir).use { children ->
+            children
+                .map { child -> child.fileName.toString() }
+                .filter { name -> name.contains(".mcgo-android-") }
+                .toList()
+        }
+        assertThat(generatedBootstrapScripts).isEmpty()
+    }
+
+    @Test
+    fun runManagedServerSetupScriptIfNeeded_deletesGeneratedBootstrapScriptWhenProcessStartFails() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-java-wrapper-start-fail")
+        val script = targetDir.resolve("startserver.sh")
+        Files.write(
+            script,
+            """#!/bin/sh
+# bootstrap neoforge installer -installServer
+if ! command -v "${'$'}{ATM10_JAVA:-java}" >/dev/null 2>&1; then
+  exit 9
+fi
+"${'$'}{ATM10_JAVA:-java}" -jar neoforge-21.1.224-installer.jar -installServer > install-java.txt
+exit 0
+""".toByteArray(),
+        )
+        Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
+        script.toFile().setExecutable(true, false)
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
+
+        assertFailsWith<java.io.IOException> {
+            runManagedServerSetupScriptIfNeeded(
+                serverWorkDir = targetDir,
+                shellBinary = "/definitely/missing/sh",
+                environment = listOf(
+                    "CLASSPATH=/data/app/com.mcgo.app/base.apk",
+                    "JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21",
+                    "MCGO_JAVA_APP_PROCESS=/bin/echo",
+                    "MCGO_JAVA_MAIN_CLASS=com.mcgo.app.server.ManagedJavaCli",
+                    "MCGO_JAVA_CLASSPATH=/data/app/com.mcgo.app/base.apk",
+                    "MCGO_JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21",
+                    "MCGO_JAVA_NATIVE_LAUNCHER_LIB=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so",
+                    "PATH=/system/bin",
+                ),
+            )
+        }
+        val generatedBootstrapScripts = Files.list(targetDir).use { children ->
+            children
+                .map { child -> child.fileName.toString() }
+                .filter { name -> name.contains(".mcgo-android-") }
+                .toList()
+        }
+        assertThat(generatedBootstrapScripts).isEmpty()
     }
 
     @Test
