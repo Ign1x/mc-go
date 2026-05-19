@@ -1201,6 +1201,29 @@ fi
     }
 
     @Test
+    fun launchCompatibilityHelpers_liveInDedicatedHelperFile() {
+        val runtimeSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
+        val compatibilitySource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerLaunchCompatibility.kt")))
+
+        listOf(
+            "fun requireManagedJavaHome(",
+            "fun buildPaperJvmArguments(",
+            "fun detectServerJnaVersion(",
+            "fun isBundledAndroidJnaCompatibleWithServerJar(",
+            "fun validateBundledAndroidJnaCompatibility(",
+            "fun validateBundledAndroidJnaCompatibilityForLaunchTarget(",
+        ).forEach { oldDefinition -> assertThat(runtimeSource).doesNotContain(oldDefinition) }
+        assertThat(compatibilitySource).contains("isBundledAndroidJnaCompatibleWithServerJar(targetJar)")
+        assertThat(compatibilitySource).contains("fun shouldReusePaperJar(targetJar: Path): Boolean")
+        assertThat(compatibilitySource).contains("fun shouldReuseInstalledServerPayload(serverWorkDir: Path, targetJar: Path): Boolean")
+        assertThat(compatibilitySource).contains("private const val BundledAndroidJnaVersion")
+        assertThat(compatibilitySource).contains("fun buildPaperJvmArguments(server: ServerCardState, javaHome: Path? = null): List<String>")
+        assertThat(compatibilitySource).contains("-DPaper.IgnoreJavaVersion=true")
+        assertThat(compatibilitySource).contains("META-INF/libraries.list")
+        assertThat(compatibilitySource).contains("JNA ${'$'}serverJnaVersion")
+    }
+
+    @Test
     fun validateBundledAndroidJnaCompatibilityForLaunchTarget_usesResolvedPayloadJar() {
         val serverWorkDir = Files.createTempDirectory("mcgo-jna-payload")
         val marker = serverWorkDir.resolve("forge-1.21.4.jar")
