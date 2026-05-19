@@ -7,6 +7,8 @@ import com.mcgo.app.server.buildServerProperties
 import com.mcgo.app.server.reducePaperRuntimeEvent
 import com.mcgo.app.ui.ImageDecoderTargetSize
 import com.mcgo.app.ui.calculateImageDecoderTargetSize
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 
 class ServerModelsTest {
@@ -311,6 +313,28 @@ class ServerModelsTest {
         assertThat(edited.difficulty).isEqualTo(PaperDifficulty.Peaceful)
         assertThat(edited.onlineMode).isFalse()
         assertThat(edited.pvpEnabled).isFalse()
+    }
+
+    @Test
+    fun serverPropertiesEditorHelpers_liveInDedicatedModelFile() {
+        val modelSource = readSource("app/src/main/java/com/mcgo/app/ui/model/McGoUiModels.kt")
+        val editorSource = readSource("app/src/main/java/com/mcgo/app/ui/model/ServerPropertiesEditorModel.kt")
+
+        listOf(
+            "fun buildPaperServerPropertiesEditorText(",
+            "private data class ServerPropertyTemplateEntry(",
+            "private fun documentedServerPropertiesTemplate(",
+            "fun sanitizeAdvancedServerPropertiesOverride(",
+            "fun parsePaperServerPropertiesEditorText(",
+            "private fun managedEditorPropertyMap(",
+            "private val ManagedEditorPropertyKeys",
+        ).forEach { oldDefinition -> assertThat(modelSource).doesNotContain(oldDefinition) }
+        assertThat(editorSource).contains("fun buildPaperServerPropertiesEditorText(server: ServerCardState): String")
+        assertThat(editorSource).contains("private fun documentedServerPropertiesTemplate(server: ServerCardState)")
+        assertThat(editorSource).contains("fun parsePaperServerPropertiesEditorText(server: ServerCardState, text: String): ServerCardState")
+        assertThat(editorSource).contains("management-server-tls-enabled")
+        assertThat(editorSource).contains("ManagedEditorPropertyKeys")
+        assertThat(editorSource).contains("parsePaperDifficulty(")
     }
 
     @Test
@@ -874,6 +898,14 @@ class ServerModelsTest {
         val missing = server.copy(runtimeLogPath = logFile.resolveSibling("missing.log").toString())
         assertThat(resolveServerConsoleText(missing)).isEqualTo("fallback-1\nfallback-2")
     }
+
+    private fun readSource(relativePath: String): String =
+        String(Files.readAllBytes(projectRoot().resolve(relativePath)))
+
+    private fun projectRoot(): Path =
+        generateSequence(Path.of(".").toAbsolutePath().normalize()) { it.parent }
+            .firstOrNull { Files.exists(it.resolve("app/build.gradle.kts")) }
+            ?: error("project root not found")
 
     private fun parsePropertyMap(text: String): Map<String, String> = text
         .lineSequence()
