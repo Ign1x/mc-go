@@ -360,7 +360,7 @@ private fun ServerDirectoryDetailScreen(
                     text = if (serverDirectoryUri != null) {
                         "当前已连接外部服务器目录。清除应用数据后，也可以从这里直接重新选择同一目录，把以前的服务器数据接回来。"
                     } else {
-                        "这里可以直接设置服务器目录，不需要先新建服务器。清除应用数据后，也可以从这里重新选择之前的目录。"
+                        "这里可以直接设置服务器目录，不需要先新建服务器。首次使用会引导授权目录，默认建议选择内部存储根目录的 MCGO 文件夹；之后也可以从这里改。"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.secondary,

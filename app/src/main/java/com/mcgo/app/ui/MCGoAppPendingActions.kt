@@ -25,6 +25,10 @@ internal data class PendingModpackSetupApproval(
     val workspaceMode: ManagedServerWorkspaceMode,
 )
 
+internal data class PendingCreateServer(
+    val server: ServerCardState,
+)
+
 internal data class PendingCreateServerFromModpack(
     val server: ServerCardState,
     val archiveUri: Uri,
@@ -37,6 +41,9 @@ internal fun managedSetupScriptRelativePath(serverWorkDir: Path, script: Path): 
         .replace('\\', '/')
 
 internal enum class PendingServerDirectoryAction {
+    InitialSetup,
+    CreateServer,
+    CreateServerFromModpack,
     StartServer,
     OpenConsole,
     EditServer,

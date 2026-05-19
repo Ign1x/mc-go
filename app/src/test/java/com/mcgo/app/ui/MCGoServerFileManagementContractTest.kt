@@ -147,6 +147,7 @@ class MCGoServerFileManagementContractTest {
             "private data class PendingStartRequest(",
             "private data class PendingManagedRuntimeStart(",
             "private data class PendingModpackSetupApproval(",
+            "private data class PendingCreateServer(",
             "private data class PendingCreateServerFromModpack(",
             "private fun managedSetupScriptRelativePath(",
             "private enum class PendingServerDirectoryAction",
@@ -161,10 +162,45 @@ class MCGoServerFileManagementContractTest {
         assertThat(appPendingActionsSource).contains("internal data class PendingManagedRuntimeStart(")
         assertThat(appPendingActionsSource).contains("internal data class PendingModpackSetupApproval(")
         assertThat(appPendingActionsSource).contains("val workspaceMode: ManagedServerWorkspaceMode")
+        assertThat(appPendingActionsSource).contains("internal data class PendingCreateServer(")
         assertThat(appPendingActionsSource).contains("internal data class PendingCreateServerFromModpack(")
         assertThat(appPendingActionsSource).contains("internal fun managedSetupScriptRelativePath(")
         assertThat(appPendingActionsSource).contains("replace('\\\\', '/')")
         assertThat(appPendingActionsSource).contains("internal enum class PendingServerDirectoryAction")
+    }
+
+    @Test
+    fun serverCreationWaitsForDirectoryAuthorizationAndThenResumes() {
+        val createServerSource = appSource
+            .substringAfter("onCreateServer = { server ->")
+            .substringBefore("onCreateServerFromModpack = { server, archiveUri ->")
+        val modpackCreateSource = appSource
+            .substringAfter("onCreateServerFromModpack = { server, archiveUri ->")
+            .substringBefore("onImportWorldArchive = { serverId, archiveUri ->")
+        val queuedCreateSource = appSource
+            .substringAfter("val queuedCreateServer = pendingCreateServer")
+            .substringBefore("LaunchedEffect(installedJavaVersions, pendingManagedRuntimeStarts)")
+        val queuedStartSource = appSource
+            .substringAfter("val queuedStartRequest = pendingStartRequest")
+            .substringBefore("val queuedCreateServer = pendingCreateServer")
+
+        assertThat(appSource).contains("var pendingCreateServer by remember { mutableStateOf<PendingCreateServer?>(null) }")
+        assertThat(appSource).contains("var serverDirectoryGrantProcessing by remember { mutableStateOf(false) }")
+        assertThat(appSource).contains("fun createServerNow(server: ServerCardState)")
+        assertThat(appSource).contains("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri)")
+        assertThat(createServerSource).contains("pendingCreateServer = PendingCreateServer(server)")
+        assertThat(createServerSource).contains("requestServerDirectory(PendingServerDirectoryAction.CreateServer)")
+        assertThat(createServerSource).contains("if (serverDirectoryGrantProcessing)")
+        assertThat(createServerSource).doesNotContain("requestServerDirectory(PendingServerDirectoryAction.InitialSetup)")
+        assertThat(modpackCreateSource).contains("pendingCreateServerFromModpack = PendingCreateServerFromModpack(server, archiveUri)")
+        assertThat(modpackCreateSource).contains("requestServerDirectory(PendingServerDirectoryAction.CreateServerFromModpack)")
+        assertThat(modpackCreateSource).contains("if (serverDirectoryGrantProcessing)")
+        assertThat(modpackCreateSource).doesNotContain("requestServerDirectory(PendingServerDirectoryAction.InitialSetup)")
+        assertThat(queuedCreateSource).contains("createServerNow(queuedCreateServer.server)")
+        assertThat(queuedStartSource).contains("!serverDirectoryGrantProcessing")
+        assertThat(queuedCreateSource).contains("createServerFromModpackNow(queuedModpackCreate.server, queuedModpackCreate.archiveUri)")
+        assertThat(queuedCreateSource).contains("!serverDirectoryGrantProcessing")
+        assertThat(queuedCreateSource).contains("showServerComposer = true")
     }
 
     @Test

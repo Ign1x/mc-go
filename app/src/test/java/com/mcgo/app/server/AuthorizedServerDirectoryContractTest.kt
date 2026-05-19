@@ -55,6 +55,33 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(authorizedSyncSource).contains("clearManagedServerWorkspace(")
     }
 
+    @Test
+    fun modpackImport_usesSafDirectExtractionForAuthorizedDocumentTreeInsteadOfPrivateMirrorCopy() {
+        val importSlice = appSource.substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest)")
+        val callbackSlice = appSource.substringAfter("onCreateServerFromModpack = { server, archiveUri ->")
+            .substringBefore("onImportWorldArchive = { serverId, archiveUri ->")
+
+        assertThat(authorizedSyncSource).contains("fun importManagedServerModpackArchiveToAuthorizedDirectory(")
+        assertThat(authorizedSyncSource).contains("ZipInputStream(BufferedInputStream(archiveInput))")
+        assertThat(authorizedSyncSource).contains("createFile(\"application/octet-stream\"")
+        assertThat(authorizedSyncSource).contains("writeAuthorizedManagedServerWorkspaceReady(")
+        assertThat(authorizedSyncSource).contains("deleteManagedServerWorkspaceFromAuthorizedDirectory(")
+        assertThat(authorizedSyncSource).contains("check(existing.delete()) { \"删除授权目录旧文件失败")
+        assertThat(authorizedSyncSource).contains("return parent.createFile(\"application/octet-stream\", fileName)")
+        assertThat(authorizedSyncSource).doesNotContain("return parent.findFile(fileName)")
+        assertThat(importSlice).contains("resolveAuthorizedServersRootPath(appContext, serverDirectoryUriText) == null")
+        assertThat(importSlice).contains("appContext.contentResolver.openInputStream(archiveUri)?.use { input ->")
+        assertThat(importSlice).contains("importManagedServerModpackArchiveToAuthorizedDirectory(")
+        assertThat(importSlice).contains("importedWorkspaceMode = ManagedServerWorkspaceMode.DirectExternal")
+        assertThat(importSlice).doesNotContain("importedWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror\n                                            val directImport")
+        assertThat(callbackSlice).contains("createServerFromModpackNow(server, archiveUri)")
+        assertThat(authorizedSyncSource).contains("正在解压整合包到授权目录")
+        assertThat(importSlice.indexOf("importManagedServerModpackArchiveToAuthorizedDirectory(")).isLessThan(
+            importSlice.indexOf("Files.createTempFile(\"mcgo-modpack-\", \".zip\")"),
+        )
+    }
+
     private fun projectRoot(): Path =
         generateSequence(Path.of(".").toAbsolutePath().normalize()) { it.parent }
             .firstOrNull { Files.exists(it.resolve("app/build.gradle.kts")) }

@@ -86,14 +86,14 @@ fun defaultRuntimePermissionState(
             item(
                 id = "server-directory",
                 title = "服务器目录",
-                description = "授权后用于持久保存服务器实例数据、导入、备份和编辑服务器文件。",
+                description = "首次使用必须授权服务器目录；默认建议选择内部存储根目录的 MCGO 文件夹，用于持久保存服务器实例数据、导入、备份和编辑服务器文件。",
                 granted = serverDirectorySelected,
-                required = false,
+                required = true,
                 actionWhenMissing = "授权",
                 detail = if (serverDirectorySelected) {
                     serverDirectoryUri?.let { "已持久授权：$it" } ?: "已持久授权服务器工作目录"
                 } else {
-                    "卸载 App 后重新授权同一目录，仍可找回服务器数据。"
+                    "默认选择内部存储根目录的 MCGO 文件夹；卸载 App 后重新授权同一目录，仍可找回服务器数据。"
                 },
             ),
             item(

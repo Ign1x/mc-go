@@ -6,9 +6,14 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.mcgo.app.ui.storage.ServerProfileStoreGlobalLock
+import java.io.BufferedInputStream
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+import java.util.Locale
+import java.util.zip.ZipInputStream
 
 private const val AuthorizedServerProfilesFileName = "server_profiles.properties"
 private const val AuthorizedServersDirectoryName = "servers"
@@ -84,6 +89,237 @@ internal fun shouldPersistManagedServerWorkspaceAfterLaunchAttempt(
     runtimeLaunchSubmitted: Boolean,
     completedInstallerBootstrapOnly: Boolean = false,
 ): Boolean = workspaceMode.shouldSyncBack && (runtimeLaunchSubmitted || completedInstallerBootstrapOnly)
+
+internal data class AuthorizedModpackImportResult(
+    val metadata: ImportedModpackServerMetadata,
+    val setupScriptNames: List<String>,
+)
+
+private data class AuthorizedModpackExtractionResult(
+    val entryNames: List<String>,
+    val sha256ByEntryName: Map<String, String>,
+    val setupScriptNames: List<String>,
+)
+
+internal fun importManagedServerModpackArchiveToAuthorizedDirectory(
+    context: Context,
+    authorizedDirectoryUri: String?,
+    serverId: String,
+    archiveInput: InputStream,
+    onProgress: ((Int, String) -> Unit)? = null,
+): AuthorizedModpackImportResult {
+    fun reportProgress(progress: Int, message: String) {
+        runCatching { onProgress?.invoke(progress.coerceIn(1, 100), message) }
+    }
+
+    val targetServerDir = authorizedManagedServerWorkspaceDocumentFile(
+        context = context,
+        authorizedDirectoryUri = authorizedDirectoryUri,
+        serverId = serverId,
+    ) ?: error("服务器目录未授权，请先选择并授权 MCGO 目录")
+
+    return try {
+        clearDocumentFileChildren(targetServerDir)
+        reportProgress(5, "正在解压整合包到授权目录")
+        val extraction = unzipManagedServerArchiveToDocumentTree(
+            context = context,
+            archiveInput = archiveInput,
+            targetServerDir = targetServerDir,
+        )
+        val metadata = detectImportedModpackServerMetadataFromEntryNames(extraction.entryNames)
+        val targetJarFileName = managedServerTargetJarFileName(
+            serverTypeName = metadata.serverType.name,
+            minecraftVersion = metadata.minecraftVersion,
+        )
+        resolveInstalledPayloadEntryName(
+            entryNames = extraction.entryNames,
+            targetJarFileName = targetJarFileName,
+        )?.let { payloadEntryName ->
+            extraction.sha256ByEntryName[payloadEntryName]?.let { sha256 ->
+                writeAuthorizedPayloadSha(
+                    context = context,
+                    targetServerDir = targetServerDir,
+                    payloadEntryName = payloadEntryName,
+                    sha256 = sha256,
+                )
+            }
+        }
+        check(writeAuthorizedManagedServerWorkspaceReady(context, authorizedDirectoryUri, serverId)) {
+            "写入授权目录就绪标记失败"
+        }
+        reportProgress(100, "整合包导入完成")
+        AuthorizedModpackImportResult(
+            metadata = metadata,
+            setupScriptNames = extraction.setupScriptNames,
+        )
+    } catch (error: Exception) {
+        deleteManagedServerWorkspaceFromAuthorizedDirectory(context, authorizedDirectoryUri, serverId)
+        throw error
+    }
+}
+
+internal fun detectImportedModpackServerMetadataFromEntryNames(entryNames: List<String>): ImportedModpackServerMetadata {
+    val normalizedEntries = entryNames.map { it.replace('\\', '/').trimStart('/') }
+    detectInstallerPackMetadataFromEntryNames(normalizedEntries)?.let { return it }
+
+    fun build(serverType: com.mcgo.app.ui.model.MinecraftServerType, minecraftVersion: String): ImportedModpackServerMetadata =
+        ImportedModpackServerMetadata(
+            serverType = serverType,
+            minecraftVersion = minecraftVersion,
+            javaMajorVersion = com.mcgo.app.ui.model.recommendedJavaMajorVersion(minecraftVersion),
+        )
+
+    fun findVersionFromPaths(): String? {
+        val versionRegex = Regex("""/(?:server|minecraftforge/forge|neoforge)/((?:1\.)?\d+\.\d+(?:\.\d+)?)(?:-|/)""")
+        return normalizedEntries
+            .asSequence()
+            .map { rawPath -> "/$rawPath" }
+            .mapNotNull { rawPath -> versionRegex.find(rawPath)?.groupValues?.getOrNull(1) }
+            .filter { version -> validatePaperVersionOrNull(version) != null }
+            .toList()
+            .maxWithOrNull(::compareMinecraftVersionParts)
+    }
+
+    if (normalizedEntries.any { it.substringAfterLast('/') == "fabric-server-launch.jar" }) {
+        return build(com.mcgo.app.ui.model.MinecraftServerType.Fabric, findVersionFromPaths() ?: "1.21.4")
+    }
+    if (normalizedEntries.any { it.substringAfterLast('/') == "quilt-server-launch.jar" }) {
+        return build(com.mcgo.app.ui.model.MinecraftServerType.Quilt, findVersionFromPaths() ?: "1.21.4")
+    }
+    normalizedEntries.firstOrNull { path ->
+        path.substringAfterLast('/') == "unix_args.txt" && path.contains("/net/minecraftforge/forge/")
+    }?.let { argsPath ->
+        val version = Regex("""/forge/((?:1\.)?\d+\.\d+(?:\.\d+)?)-""")
+            .find("/$argsPath")
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: "1.20.1"
+        return build(com.mcgo.app.ui.model.MinecraftServerType.Forge, version)
+    }
+    normalizedEntries.firstOrNull { path ->
+        path.substringAfterLast('/') == "unix_args.txt" && path.contains("/net/neoforged/neoforge/")
+    }?.let { argsPath ->
+        val rawVersion = Regex("""/neoforge/((?:1\.)?\d+\.\d+(?:\.\d+)?)(?:[./])""")
+            .find("/$argsPath")
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: "1.21.4"
+        val version = normalizeNeoForgeMinecraftVersion(rawVersion)
+        return build(com.mcgo.app.ui.model.MinecraftServerType.NeoForge, version)
+    }
+    return build(com.mcgo.app.ui.model.MinecraftServerType.Paper, findVersionFromPaths() ?: "1.21.4")
+}
+
+internal fun resolveInstalledPayloadEntryName(
+    entryNames: List<String>,
+    targetJarFileName: String,
+): String? {
+    val targetName = targetJarFileName.lowercase()
+    val targetKind = when {
+        targetName.startsWith("fabric-") -> "fabric"
+        targetName.startsWith("forge-") -> "forge"
+        targetName.startsWith("neoforge-") -> "neoforge"
+        targetName.startsWith("quilt-") -> "quilt"
+        else -> "generic"
+    }
+    val candidates = entryNames
+        .map { it.replace('\\', '/').trimStart('/') }
+        .filter { entryName ->
+            val name = entryName.substringAfterLast('/')
+            name !in ReservedManagedServerImportEntries && when {
+                name == "fabric-server-launch.jar" -> true
+                name == "server.jar" -> true
+                name == "quilt-server-launch.jar" -> true
+                name.endsWith("-server.jar") -> true
+                name.endsWith("-universal.jar") -> true
+                name.endsWith("-shim.jar") -> true
+                else -> false
+            }
+        }
+    fun rank(path: String): Int {
+        val name = path.substringAfterLast('/')
+        return when (targetKind) {
+            "fabric" -> when {
+                name == "fabric-server-launch.jar" -> 0
+                name == "server.jar" -> 1
+                else -> 9
+            }
+            "quilt" -> when {
+                name == "quilt-server-launch.jar" -> 0
+                name == "server.jar" -> 1
+                else -> 9
+            }
+            "forge" -> when {
+                name.endsWith("-server.jar") && path.contains("/net/minecraftforge/forge/") -> 0
+                name == "server.jar" -> 1
+                name.endsWith("-universal.jar") -> 2
+                name.endsWith("-shim.jar") -> 3
+                else -> 9
+            }
+            "neoforge" -> when {
+                name.endsWith("-server.jar") && path.contains("/net/neoforged/neoforge/") -> 0
+                name.endsWith("-universal.jar") && path.contains("/net/neoforged/neoforge/") -> 1
+                name.endsWith("-shim.jar") && path.contains("/net/neoforged/neoforge/") -> 2
+                name == "server.jar" -> 3
+                else -> 9
+            }
+            else -> when {
+                name == "fabric-server-launch.jar" -> 0
+                name == "quilt-server-launch.jar" -> 1
+                name == "server.jar" -> 2
+                name.endsWith("-server.jar") -> 3
+                name.endsWith("-universal.jar") -> 4
+                name.endsWith("-shim.jar") -> 5
+                else -> 9
+            }
+        }
+    }
+    return candidates.sortedWith(compareBy<String>({ rank(it) }, { it.length })).firstOrNull { rank(it) < 9 }
+}
+
+private fun detectInstallerPackMetadataFromEntryNames(entryNames: List<String>): ImportedModpackServerMetadata? {
+    val installerPattern = Regex("(?:^|/)neoforge-(\\d+\\.\\d+\\.\\d+)-installer\\.jar$", RegexOption.IGNORE_CASE)
+    val artifactVersion = entryNames.asSequence()
+        .mapNotNull { entryName -> installerPattern.find(entryName)?.groupValues?.getOrNull(1) }
+        .firstOrNull()
+        ?: return null
+    val minecraftVersion = normalizeNeoForgeMinecraftVersion(artifactVersion)
+    return ImportedModpackServerMetadata(
+        serverType = com.mcgo.app.ui.model.MinecraftServerType.NeoForge,
+        minecraftVersion = minecraftVersion,
+        javaMajorVersion = com.mcgo.app.ui.model.recommendedJavaMajorVersion(minecraftVersion),
+    )
+}
+
+private fun normalizeNeoForgeMinecraftVersion(rawVersion: String): String = rawVersion.split('.').let { parts ->
+    when {
+        rawVersion.startsWith("1.") -> rawVersion
+        parts.size >= 3 && (parts[0].toIntOrNull() ?: 0) < 26 -> "1.${parts[0]}.${parts[1]}"
+        else -> rawVersion
+    }
+}
+
+private fun compareMinecraftVersionParts(left: String, right: String): Int {
+    val leftParts = left.split('.').map { it.toIntOrNull() ?: Int.MIN_VALUE }
+    val rightParts = right.split('.').map { it.toIntOrNull() ?: Int.MIN_VALUE }
+    val max = maxOf(leftParts.size, rightParts.size)
+    for (index in 0 until max) {
+        val comparison = (leftParts.getOrNull(index) ?: 0).compareTo(rightParts.getOrNull(index) ?: 0)
+        if (comparison != 0) return comparison
+    }
+    return left.compareTo(right)
+}
+
+private fun managedServerTargetJarFileName(serverTypeName: String, minecraftVersion: String): String = when (serverTypeName) {
+    "Vanilla" -> vanillaServerJarFileName(minecraftVersion)
+    "Paper" -> paperServerJarFileName(minecraftVersion)
+    "Purpur" -> purpurServerJarFileName(minecraftVersion)
+    "Fabric" -> fabricServerJarFileName(minecraftVersion)
+    "Forge" -> forgeServerJarFileName(minecraftVersion)
+    "NeoForge" -> neoForgeServerJarFileName(minecraftVersion)
+    "Quilt" -> quiltServerJarFileName(minecraftVersion)
+    else -> paperServerJarFileName(minecraftVersion)
+}
 
 internal fun shouldPreferAuthorizedWorkspaceOverPrivate(
     privateRecoverable: Boolean,
@@ -596,6 +832,149 @@ fun deleteManagedServerWorkspaceFromAuthorizedDirectory(
     root.findFile(AuthorizedServersDirectoryName)
         ?.findFile(sanitizeManagedServerId(serverId))
         ?.delete()
+}
+
+private fun authorizedManagedServerWorkspaceDocumentFile(
+    context: Context,
+    authorizedDirectoryUri: String?,
+    serverId: String,
+): DocumentFile? {
+    val root = authorizedDirectoryRoot(context, authorizedDirectoryUri) ?: return null
+    val serversDir = root.findFile(AuthorizedServersDirectoryName)
+        ?: root.createDirectory(AuthorizedServersDirectoryName)
+        ?: return null
+    return serversDir.findFile(sanitizeManagedServerId(serverId))
+        ?: serversDir.createDirectory(sanitizeManagedServerId(serverId))
+}
+
+private fun unzipManagedServerArchiveToDocumentTree(
+    context: Context,
+    archiveInput: InputStream,
+    targetServerDir: DocumentFile,
+): AuthorizedModpackExtractionResult {
+    val entryNames = mutableListOf<String>()
+    val sha256ByEntryName = mutableMapOf<String, String>()
+    val setupScriptNames = mutableListOf<String>()
+    ZipInputStream(BufferedInputStream(archiveInput)).use { zip ->
+        while (true) {
+            val entry = zip.nextEntry ?: break
+            try {
+                val normalized = normalizeAuthorizedImportEntryName(entry.name)
+                if (normalized.isBlank()) continue
+                if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) continue
+                val segments = normalized.split('/').filter(String::isNotBlank)
+                if (entry.isDirectory) {
+                    resolveOrCreateDocumentDirectory(targetServerDir, segments)
+                } else {
+                    val parent = resolveOrCreateDocumentDirectory(targetServerDir, segments.dropLast(1))
+                    val fileName = segments.last()
+                    val targetFile = replaceOrCreateDocumentFile(parent, fileName)
+                    val copyResult = context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
+                        copyZipEntryToDocumentFile(zip, output)
+                    } ?: error("打开授权文件输出流失败：$normalized")
+                    entryNames += normalized
+                    sha256ByEntryName[normalized] = copyResult.sha256
+                    if (isImportedSetupScriptName(normalized, copyResult.contentPrefix)) {
+                        setupScriptNames += normalized
+                    }
+                }
+            } finally {
+                zip.closeEntry()
+            }
+        }
+    }
+    return AuthorizedModpackExtractionResult(
+        entryNames = entryNames,
+        sha256ByEntryName = sha256ByEntryName,
+        setupScriptNames = setupScriptNames.sorted(),
+    )
+}
+
+private data class CopiedZipEntry(
+    val sha256: String,
+    val contentPrefix: String,
+)
+
+private fun copyZipEntryToDocumentFile(
+    zip: ZipInputStream,
+    output: java.io.OutputStream,
+): CopiedZipEntry {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val prefixBytes = java.io.ByteArrayOutputStream()
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    while (true) {
+        val read = zip.read(buffer)
+        if (read < 0) break
+        digest.update(buffer, 0, read)
+        output.write(buffer, 0, read)
+        if (prefixBytes.size() < 512) {
+            prefixBytes.write(buffer, 0, minOf(read, 512 - prefixBytes.size()))
+        }
+    }
+    return CopiedZipEntry(
+        sha256 = digest.digest().joinToString(separator = "") { byte -> "%02x".format(Locale.US, byte) },
+        contentPrefix = prefixBytes.toString(Charsets.UTF_8.name()),
+    )
+}
+
+private fun normalizeAuthorizedImportEntryName(rawName: String): String {
+    val normalized = rawName.replace('\\', '/').trimStart('/')
+    if (normalized.isBlank()) return ""
+    val segments = normalized.split('/').filter(String::isNotBlank)
+    require(segments.none { segment -> segment == "." || segment == ".." }) { "整合包包含越界路径：$rawName" }
+    return segments.joinToString("/")
+}
+
+private fun resolveOrCreateDocumentDirectory(root: DocumentFile, segments: List<String>): DocumentFile {
+    var current = root
+    segments.forEach { segment ->
+        val existing = current.findFile(segment)
+        if (existing?.isFile == true) {
+            check(existing.delete()) { "删除授权目录冲突文件失败：$segment" }
+        }
+        current = current.findFile(segment)
+            ?: current.createDirectory(segment)
+            ?: error("创建授权目录失败：$segment")
+    }
+    return current
+}
+
+private fun replaceOrCreateDocumentFile(parent: DocumentFile, fileName: String): DocumentFile {
+    val existing = parent.findFile(fileName)
+    if (existing != null) {
+        check(existing.delete()) { "删除授权目录旧文件失败：$fileName" }
+    }
+    return parent.createFile("application/octet-stream", fileName)
+        ?: error("创建授权文件失败：$fileName")
+}
+
+private fun isImportedSetupScriptName(entryName: String, contentPrefix: String): Boolean {
+    val fileName = entryName.substringAfterLast('/')
+    if (fileName.startsWith(".mcgo-") || fileName.contains(".mcgo-android-")) return false
+    if (fileName.endsWith(".sh", ignoreCase = true)) return true
+    return contentPrefix.startsWith("#!") && contentPrefix.contains("sh", ignoreCase = true)
+}
+
+private fun writeAuthorizedPayloadSha(
+    context: Context,
+    targetServerDir: DocumentFile,
+    payloadEntryName: String,
+    sha256: String,
+) {
+    val segments = payloadEntryName.split('/').filter(String::isNotBlank)
+    if (segments.isEmpty()) return
+    val parent = resolveOrCreateDocumentDirectory(targetServerDir, segments.dropLast(1))
+    val shaFileName = "${segments.last()}.sha256"
+    val targetFile = replaceOrCreateDocumentFile(parent, shaFileName)
+    context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
+        output.write("$sha256\n".toByteArray())
+    } ?: error("写入授权目录校验文件失败：$shaFileName")
+}
+
+private fun clearDocumentFileChildren(directory: DocumentFile) {
+    directory.listFiles().forEach { child ->
+        check(child.delete()) { "删除授权目录旧文件失败：${child.name}" }
+    }
 }
 
 fun deleteManagedServerWorkspaceFromPrivateDirectory(filesDir: Path, serverId: String) {

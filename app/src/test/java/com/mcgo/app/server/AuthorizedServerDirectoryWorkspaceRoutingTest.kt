@@ -151,6 +151,35 @@ class AuthorizedServerDirectoryWorkspaceRoutingTest {
     }
 
     @Test
+    fun detectImportedModpackServerMetadataFromEntryNames_detectsSafDirectExtractionWithoutPrivateMirror() {
+        val metadata = detectImportedModpackServerMetadataFromEntryNames(
+            listOf(
+                "libraries/net/neoforged/neoforge/21.1.224/unix_args.txt",
+                "neoforge-21.1.224-installer.jar",
+                "startserver.sh",
+            ),
+        )
+
+        assertThat(metadata.serverType.name).isEqualTo("NeoForge")
+        assertThat(metadata.minecraftVersion).isEqualTo("1.21.1")
+        assertThat(metadata.javaMajorVersion).isEqualTo(21)
+    }
+
+    @Test
+    fun resolveInstalledPayloadEntryName_prefersFabricLauncherForSafDirectExtraction() {
+        val payload = resolveInstalledPayloadEntryName(
+            entryNames = listOf(
+                "server.jar",
+                "fabric-server-launch.jar",
+                "mods/fabric-api.jar",
+            ),
+            targetJarFileName = "fabric-1.21.4.jar",
+        )
+
+        assertThat(payload).isEqualTo("fabric-server-launch.jar")
+    }
+
+    @Test
     fun resolveAuthorizedDirectoryPathFromTreeDocumentId_supportsPrimaryTreePaths() {
         val externalRoot = Files.createTempDirectory("mcgo-primary-root")
         val rootPath = resolveAuthorizedDirectoryPathFromTreeDocumentId(

@@ -43,9 +43,10 @@ class RuntimePermissionModelsTest {
 
         val directory = state.permissionItems.single { it.title == "服务器目录" }
         assertThat(directory.status).isEqualTo(RuntimePermissionStatus.NeedsRequest)
-        assertThat(directory.required).isFalse()
+        assertThat(directory.required).isTrue()
         assertThat(directory.actionLabel).isEqualTo("授权")
-        assertThat(directory.detail).contains("卸载 App 后重新授权同一目录，仍可找回服务器数据")
+        assertThat(directory.description).contains("首次使用必须授权服务器目录")
+        assertThat(directory.detail).contains("默认选择内部存储根目录的 MCGO 文件夹")
     }
 
     @Test

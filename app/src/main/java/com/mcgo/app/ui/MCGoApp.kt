@@ -65,6 +65,7 @@ import com.mcgo.app.server.managedPaperServerIconFile
 import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.hasAuthorizedManagedServerWorkspaceReady
+import com.mcgo.app.server.importManagedServerModpackArchiveToAuthorizedDirectory
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromPrivateDirectory
 import com.mcgo.app.server.exportManagedServerWorldArchive
 import com.mcgo.app.server.fallbackPaperVersions
@@ -459,6 +460,7 @@ private fun MCGoAppScaffold(
     var serverDirectoryUriText by remember(appContext) {
         mutableStateOf(runtimePrefs.getString(ServerDirectoryUriKey, null))
     }
+    var initialDirectoryPromptAttempted by rememberSaveable { mutableStateOf(false) }
     val restoreProfilesFromAuthorizedDirectory = remember(appContext, serverStorePath) {
         {
             restoreServerProfilesFromAuthorizedDirectory(
@@ -469,6 +471,8 @@ private fun MCGoAppScaffold(
         }
     }
     var pendingServerDirectoryAction by remember { mutableStateOf<PendingServerDirectoryAction?>(null) }
+    var serverDirectoryGrantProcessing by remember { mutableStateOf(false) }
+    var pendingCreateServer by remember { mutableStateOf<PendingCreateServer?>(null) }
     var pendingCreateServerFromModpack by remember { mutableStateOf<PendingCreateServerFromModpack?>(null) }
     var currentModpackImportServerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingStartRequest by remember { mutableStateOf<PendingStartRequest?>(null) }
@@ -539,79 +543,107 @@ private fun MCGoAppScaffold(
             }.getOrDefault(false)
             if (!permissionGranted) {
                 pendingStartRequest = null
+                pendingCreateServer = null
+                pendingCreateServerFromModpack = null
                 pendingServerDirectoryAction = null
                 scope.launch { snackbarHostState.showSnackbar("服务器目录授权失败，请重新选择可持久授权的目录") }
                 return@rememberLauncherForActivityResult
             }
             persistServerDirectoryUri(uri)
+            serverDirectoryGrantProcessing = true
             scope.launch {
-                withContext(Dispatchers.IO) {
-                    appendMcGoAppDebugLog(
-                        filesDir = appContext.filesDir.toPath(),
-                        message = "服务器目录已授权",
-                        details = mapOf("pendingAction" to pendingServerDirectoryAction?.name),
-                    )
-                }
-                val restoredServers = withContext(Dispatchers.IO) {
-                    val authorizedProfilesAvailable = authorizedServerProfilesAvailable(appContext, serverDirectoryUriText)
-                    if (authorizedProfilesAvailable) {
-                        restoreProfilesFromAuthorizedDirectory()
+                try {
+                    withContext(Dispatchers.IO) {
+                        appendMcGoAppDebugLog(
+                            filesDir = appContext.filesDir.toPath(),
+                            message = "服务器目录已授权",
+                            details = mapOf("pendingAction" to pendingServerDirectoryAction?.name),
+                        )
                     }
-                    val restoredServers = finalizePendingServerDeletion(
-                        reconcilePersistedRuntimeState(
-                            servers = serverStore.load(),
-                            activeRuntimeSlots = activePaperRuntimeSlots(appContext),
-                        ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
-                    )
-                    syncServerProfilesToAuthorizedDirectoryNow(restoredServers)
-                    if (authorizedProfilesAvailable) {
-                        restoredServers.forEach { server ->
-                            if (hasAuthorizedManagedServerWorkspaceReady(appContext, serverDirectoryUriText, server.id)) {
-                                restoreManagedServerIconFromAuthorizedDirectory(
-                                    context = appContext,
-                                    authorizedDirectoryUri = serverDirectoryUriText,
-                                    serverId = server.id,
-                                    targetIconPath = managedPaperServerIconFile(appContext.filesDir.toPath(), server.id),
-                                )
+                    val restoredServers = withContext(Dispatchers.IO) {
+                        val authorizedProfilesAvailable = authorizedServerProfilesAvailable(appContext, serverDirectoryUriText)
+                        if (authorizedProfilesAvailable) {
+                            restoreProfilesFromAuthorizedDirectory()
+                        }
+                        val restoredServers = finalizePendingServerDeletion(
+                            reconcilePersistedRuntimeState(
+                                servers = serverStore.load(),
+                                activeRuntimeSlots = activePaperRuntimeSlots(appContext),
+                            ).map { it.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions) },
+                        )
+                        syncServerProfilesToAuthorizedDirectoryNow(restoredServers)
+                        if (authorizedProfilesAvailable) {
+                            restoredServers.forEach { server ->
+                                if (hasAuthorizedManagedServerWorkspaceReady(appContext, serverDirectoryUriText, server.id)) {
+                                    restoreManagedServerIconFromAuthorizedDirectory(
+                                        context = appContext,
+                                        authorizedDirectoryUri = serverDirectoryUriText,
+                                        serverId = server.id,
+                                        targetIconPath = managedPaperServerIconFile(appContext.filesDir.toPath(), server.id),
+                                    )
+                                }
+                            }
+                        } else {
+                            val migratedServerIds = migratePrivateServerDataToAuthorizedDirectory(
+                                context = appContext,
+                                authorizedDirectoryUri = serverDirectoryUriText,
+                                filesDir = appContext.filesDir.toPath(),
+                                serverIds = restoredServers.map { it.id },
+                            )
+                            restoredServers.filter { it.id in migratedServerIds }.forEach { server ->
+                                deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
+                            }
+                            if (migratedServerIds.size == restoredServers.size) {
+                                snackbarHostState.showSnackbar("服务器目录已授权，现有服务器数据已同步到该目录")
+                            } else {
+                                snackbarHostState.showSnackbar("服务器目录已授权；部分服务器数据同步失败，已保留原本地副本，请稍后重试")
                             }
                         }
-                    } else {
-                        val migratedServerIds = migratePrivateServerDataToAuthorizedDirectory(
+                        syncServerProfilesToAuthorizedDirectory(
                             context = appContext,
                             authorizedDirectoryUri = serverDirectoryUriText,
-                            filesDir = appContext.filesDir.toPath(),
-                            serverIds = restoredServers.map { it.id },
+                            sourceProfilesPath = serverStorePath,
                         )
-                        restoredServers.filter { it.id in migratedServerIds }.forEach { server ->
-                            deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
-                        }
-                        if (migratedServerIds.size == restoredServers.size) {
-                            snackbarHostState.showSnackbar("服务器目录已授权，现有服务器数据已同步到该目录")
-                        } else {
-                            snackbarHostState.showSnackbar("服务器目录已授权；部分服务器数据同步失败，已保留原本地副本，请稍后重试")
-                        }
+                        restoredServers
                     }
-                    syncServerProfilesToAuthorizedDirectory(
-                        context = appContext,
-                        authorizedDirectoryUri = serverDirectoryUriText,
-                        sourceProfilesPath = serverStorePath,
-                    )
-                    restoredServers
-                }
-                onServersChange(restoredServers)
-                if (authorizedServerProfilesAvailable(appContext, serverDirectoryUriText)) {
-                    snackbarHostState.showSnackbar("服务器目录已授权，已连接现有外部服务器数据")
+                    onServersChange(restoredServers)
+                    if (authorizedServerProfilesAvailable(appContext, serverDirectoryUriText)) {
+                        snackbarHostState.showSnackbar("服务器目录已授权，已连接现有外部服务器数据")
+                    }
+                } catch (error: Throwable) {
+                    pendingStartRequest = null
+                    pendingCreateServer = null
+                    pendingCreateServerFromModpack = null
+                    snackbarHostState.showSnackbar("服务器目录已授权，但同步现有数据失败：${error.message ?: "未知错误"}")
+                } finally {
+                    serverDirectoryGrantProcessing = false
+                    pendingServerDirectoryAction = null
                 }
             }
         } else {
-            pendingStartRequest = null
-            pendingServerDirectoryAction = null
-            scope.launch { snackbarHostState.showSnackbar("目录功能需要先授权服务器目录") }
+            scope.launch {
+                val message = if (pendingServerDirectoryAction == PendingServerDirectoryAction.InitialSetup) {
+                    "首次使用需要先授权服务器目录，默认建议选择内部存储根目录的 MCGO 文件夹"
+                } else {
+                    "目录功能需要先授权服务器目录"
+                }
+                pendingServerDirectoryAction = null
+                pendingStartRequest = null
+                pendingCreateServer = null
+                pendingCreateServerFromModpack = null
+                snackbarHostState.showSnackbar(message)
+            }
         }
     }
     fun requestServerDirectory(action: PendingServerDirectoryAction) {
         pendingServerDirectoryAction = action
-        directoryPickerLauncher.launch(serverDirectoryUriText?.let(Uri::parse))
+        directoryPickerLauncher.launch(serverDirectoryPickerInitialUri(serverDirectoryUriText))
+    }
+    LaunchedEffect(serverDirectoryUriText) {
+        if (!initialDirectoryPromptAttempted && !hasServerDirectoryGrant()) {
+            initialDirectoryPromptAttempted = true
+            requestServerDirectory(PendingServerDirectoryAction.InitialSetup)
+        }
     }
     fun <T> withPreparedManagedServerWorkspace(serverId: String, block: (Path) -> T): T {
         // syncManagedServerWorkspaceToAuthorizedDirectory( ... ) now goes through
@@ -660,6 +692,186 @@ private fun MCGoAppScaffold(
             scope.launch { snackbarHostState.showSnackbar(cleanupError.message ?: "清理临时服务器目录失败") }
         }
     }
+    fun createServerNow(server: ServerCardState) {
+        val updatedServers = latestServers + server.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+        onServersChange(updatedServers)
+        syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+        showServerComposer = false
+        scope.launch { snackbarHostState.showSnackbar("已创建 ${server.name}") }
+    }
+
+    fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {
+        pendingCreateServerFromModpack = PendingCreateServerFromModpack(server, archiveUri)
+        currentModpackImportServerIds = currentModpackImportServerIds + server.id
+        scope.launch {
+            val currentServers = latestServers
+            val provisionalServers = currentServers + server
+                .markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+                .markModpackImportInProgress(3, "正在准备导入整合包")
+            onServersChange(provisionalServers)
+            syncServerProfilesToAuthorizedDirectoryNow(provisionalServers)
+            var importCompleted = false
+            var importedWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror
+            var recoveredImportedServer: ServerCardState? = null
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val filesDir = appContext.filesDir.toPath()
+                    val updateImportProgress = { progress: Int, message: String ->
+                        val updatedServers = latestServers.map { existing ->
+                            if (existing.id == server.id) {
+                                existing.markModpackImportInProgress(progress, message)
+                            } else {
+                                existing
+                            }
+                        }
+                        onServersChange(updatedServers)
+                        syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+                    }
+                    updateImportProgress(8, "正在读取整合包文件")
+                    if (serverDirectoryUriText != null && resolveAuthorizedServersRootPath(appContext, serverDirectoryUriText) == null) {
+                        importedWorkspaceMode = ManagedServerWorkspaceMode.DirectExternal
+                        val directImport = appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
+                            importManagedServerModpackArchiveToAuthorizedDirectory(
+                                context = appContext,
+                                authorizedDirectoryUri = serverDirectoryUriText,
+                                serverId = server.id,
+                                archiveInput = input,
+                                onProgress = { progress, message ->
+                                    val mapped = 16 + ((progress.coerceIn(0, 100) * 66) / 100)
+                                    updateImportProgress(mapped, message)
+                                },
+                            )
+                        } ?: error("无法读取整合包文件")
+                        importCompleted = true
+                        updateImportProgress(82, "正在识别整合包元数据")
+                        val metadata = directImport.metadata
+                        val setupScriptNames = directImport.setupScriptNames
+                        val updatedServer = server.copy(
+                            edition = "${metadata.serverType.label} ${metadata.minecraftVersion}",
+                            serverType = metadata.serverType,
+                            minecraftVersion = metadata.minecraftVersion,
+                            javaMajorVersion = metadata.javaMajorVersion,
+                            javaSelectionMode = JavaSelectionMode.Recommended,
+                        ).markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+                        updateImportProgress(90, "正在写入整合包识别结果")
+                        recoveredImportedServer = updatedServer
+                        updateImportProgress(100, "整合包导入完成")
+                        Pair(updatedServer, setupScriptNames)
+                    } else {
+                        val tempPack = Files.createTempFile("mcgo-modpack-", ".zip")
+                        appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
+                            Files.newOutputStream(tempPack).use { output -> input.copyTo(output) }
+                        } ?: error("无法读取整合包文件")
+                        try {
+                            val workspaceAccess = prepareManagedServerWorkspaceAccess(
+                                context = appContext,
+                                authorizedDirectoryUri = serverDirectoryUriText,
+                                filesDir = filesDir,
+                                serverId = server.id,
+                            )
+                            updateImportProgress(16, "正在准备整合包目标目录")
+                            importedWorkspaceMode = workspaceAccess.mode
+                            val workDir = workspaceAccess.path
+                            var operationSucceeded = false
+                            try {
+                                importManagedServerModpackArchive(
+                                    archiveFile = tempPack,
+                                    serverWorkDir = workDir,
+                                    onProgress = { progress, message ->
+                                        val mapped = 20 + ((progress.coerceIn(0, 100) * 55) / 100)
+                                        updateImportProgress(mapped, message)
+                                    },
+                                )
+                                importCompleted = true
+                                updateImportProgress(82, "正在识别整合包元数据")
+                                val metadata = detectImportedModpackServerMetadata(workDir)
+                                val detectedTargetJar = managedServerTargetJarPath(
+                                    serverWorkDir = workDir,
+                                    serverTypeName = metadata.serverType.name,
+                                    minecraftVersion = metadata.minecraftVersion,
+                                )
+                                writeManagedServerPayloadSha(workDir, detectedTargetJar)
+                                val setupScriptNames = discoverManagedServerSetupScripts(workDir)
+                                    .map { script -> managedSetupScriptRelativePath(workDir, script) }
+                                val updatedServer = server.copy(
+                                    edition = "${metadata.serverType.label} ${metadata.minecraftVersion}",
+                                    serverType = metadata.serverType,
+                                    minecraftVersion = metadata.minecraftVersion,
+                                    javaMajorVersion = metadata.javaMajorVersion,
+                                    javaSelectionMode = JavaSelectionMode.Recommended,
+                                ).markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+                                updateImportProgress(90, "正在写入整合包识别结果")
+                                recoveredImportedServer = updatedServer
+                                operationSucceeded = true
+                                val shouldSyncImportedWorkspaceImmediately = shouldSyncImportedModpackWorkspaceImmediately(
+                                    workspaceMode = workspaceAccess.mode,
+                                    containsInstallerBootstrap = setupScriptNames.isNotEmpty(),
+                                )
+                                if (workspaceAccess.mode.shouldSyncBack && shouldSyncImportedWorkspaceImmediately) {
+                                    updateImportProgress(96, "正在同步整合包到已授权目录")
+                                    check(
+                                        releaseManagedServerWorkspaceAfterForegroundAccess(
+                                            context = appContext,
+                                            authorizedDirectoryUri = serverDirectoryUriText,
+                                            filesDir = filesDir,
+                                            serverId = server.id,
+                                            workspaceMode = workspaceAccess.mode,
+                                        ),
+                                    ) { "同步服务器目录到已授权位置失败" }
+                                }
+                                updateImportProgress(100, "整合包导入完成")
+                                Pair(updatedServer, setupScriptNames)
+                            } finally {
+                                if (!operationSucceeded && workspaceAccess.mode.shouldSyncBack && !importCompleted) {
+                                    deleteManagedServerWorkspaceFromPrivateDirectory(filesDir, server.id)
+                                }
+                            }
+                        } finally {
+                            Files.deleteIfExists(tempPack)
+                        }
+                    }
+                }
+            }.onSuccess { (updatedServer, setupScriptNames) ->
+                val updatedServers = latestServers.filterNot { it.id == server.id } + updatedServer
+                onServersChange(updatedServers)
+                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+                showServerComposer = false
+                pendingCreateServerFromModpack = null
+                currentModpackImportServerIds = currentModpackImportServerIds - server.id
+                val suffix = if (setupScriptNames.isNotEmpty()) {
+                    "；整合包包含可执行脚本 ${setupScriptNames.take(3).joinToString("、")}，启动时请输入要执行的脚本相对路径"
+                } else {
+                    ""
+                }
+                snackbarHostState.showSnackbar("已导入整合包并创建 ${updatedServer.name}${suffix}")
+            }.onFailure {
+                val errorMessage = it.message ?: "未知错误"
+                val recovery = resolveNewModpackServerImportFailureRecovery(
+                    workspaceMode = importedWorkspaceMode,
+                    importCompleted = importCompleted,
+                )
+                val recoveredServers = if (recovery.keepServerEntry) {
+                    val recoveredServer = (recoveredImportedServer ?: latestServers.firstOrNull { existing -> existing.id == server.id } ?: server)
+                        .markModpackImportRecoveredAfterSyncFailure(errorMessage)
+                    latestServers.filterNot { existing -> existing.id == server.id } + recoveredServer
+                } else {
+                    latestServers.filterNot { existing -> existing.id == server.id }
+                }
+                onServersChange(recoveredServers)
+                syncServerProfilesToAuthorizedDirectoryNow(recoveredServers)
+                if (recovery.deletePrivateWorkspace) {
+                    deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
+                }
+                if (recovery.deleteAuthorizedWorkspace) {
+                    deleteManagedServerWorkspaceFromAuthorizedDirectory(appContext, serverDirectoryUriText, server.id)
+                }
+                pendingCreateServerFromModpack = null
+                currentModpackImportServerIds = currentModpackImportServerIds - server.id
+                snackbarHostState.showSnackbar("导入整合包失败：$errorMessage")
+            }
+        }
+    }
+
     fun startServerNow(request: PendingStartRequest) {
         scope.launch {
             val initialServers = latestServers
@@ -916,9 +1128,21 @@ private fun MCGoAppScaffold(
         }
     }
     val queuedStartRequest = pendingStartRequest
-    if (queuedStartRequest != null && hasServerDirectoryGrant()) {
+    if (queuedStartRequest != null && hasServerDirectoryGrant() && !serverDirectoryGrantProcessing) {
         pendingStartRequest = null
         startServerNow(queuedStartRequest)
+    }
+    val queuedCreateServer = pendingCreateServer
+    if (queuedCreateServer != null && hasServerDirectoryGrant() && !serverDirectoryGrantProcessing) {
+        pendingCreateServer = null
+        showServerComposer = true
+        createServerNow(queuedCreateServer.server)
+    }
+    val queuedModpackCreate = pendingCreateServerFromModpack
+    if (queuedModpackCreate != null && hasServerDirectoryGrant() && !serverDirectoryGrantProcessing && queuedModpackCreate.server.id !in currentModpackImportServerIds) {
+        pendingCreateServerFromModpack = null
+        showServerComposer = true
+        createServerFromModpackNow(queuedModpackCreate.server, queuedModpackCreate.archiveUri)
     }
     LaunchedEffect(installedJavaVersions, pendingManagedRuntimeStarts) {
         val completedPendings = pendingManagedRuntimeStarts.filter { it.javaMajorVersion in installedJavaVersions }
@@ -1222,151 +1446,32 @@ private fun MCGoAppScaffold(
                         showCreateServer = showServerComposer,
                         onDismissCreateServer = { showServerComposer = false },
                         onCreateServer = { server ->
-                            val updatedServers = servers + server.markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
-                            onServersChange(updatedServers)
-                            syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-                            showServerComposer = false
-                            scope.launch { snackbarHostState.showSnackbar("已创建 ${server.name}") }
+                            if (!hasServerDirectoryGrant()) {
+                                pendingCreateServer = PendingCreateServer(server)
+                                requestServerDirectory(PendingServerDirectoryAction.CreateServer)
+                                scope.launch { snackbarHostState.showSnackbar("请先授权服务器目录，授权后会继续创建 ${server.name}") }
+                                return@ServersScreen
+                            }
+                            if (serverDirectoryGrantProcessing) {
+                                pendingCreateServer = PendingCreateServer(server)
+                                scope.launch { snackbarHostState.showSnackbar("服务器目录正在完成同步，稍后会继续创建 ${server.name}") }
+                                return@ServersScreen
+                            }
+                            createServerNow(server)
                         },
                         onCreateServerFromModpack = { server, archiveUri ->
-                            pendingCreateServerFromModpack = PendingCreateServerFromModpack(server, archiveUri)
-                            currentModpackImportServerIds = currentModpackImportServerIds + server.id
-                            scope.launch {
-                                val currentServers = latestServers
-                                val provisionalServers = currentServers + server
-                                    .markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
-                                    .markModpackImportInProgress(3, "正在准备导入整合包")
-                                onServersChange(provisionalServers)
-                                syncServerProfilesToAuthorizedDirectoryNow(provisionalServers)
-                                var importCompleted = false
-                                var importedWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror
-                                var recoveredImportedServer: ServerCardState? = null
-                                runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        val tempPack = Files.createTempFile("mcgo-modpack-", ".zip")
-                                        appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
-                                            Files.newOutputStream(tempPack).use { output -> input.copyTo(output) }
-                                        } ?: error("无法读取整合包文件")
-                                        try {
-                                            val filesDir = appContext.filesDir.toPath()
-                                            val updateImportProgress = { progress: Int, message: String ->
-                                                val updatedServers = latestServers.map { existing ->
-                                                    if (existing.id == server.id) {
-                                                        existing.markModpackImportInProgress(progress, message)
-                                                    } else {
-                                                        existing
-                                                    }
-                                                }
-                                                onServersChange(updatedServers)
-                                                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-                                            }
-                                            updateImportProgress(8, "正在读取整合包文件")
-                                            val workspaceAccess = prepareManagedServerWorkspaceAccess(
-                                                context = appContext,
-                                                authorizedDirectoryUri = serverDirectoryUriText,
-                                                filesDir = filesDir,
-                                                serverId = server.id,
-                                            )
-                                            updateImportProgress(16, "正在准备整合包目标目录")
-                                            importedWorkspaceMode = workspaceAccess.mode
-                                            val workDir = workspaceAccess.path
-                                            var operationSucceeded = false
-                                            try {
-                                                importManagedServerModpackArchive(
-                                                    archiveFile = tempPack,
-                                                    serverWorkDir = workDir,
-                                                    onProgress = { progress, message ->
-                                                        val mapped = 20 + ((progress.coerceIn(0, 100) * 55) / 100)
-                                                        updateImportProgress(mapped, message)
-                                                    },
-                                                )
-                                                importCompleted = true
-                                                updateImportProgress(82, "正在识别整合包元数据")
-                                                val metadata = detectImportedModpackServerMetadata(workDir)
-                                                val detectedTargetJar = managedServerTargetJarPath(
-                                                    serverWorkDir = workDir,
-                                                    serverTypeName = metadata.serverType.name,
-                                                    minecraftVersion = metadata.minecraftVersion,
-                                                )
-                                                writeManagedServerPayloadSha(workDir, detectedTargetJar)
-                                                val setupScriptNames = discoverManagedServerSetupScripts(workDir)
-                                                    .map { script -> managedSetupScriptRelativePath(workDir, script) }
-                                                val updatedServer = server.copy(
-                                                    edition = "${metadata.serverType.label} ${metadata.minecraftVersion}",
-                                                    serverType = metadata.serverType,
-                                                    minecraftVersion = metadata.minecraftVersion,
-                                                    javaMajorVersion = metadata.javaMajorVersion,
-                                                    javaSelectionMode = JavaSelectionMode.Recommended,
-                                                ).markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
-                                                updateImportProgress(90, "正在写入整合包识别结果")
-                                                recoveredImportedServer = updatedServer
-                                                operationSucceeded = true
-                                                val shouldSyncImportedWorkspaceImmediately = shouldSyncImportedModpackWorkspaceImmediately(
-                                                    workspaceMode = workspaceAccess.mode,
-                                                    containsInstallerBootstrap = setupScriptNames.isNotEmpty(),
-                                                )
-                                                if (workspaceAccess.mode.shouldSyncBack && shouldSyncImportedWorkspaceImmediately) {
-                                                    updateImportProgress(96, "正在同步整合包到已授权目录")
-                                                    check(
-                                                        releaseManagedServerWorkspaceAfterForegroundAccess(
-                                                            context = appContext,
-                                                            authorizedDirectoryUri = serverDirectoryUriText,
-                                                            filesDir = filesDir,
-                                                            serverId = server.id,
-                                                            workspaceMode = workspaceAccess.mode,
-                                                        ),
-                                                    ) { "同步服务器目录到已授权位置失败" }
-                                                }
-                                                updateImportProgress(100, "整合包导入完成")
-                                                Pair(updatedServer, setupScriptNames)
-                                            } finally {
-                                                if (!operationSucceeded && workspaceAccess.mode.shouldSyncBack && !importCompleted) {
-                                                    deleteManagedServerWorkspaceFromPrivateDirectory(filesDir, server.id)
-                                                }
-                                            }
-                                        } finally {
-                                            Files.deleteIfExists(tempPack)
-                                        }
-                                    }
-                                }.onSuccess { (updatedServer, setupScriptNames) ->
-                                    val updatedServers = latestServers.filterNot { it.id == server.id } + updatedServer
-                                    onServersChange(updatedServers)
-                                    syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-                                    showServerComposer = false
-                                    pendingCreateServerFromModpack = null
-                                    currentModpackImportServerIds = currentModpackImportServerIds - server.id
-                                    val suffix = if (setupScriptNames.isNotEmpty()) {
-                                        "；整合包包含可执行脚本 ${setupScriptNames.take(3).joinToString("、")}，启动时请输入要执行的脚本相对路径"
-                                    } else {
-                                        ""
-                                    }
-                                    snackbarHostState.showSnackbar("已导入整合包并创建 ${updatedServer.name}${suffix}")
-                                }.onFailure {
-                                    val errorMessage = it.message ?: "未知错误"
-                                    val recovery = resolveNewModpackServerImportFailureRecovery(
-                                        workspaceMode = importedWorkspaceMode,
-                                        importCompleted = importCompleted,
-                                    )
-                                    val recoveredServers = if (recovery.keepServerEntry) {
-                                        val recoveredServer = (recoveredImportedServer ?: latestServers.firstOrNull { existing -> existing.id == server.id } ?: server)
-                                            .markModpackImportRecoveredAfterSyncFailure(errorMessage)
-                                        latestServers.filterNot { existing -> existing.id == server.id } + recoveredServer
-                                    } else {
-                                        latestServers.filterNot { existing -> existing.id == server.id }
-                                    }
-                                    onServersChange(recoveredServers)
-                                    syncServerProfilesToAuthorizedDirectoryNow(recoveredServers)
-                                    if (recovery.deletePrivateWorkspace) {
-                                        deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
-                                    }
-                                    if (recovery.deleteAuthorizedWorkspace) {
-                                        deleteManagedServerWorkspaceFromAuthorizedDirectory(appContext, serverDirectoryUriText, server.id)
-                                    }
-                                    pendingCreateServerFromModpack = null
-                                    currentModpackImportServerIds = currentModpackImportServerIds - server.id
-                                    snackbarHostState.showSnackbar("导入整合包失败：$errorMessage")
-                                }
+                            if (!hasServerDirectoryGrant()) {
+                                pendingCreateServerFromModpack = PendingCreateServerFromModpack(server, archiveUri)
+                                requestServerDirectory(PendingServerDirectoryAction.CreateServerFromModpack)
+                                scope.launch { snackbarHostState.showSnackbar("请先授权服务器目录，授权后会继续导入整合包") }
+                                return@ServersScreen
                             }
+                            if (serverDirectoryGrantProcessing) {
+                                pendingCreateServerFromModpack = PendingCreateServerFromModpack(server, archiveUri)
+                                scope.launch { snackbarHostState.showSnackbar("服务器目录正在完成同步，稍后会继续导入整合包") }
+                                return@ServersScreen
+                            }
+                            createServerFromModpackNow(server, archiveUri)
                         },
                         onImportWorldArchive = { serverId, archiveUri ->
                             val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen

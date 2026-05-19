@@ -8,6 +8,7 @@ import kotlin.test.Test
 class MCGoStartupContractTest {
     private val source: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoApp.kt")))
     private val startupUiSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/StartupUi.kt")))
+    private val serverDirectoryPickerSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ServerDirectoryPickerDefaults.kt")))
     private val manifestSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/AndroidManifest.xml")))
 
     @Test
@@ -38,6 +39,22 @@ class MCGoStartupContractTest {
     fun appManifest_usesDedicatedAppThemeInsteadOfPlatformLightTheme() {
         assertThat(manifestSource).contains("android:theme=\"@style/Theme.McGo\"")
         assertThat(manifestSource).doesNotContain("@android:style/Theme.DeviceDefault.Light.NoActionBar")
+    }
+
+    @Test
+    fun startup_promptsForServerDirectoryGrantWithDefaultMcgoInitialFolder() {
+        val scaffoldSource = source.substringBetween(
+            start = "private fun MCGoAppScaffold(",
+            end = "Box(modifier = Modifier.fillMaxSize())",
+        )
+
+        assertThat(serverDirectoryPickerSource).contains("internal const val DefaultServerDirectoryName = \"MCGO\"")
+        assertThat(serverDirectoryPickerSource).contains("\"primary:\$DefaultServerDirectoryName\"")
+        assertThat(serverDirectoryPickerSource).contains("DocumentsContract.buildTreeDocumentUri")
+        assertThat(scaffoldSource).contains("initialDirectoryPromptAttempted")
+        assertThat(scaffoldSource).contains("PendingServerDirectoryAction.InitialSetup")
+        assertThat(scaffoldSource).contains("serverDirectoryPickerInitialUri(serverDirectoryUriText)")
+        assertThat(scaffoldSource).doesNotContain("directoryPickerLauncher.launch(serverDirectoryUriText?.let(Uri::parse))")
     }
 
     private fun String.substringBetween(start: String, end: String): String =
