@@ -7,6 +7,37 @@ import kotlin.test.Test
 class PaperServerServiceStateTest {
 
     @Test
+    fun serviceRuntimeStateHelpers_liveOutsideAndroidServiceClass() {
+        val serviceSource = readSource("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")
+        val stateSource = readSource("app/src/main/java/com/mcgo/app/server/PaperServerServiceRuntimeState.kt")
+
+        listOf(
+            "enum class StopTargetAction",
+            "enum class CommandTargetAction",
+            "fun startConflictMessage(",
+            "fun resolveStopTargetAction(",
+            "fun resolveCommandTargetAction(",
+            "enum class StopHandlingAction",
+            "fun runtimeMonitorEventStatus(",
+            "fun updatedOnlinePlayersFromLogLine(",
+            "fun runtimeExitEvent(",
+            "fun pendingTunnelBindingForFrpcPlan(",
+            "data class FrpcReadinessSignal(",
+            "fun selectFrpcReadinessSignal(",
+            "fun frpcExitMessage(",
+        ).forEach { oldDefinition ->
+            assertThat(serviceSource).doesNotContain(oldDefinition)
+        }
+        assertThat(serviceSource).contains("startConflictMessage(currentServerId = currentServerId, requestedServerId = server.id)")
+        assertThat(serviceSource).contains("runtimeExitEvent(")
+        assertThat(serviceSource).contains("selectFrpcReadinessSignal(tail.lines)")
+        assertThat(stateSource).contains("enum class StopTargetAction")
+        assertThat(stateSource).contains("fun updatedOnlinePlayerNamesFromLogLine(")
+        assertThat(stateSource).contains("fun frpcReadinessMessage(")
+        assertThat(stateSource).contains("token in login doesn't match token from configuration")
+    }
+
+    @Test
     fun startConflictMessage_rejectsDuplicateOrConcurrentServerStarts() {
         assertThat(startConflictMessage(currentServerId = null, requestedServerId = "alpha")).isNull()
         assertThat(startConflictMessage(currentServerId = "alpha", requestedServerId = "alpha")).contains("已在启动或运行中")
@@ -41,7 +72,8 @@ class PaperServerServiceStateTest {
 
     @Test
     fun serviceLaunchFlow_tracksIndependentFrpcProcessesForMultipleTunnels() {
-        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+        val source = readSource("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")
+        val stateSource = readSource("app/src/main/java/com/mcgo/app/server/PaperServerServiceRuntimeState.kt")
 
         assertThat(source).contains("private val frpcProcesses = mutableMapOf<String, Process>()")
         assertThat(source).contains("private val frpcWatchJobs = mutableMapOf<String, Job>()")
@@ -53,7 +85,7 @@ class PaperServerServiceStateTest {
         assertThat(source).contains("startFrpcForPlans(server, tunnelPlans)")
         assertThat(source).contains("frpcProcesses[plan.tunnelId] = process")
         assertThat(source).contains("frpcWatchJobs[plan.tunnelId] = serviceScope.launch")
-        assertThat(source).contains("tunnelId = plan.tunnelId")
+        assertThat(stateSource).contains("tunnelId = plan.tunnelId")
         assertThat(source).contains("currentTunnelBindings = tunnelPlans.map")
         assertThat(source).contains("startFrpcForPlans(server, tunnelPlans)")
         assertThat(source.indexOf("currentTunnelBindings = tunnelPlans.map")).isLessThan(source.indexOf("startFrpcForPlans(server, tunnelPlans)"))
@@ -388,6 +420,9 @@ class PaperServerServiceStateTest {
         assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = 17, nextJavaMajorVersion = 8)).isEqualTo(true)
         assertThat(javaRuntimeMayRequireFreshProcess(previousJavaMajorVersion = 21, nextJavaMajorVersion = 11)).isEqualTo(true)
     }
+
+    private fun readSource(relativePath: String): String =
+        String(Files.readAllBytes(projectRoot().resolve(relativePath)))
 
     private fun projectRoot(): java.nio.file.Path =
         generateSequence(java.nio.file.Path.of(".").toAbsolutePath().normalize()) { it.parent }
