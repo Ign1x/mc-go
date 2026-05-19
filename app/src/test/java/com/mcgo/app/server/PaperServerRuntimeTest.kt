@@ -405,14 +405,22 @@ class PaperServerRuntimeTest {
     }
 
     @Test
-    fun managedServerSetupScriptSelection_doesNotUseHardcodedScriptNameAllowList() {
-        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
+    fun managedServerSetupScriptSelection_livesInDedicatedHelperFileWithoutHardcodedNameAllowList() {
+        val runtimeSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
+        val setupSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerSetupScripts.kt")))
 
-        assertThat(source).doesNotContain("listOf(\"server-setup.sh\", \"setup.sh\", \"install.sh\")")
-        assertThat(source).doesNotContain("resolve(\"startserver.sh\")")
-        assertThat(source).contains("fun discoverManagedServerSetupScripts(")
-        assertThat(source).contains("fun resolveManagedServerSetupScript(")
-        assertThat(source).contains("scriptRelativePath: String")
+        assertThat(runtimeSource).doesNotContain("listOf(\"server-setup.sh\", \"setup.sh\", \"install.sh\")")
+        assertThat(runtimeSource).doesNotContain("resolve(\"startserver.sh\")")
+        assertThat(runtimeSource).doesNotContain("fun discoverManagedServerSetupScripts(")
+        assertThat(runtimeSource).doesNotContain("fun resolveManagedServerSetupScript(")
+        assertThat(runtimeSource).doesNotContain("fun runManagedServerSetupScriptIfNeeded(")
+        assertThat(runtimeSource).doesNotContain("fun rewriteManagedInstallerBootstrapScriptForAndroid(")
+        assertThat(setupSource).contains("internal fun discoverManagedServerSetupScripts(")
+        assertThat(setupSource).contains("internal fun resolveManagedServerSetupScript(")
+        assertThat(setupSource).contains("scriptRelativePath: String")
+        assertThat(setupSource).contains("fun runManagedServerSetupScriptIfNeeded(")
+        assertThat(setupSource).contains("rewriteManagedInstallerBootstrapScriptForAndroid(")
+        assertThat(setupSource).contains("ATM10_INSTALL_ONLY")
     }
 
     @Test
