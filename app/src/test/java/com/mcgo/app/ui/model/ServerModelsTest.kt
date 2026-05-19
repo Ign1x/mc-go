@@ -752,6 +752,8 @@ class ServerModelsTest {
         ).copy(
             id = "survival",
             isOnline = true,
+            onlinePlayers = 2,
+            onlinePlayerNames = listOf("Steve", "Alex"),
             selectedTunnelId = "frp-home",
             activeTunnelLabel = "家庭 FRP · 38 ms",
             launchStatus = ServerLaunchStatus.Running,
@@ -782,6 +784,8 @@ class ServerModelsTest {
         assertThat(edited.defaultPort).isEqualTo(25570)
         assertThat(edited.worldName).isEqualTo("world_nether")
         assertThat(edited.isOnline).isEqualTo(true)
+        assertThat(edited.onlinePlayers).isEqualTo(2)
+        assertThat(edited.onlinePlayerNames).containsExactly("Steve", "Alex").inOrder()
         assertThat(edited.port).isEqualTo(original.port)
         assertThat(edited.selectedTunnelId).isEqualTo("frp-home")
         assertThat(edited.activeTunnelLabel).isEqualTo("家庭 FRP · 38 ms")

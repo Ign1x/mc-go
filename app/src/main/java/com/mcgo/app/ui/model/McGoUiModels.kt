@@ -704,6 +704,7 @@ fun applyPaperServerEdits(
     return editedBase.copy(
         id = server.id,
         onlinePlayers = server.onlinePlayers,
+        onlinePlayerNames = server.onlinePlayerNames,
         isOnline = server.isOnline,
         selectedTunnelId = server.selectedTunnelId,
         activeTunnelLabel = server.activeTunnelLabel,

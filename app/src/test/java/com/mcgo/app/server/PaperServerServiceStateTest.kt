@@ -82,6 +82,21 @@ class PaperServerServiceStateTest {
     }
 
     @Test
+    fun startIntent_marksExplicitPreparedWorkspacePathAsPrepared() {
+        val source = readSource("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")
+        val startSignature = "fun start(\n            context: Context,\n            server: ServerCardState,\n            tunnels: List<TunnelProfile> = emptyList(),\n            workspacePath: String? = null,"
+        assertThat(source).contains(startSignature)
+        val startOverload = source
+            .substringAfter(startSignature)
+            .substringBefore("\n        fun stop(")
+
+        assertThat(startOverload).contains("putExtra(\"workspacePath\", workspacePath)")
+        assertThat(startOverload).contains("putExtra(\"workspaceMode\", workspaceMode?.name)")
+        assertThat(startOverload).contains("putExtra(\"workspacePrepared\", workspacePath != null)")
+        assertThat(startOverload).doesNotContain("putExtra(\"workspacePrepared\", server.runtimeLogPath != null)")
+    }
+
+    @Test
     fun serviceLaunchFlow_holdsPartialWakeLockUntilRuntimeCleanup() {
         val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
 

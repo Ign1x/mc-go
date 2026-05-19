@@ -942,7 +942,7 @@ open class PaperServerService : Service() {
                 putExtra("selectedTunnelId", server.selectedTunnelId)
                 putExtra("activeTunnelLabel", server.activeTunnelLabel)
                 putExtra("runtimeAddress", server.runtimeAddress)
-                putExtra("workspacePrepared", server.runtimeLogPath != null)
+                putExtra("workspacePrepared", workspacePath != null)
                 putExtra("workspacePath", workspacePath)
                 putExtra("workspaceMode", workspaceMode?.name)
                 putExtra("tunnelCount", tunnels.size)
