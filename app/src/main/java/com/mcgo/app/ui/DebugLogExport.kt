@@ -109,13 +109,42 @@ private fun readRuntimePrefsExportSection(context: Context): String {
 
 internal fun redactSensitiveLogExportText(rawText: String): String = rawText
     .lineSequence()
-    .map { line ->
-        val key = line.substringBefore('=')
-        when {
-            key.endsWith("credentialValue") -> "$key=<redacted>"
-            key.endsWith("rawConfigText") -> "$key=<redacted>"
-            key.endsWith("rawConfigPreview") -> "$key=<redacted>"
-            else -> line
-        }
-    }
+    .map(::redactSensitiveLogExportLine)
     .joinToString(separator = "\n")
+
+private val SensitiveLogExportKeySuffixes = setOf(
+    "credentialvalue",
+    "rawconfigtext",
+    "rawconfigpreview",
+)
+
+private val SensitiveLogExportExactKeys = setOf(
+    "auth.token",
+    "token",
+    "vkey",
+    "secret_key",
+    "rcon.password",
+    "management-server-secret",
+)
+
+private val SensitiveLogExportSuffixPattern = SensitiveLogExportKeySuffixes.joinToString("|") { Regex.escape(it) }
+private val SensitiveLogExportExactKeyPattern = SensitiveLogExportExactKeys.joinToString("|") { Regex.escape(it) }
+private val SensitiveLogExportWholeLinePattern = Regex(
+    "^\\s*([A-Za-z0-9_.-]*(?:$SensitiveLogExportSuffixPattern))\\s*[:=].*$",
+    RegexOption.IGNORE_CASE,
+)
+private val SensitiveLogExportAssignmentPattern = Regex(
+    "(^|[\\s|])([A-Za-z0-9_.-]*(?:$SensitiveLogExportSuffixPattern)|$SensitiveLogExportExactKeyPattern)\\s*[:=]\\s*.*?(?=(\\s+[A-Za-z0-9_.-]+\\s*[:=])|\\s+\\||$)",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun redactSensitiveLogExportLine(line: String): String {
+    SensitiveLogExportWholeLinePattern.matchEntire(line)?.let { match ->
+        return "${match.groupValues[1].trim()}=<redacted>"
+    }
+    return SensitiveLogExportAssignmentPattern.replace(line) { match ->
+        val prefix = match.groupValues[1]
+        val key = match.groupValues[2].trim()
+        "$prefix$key=<redacted>"
+    }
+}

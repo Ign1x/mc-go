@@ -73,11 +73,14 @@ class MCGoSettingsHelpContractTest {
         assertThat(debugExportSource).contains("supportedAbis=")
         assertThat(debugExportSource).contains("[debug] 行会写入托管运行日志")
         assertThat(debugExportSource).contains("FLAG_GRANT_READ_URI_PERMISSION")
-        assertThat(debugExportSource).contains("redactSensitiveLogExportText(")
-        assertThat(debugExportSource).contains("line.substringBefore('=')")
-        assertThat(debugExportSource).contains("key.endsWith(\"credentialValue\")")
-        assertThat(debugExportSource).contains("key.endsWith(\"rawConfigText\")")
-        assertThat(debugExportSource).contains("key.endsWith(\"rawConfigPreview\")")
+        assertThat(debugExportSource).contains("redactSensitiveLogExportLine")
+        assertThat(debugExportSource).contains("SensitiveLogExportExactKeys")
+        assertThat(debugExportSource).contains("SensitiveLogExportKeySuffixes")
+        assertThat(debugExportSource).contains("\"credentialvalue\"")
+        assertThat(debugExportSource).contains("\"rawconfigtext\"")
+        assertThat(debugExportSource).contains("\"rawconfigpreview\"")
+        assertThat(debugExportSource).contains("\"auth.token\"")
+        assertThat(debugExportSource).contains("\"rcon.password\"")
         assertThat(debugExportSource).contains("server_directory_uri")
         assertThat(settingsScreenSource).contains("默认会自动隐藏隧道凭据")
         assertThat(manifestSource).contains("androidx.core.content.FileProvider")
@@ -85,15 +88,26 @@ class MCGoSettingsHelpContractTest {
     }
 
     @Test
-    fun logExportRedaction_hidesCredentialsAndRawFrpConfigValuesOnly() {
+    fun logExportRedaction_hidesCredentialsRawFrpConfigAndCommonSecretKeysOnly() {
         val redacted = redactSensitiveLogExportText(
             """
             server.0.name=creative
             server.0.credentialValue=secret-token
             tunnel.0.rawConfigText=[common]\ntoken = secret
             tunnel.0.rawConfigPreview=token = secret
+            auth.token = provider-token
+            token: provider-token
+            vkey=provider-vkey
+            secret_key = provider-secret
+            rcon.password=op-password
+            management-server-secret = management-secret
             tunnel.0.rawConfigFormat=toml
             server.0.credentialValueSuffix=visible
+            frpc.error=login to the server failed: token in login doesn't match token from configuration
+            [debug] 2026-05-19 18:00:00 提交服务器启动 | server.id=demo tunnel.credentialValue=secret-token auth.token = provider-token rcon.password=op-password frpc.error=token in login doesn't match
+            auth.token = provider token with spaces
+            rcon.password=op password with spaces
+            [debug] 2026-05-19 18:01:00 提交服务器启动 | server.id=demo auth.token=provider token with spaces rcon.password=op password with spaces frpc.error=token in login doesn't match
             """.trimIndent(),
         )
 
@@ -103,8 +117,19 @@ class MCGoSettingsHelpContractTest {
             server.0.credentialValue=<redacted>
             tunnel.0.rawConfigText=<redacted>
             tunnel.0.rawConfigPreview=<redacted>
+            auth.token=<redacted>
+            token=<redacted>
+            vkey=<redacted>
+            secret_key=<redacted>
+            rcon.password=<redacted>
+            management-server-secret=<redacted>
             tunnel.0.rawConfigFormat=toml
             server.0.credentialValueSuffix=visible
+            frpc.error=login to the server failed: token in login doesn't match token from configuration
+            [debug] 2026-05-19 18:00:00 提交服务器启动 | server.id=demo tunnel.credentialValue=<redacted> auth.token=<redacted> rcon.password=<redacted> frpc.error=token in login doesn't match
+            auth.token=<redacted>
+            rcon.password=<redacted>
+            [debug] 2026-05-19 18:01:00 提交服务器启动 | server.id=demo auth.token=<redacted> rcon.password=<redacted> frpc.error=token in login doesn't match
             """.trimIndent(),
         )
     }
