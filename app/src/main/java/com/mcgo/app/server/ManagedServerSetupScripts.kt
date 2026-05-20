@@ -1,8 +1,10 @@
 package com.mcgo.app.server
 
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -12,6 +14,9 @@ internal val ReservedManagedServerImportEntries = setOf(
 )
 
 private val ManagedServerSetupDebugTimestampFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+private const val MaxManagedServerSetupScriptProbeBytes = 64 * 1024
+private const val MaxManagedServerSetupScriptRewriteBytes = 1024 * 1024
+private const val MaxManagedServerSetupApprovalMarkerBytes = 4 * 1024
 
 private fun isManagedServerRegularFile(path: Path): Boolean =
     Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path)
@@ -67,19 +72,56 @@ private fun isManagedServerSetupScriptCandidate(script: Path, serverWorkDir: Pat
     val fileName = script.fileName.toString()
     if (fileName.startsWith(".mcgo-") || fileName.contains(".mcgo-android-")) return false
     if (fileName.endsWith(".sh", ignoreCase = true)) return true
-    val contentPrefix = runCatching {
-        Files.newInputStream(script).use { input ->
-            val buffer = ByteArray(512)
-            val read = input.read(buffer)
-            if (read <= 0) "" else String(buffer, 0, read)
-        }
-    }.getOrDefault("")
+    val contentPrefix = readManagedServerSetupFilePrefix(script, 512).orEmpty()
     return contentPrefix.startsWith("#!") && contentPrefix.contains("sh", ignoreCase = true)
+}
+
+private fun readManagedServerSetupFilePrefix(path: Path, maxBytes: Int): String? = runCatching {
+    if (!isManagedServerRegularFile(path)) return@runCatching null
+    Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use { channel ->
+        readManagedServerSetupText(channel, minOf(channel.size(), maxBytes.toLong()).toInt())
+    }
+}.getOrNull()
+
+private fun readManagedServerSetupFileBounded(path: Path, maxBytes: Int): String? = runCatching {
+    if (!isManagedServerRegularFile(path)) return@runCatching null
+    Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use { channel ->
+        if (channel.size() > maxBytes.toLong()) return@runCatching null
+        readManagedServerSetupText(channel, channel.size().toInt())
+    }
+}.getOrNull()
+
+private fun readManagedServerSetupText(channel: java.nio.channels.SeekableByteChannel, bytesToRead: Int): String {
+    val buffer = ByteBuffer.allocate(bytesToRead)
+    while (buffer.hasRemaining() && channel.read(buffer) > 0) {
+        // Keep reading until the bounded buffer is full or EOF is reached.
+    }
+    return String(buffer.array(), 0, buffer.position())
+}
+
+private fun managedServerSetupScriptSha256(script: Path): String =
+    Files.newInputStream(script, LinkOption.NOFOLLOW_LINKS).use(::sha256Hex)
+
+private fun writeManagedServerMarker(marker: Path, content: String) {
+    require(!Files.isSymbolicLink(marker)) { "整合包安装标记不能是符号链接：${marker.fileName}" }
+    Files.createDirectories(marker.parent)
+    Files.newByteChannel(
+        marker,
+        StandardOpenOption.CREATE,
+        StandardOpenOption.TRUNCATE_EXISTING,
+        StandardOpenOption.WRITE,
+        LinkOption.NOFOLLOW_LINKS,
+    ).use { channel ->
+        val bytes = ByteBuffer.wrap(content.toByteArray())
+        while (bytes.hasRemaining()) {
+            channel.write(bytes)
+        }
+    }
 }
 
 internal fun isInstallerBootstrapScript(script: Path, serverWorkDir: Path): Boolean {
     if (!isManagedServerRegularFile(script)) return false
-    val content = runCatching { String(Files.readAllBytes(script)) }.getOrDefault("")
+    val content = readManagedServerSetupFilePrefix(script, MaxManagedServerSetupScriptProbeBytes).orEmpty()
     if (!content.contains("-installServer", ignoreCase = true)) return false
     if (!content.contains("installer", ignoreCase = true) && !content.contains("libraries", ignoreCase = true)) return false
     return detectInstallerPackMetadata(serverWorkDir) != null
@@ -130,10 +172,12 @@ internal data class ImportedModpackServerMetadata(
 
 private fun readManagedServerSetupApprovalRecord(serverWorkDir: Path): ManagedServerSetupApprovalRecord? {
     val marker = managedServerSetupApprovalMarker(serverWorkDir)
-    if (!Files.isRegularFile(marker)) return null
-    val values = Files.readAllLines(marker)
-        .map(String::trim)
-        .filter(String::isNotBlank)
+    val values = readManagedServerSetupFileBounded(marker, MaxManagedServerSetupApprovalMarkerBytes)
+        ?.lineSequence()
+        ?.map(String::trim)
+        ?.filter(String::isNotBlank)
+        ?.toList()
+        ?: return null
     val relativePath = values.getOrNull(0) ?: return null
     val sha256 = values.getOrNull(1)?.lowercase() ?: return null
     return ManagedServerSetupApprovalRecord(relativePath, sha256)
@@ -144,7 +188,7 @@ internal fun approvedManagedServerSetupScript(serverWorkDir: Path): Path? {
     val script = runCatching {
         resolveManagedServerSetupScript(serverWorkDir, approval.scriptRelativePath)
     }.getOrNull() ?: return null
-    return script.takeIf { approval.scriptSha256 == sha256Hex(it) }
+    return script.takeIf { approval.scriptSha256 == managedServerSetupScriptSha256(it) }
 }
 
 private fun matchesManagedServerSetupApproval(serverWorkDir: Path, script: Path): Boolean {
@@ -153,11 +197,14 @@ private fun matchesManagedServerSetupApproval(serverWorkDir: Path, script: Path)
         .relativize(script.toAbsolutePath().normalize())
         .toString()
         .replace('\\', '/')
-    return approval.scriptRelativePath == relativePath && approval.scriptSha256 == sha256Hex(script)
+    return approval.scriptRelativePath == relativePath && approval.scriptSha256 == managedServerSetupScriptSha256(script)
 }
 
 internal fun requiresManagedServerSetupApproval(serverWorkDir: Path): Path? {
-    if (Files.isRegularFile(managedServerSetupCompletionMarker(serverWorkDir))) return null
+    val completionMarker = managedServerSetupCompletionMarker(serverWorkDir)
+    if (!Files.isSymbolicLink(completionMarker) &&
+        Files.isRegularFile(completionMarker, LinkOption.NOFOLLOW_LINKS)
+    ) return null
     readManagedServerSetupApprovalRecord(serverWorkDir)?.let { approval ->
         val script = runCatching {
             resolveManagedServerSetupScript(serverWorkDir, approval.scriptRelativePath)
@@ -175,9 +222,9 @@ internal fun approveManagedServerSetupScript(serverWorkDir: Path, scriptRelative
         .relativize(script.toAbsolutePath().normalize())
         .toString()
         .replace('\\', '/')
-    Files.write(
+    writeManagedServerMarker(
         managedServerSetupApprovalMarker(serverWorkDir),
-        "$relativePath\n${sha256Hex(script)}\n".toByteArray(),
+        "$relativePath\n${managedServerSetupScriptSha256(script)}\n",
     )
 }
 
@@ -206,7 +253,8 @@ fun runManagedServerSetupScriptIfNeeded(
         )
     }
     val marker = managedServerSetupCompletionMarker(serverWorkDir)
-    if (Files.isRegularFile(marker)) return false
+    check(!Files.isSymbolicLink(marker)) { "整合包安装标记不能是符号链接：${marker.fileName}" }
+    if (Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)) return false
     val script = approvedManagedServerSetupScript(serverWorkDir)
         ?: discoverManagedServerSetupScripts(serverWorkDir).firstOrNull()?.let { detectedScript ->
             check(matchesManagedServerSetupApproval(serverWorkDir, detectedScript)) {
@@ -272,7 +320,7 @@ fun runManagedServerSetupScriptIfNeeded(
         )
         require(exitCode == 0) { "整合包安装脚本执行失败：${script.fileName} (exit=$exitCode)" }
         writeManagedServerPayloadSha(serverWorkDir, targetJar)
-        Files.write(marker, "done\n".toByteArray())
+        writeManagedServerMarker(marker, "done\n")
         return true
     } finally {
         if (generatedBootstrapScript != null) {
@@ -293,7 +341,7 @@ private fun rewriteManagedInstallerBootstrapScriptForAndroid(
         ?: return null
     val javaHome = environment["MCGO_JAVA_HOME"]?.takeIf { it.isNotBlank() } ?: return null
     val launcherLib = environment["MCGO_JAVA_NATIVE_LAUNCHER_LIB"]?.takeIf { it.isNotBlank() } ?: return null
-    val original = String(Files.readAllBytes(script))
+    val original = readManagedServerSetupFileBounded(script, MaxManagedServerSetupScriptRewriteBytes) ?: return null
     val managedJavaCommand = buildString {
         append("CLASSPATH=")
         append(shellSingleQuote(classpath))

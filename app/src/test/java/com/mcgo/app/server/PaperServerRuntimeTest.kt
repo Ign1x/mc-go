@@ -454,6 +454,16 @@ class PaperServerRuntimeTest {
         assertThat(setupSource).contains("fun runManagedServerSetupScriptIfNeeded(")
         assertThat(setupSource).contains("rewriteManagedInstallerBootstrapScriptForAndroid(")
         assertThat(setupSource).contains("ATM10_INSTALL_ONLY")
+        assertThat(setupSource).contains("MaxManagedServerSetupScriptProbeBytes")
+        assertThat(setupSource).contains("Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)")
+        assertThat(setupSource).contains("Files.newInputStream(script, LinkOption.NOFOLLOW_LINKS).use(::sha256Hex)")
+        assertThat(setupSource).contains("writeManagedServerMarker(")
+        val approvalReaderSlice = setupSource
+            .substringAfter("private fun readManagedServerSetupApprovalRecord(serverWorkDir: Path): ManagedServerSetupApprovalRecord? {")
+            .substringBefore("internal fun approvedManagedServerSetupScript(")
+        assertThat(approvalReaderSlice).contains("readManagedServerSetupFileBounded(marker, MaxManagedServerSetupApprovalMarkerBytes)")
+        assertThat(approvalReaderSlice).doesNotContain("Files.readAllLines(marker)")
+        assertThat(approvalReaderSlice).doesNotContain("Files.isRegularFile(marker))")
     }
 
     @Test
@@ -533,6 +543,83 @@ fi
 
         assertThat(discoverManagedServerSetupScripts(targetDir)).contains(script)
         assertThat(isInstallerBootstrapScript(script, targetDir)).isTrue()
+    }
+
+    @Test
+    fun isInstallerBootstrapScript_readsOnlyBoundedPrefixForLargeScripts() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-large-script")
+        val script = targetDir.resolve("bootstrap-server")
+        Files.write(
+            script,
+            """#!/bin/sh
+INSTALLER="neoforge-21.1.224-installer.jar"
+java -jar "${'$'}INSTALLER" -installServer
+""".toByteArray() + ByteArray(256 * 1024) { 'x'.code.toByte() },
+        )
+        Files.write(targetDir.resolve("neoforge-21.1.224-installer.jar"), byteArrayOf(1, 2, 3))
+
+        assertThat(isInstallerBootstrapScript(script, targetDir)).isTrue()
+    }
+
+    @Test
+    fun approvedManagedServerSetupScript_rejectsSymlinkApprovalMarker() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-approval-marker-link")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(script, "#!/bin/sh\necho safe\n".toByteArray())
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
+        val marker = managedServerSetupApprovalMarker(targetDir)
+        val externalMarker = Files.createTempFile("mcgo-approval-marker", ".txt")
+        Files.write(externalMarker, Files.readAllBytes(marker))
+        Files.delete(marker)
+        Files.createSymbolicLink(marker, externalMarker)
+
+        assertThat(approvedManagedServerSetupScript(targetDir)).isNull()
+        assertThat(requiresManagedServerSetupApproval(targetDir)).isEqualTo(script)
+    }
+
+    @Test
+    fun approveManagedServerSetupScript_rejectsPreexistingSymlinkApprovalMarker() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-approval-marker-preexisting-link")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(script, "#!/bin/sh\necho safe\n".toByteArray())
+        val externalMarker = Files.createTempFile("mcgo-approval-marker-destination", ".txt")
+        Files.write(externalMarker, "keep-me\n".toByteArray())
+        Files.createSymbolicLink(managedServerSetupApprovalMarker(targetDir), externalMarker)
+
+        assertFailsWith<IllegalArgumentException> {
+            approveManagedServerSetupScript(targetDir, script.fileName.toString())
+        }
+        assertThat(String(Files.readAllBytes(externalMarker))).isEqualTo("keep-me\n")
+    }
+
+    @Test
+    fun requiresManagedServerSetupApproval_ignoresSymlinkCompletionMarker() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-completion-marker-approval-link")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(script, "#!/bin/sh\necho safe\n".toByteArray())
+        val externalMarker = Files.createTempFile("mcgo-completion-marker-ui", ".txt")
+        Files.write(externalMarker, "done\n".toByteArray())
+        Files.createSymbolicLink(managedServerSetupCompletionMarker(targetDir), externalMarker)
+
+        assertThat(requiresManagedServerSetupApproval(targetDir)).isEqualTo(script)
+    }
+
+    @Test
+    fun runManagedServerSetupScriptIfNeeded_rejectsPreexistingSymlinkCompletionMarker() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-completion-marker-link")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(script, "#!/bin/sh\necho payload > server.jar\n".toByteArray())
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
+        val externalMarker = Files.createTempFile("mcgo-completion-marker-destination", ".txt")
+        Files.write(externalMarker, "keep-me\n".toByteArray())
+        Files.createSymbolicLink(managedServerSetupCompletionMarker(targetDir), externalMarker)
+
+        val error = assertFailsWith<IllegalStateException> {
+            runManagedServerSetupScriptIfNeeded(targetDir, shellBinary = "/bin/sh")
+        }
+
+        assertThat(error).hasMessageThat().contains("整合包安装标记不能是符号链接")
+        assertThat(String(Files.readAllBytes(externalMarker))).isEqualTo("keep-me\n")
     }
 
     @Test
