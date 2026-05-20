@@ -9,6 +9,7 @@ import com.mcgo.app.ui.storage.ServerProfileStoreGlobalLock
 import java.io.BufferedInputStream
 import java.io.InputStream
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -486,7 +487,7 @@ fun resolveAuthorizedServersRootPath(context: Context, authorizedDirectoryUri: S
 }
 
 private fun managedServerWorkspaceHasRecoverableData(workspaceDir: Path): Boolean {
-    if (!Files.isDirectory(workspaceDir)) return false
+    if (!Files.isDirectory(workspaceDir, LinkOption.NOFOLLOW_LINKS)) return false
     return Files.list(workspaceDir).use { children ->
         children.anyMatch { child -> child.fileName.toString() !in ManagedServerWorkspaceIgnoredTopLevelNames }
     }
@@ -526,7 +527,7 @@ fun prepareManagedServerWorkspaceForForegroundAccess(
     }
     val authorizedWorkspaceDir = resolveManagedServerWorkspaceDirectory(filesDir, authorizedServersRoot, serverId)
     clearManagedServerWorkspace(privateWorkspaceDir)
-    if (Files.isDirectory(authorizedWorkspaceDir)) {
+    if (Files.isDirectory(authorizedWorkspaceDir, LinkOption.NOFOLLOW_LINKS)) {
         copyPathToPath(authorizedWorkspaceDir, privateWorkspaceDir)
     } else {
         Files.createDirectories(privateWorkspaceDir)
@@ -752,7 +753,7 @@ fun syncManagedServerWorkspaceToAuthorizedDirectory(
     serverId: String,
     sourceWorkspaceDir: Path,
 ): Boolean {
-    if (!Files.isDirectory(sourceWorkspaceDir)) return false
+    if (!Files.isDirectory(sourceWorkspaceDir, LinkOption.NOFOLLOW_LINKS)) return false
     val directAuthorizedWorkspace = resolveAuthorizedServersRootPath(context, authorizedDirectoryUri)
         ?.takeIf(::canAccessAuthorizedServersRootDirectly)
         ?.resolve(sanitizeManagedServerId(serverId))
@@ -992,38 +993,35 @@ private fun copyPathToDocumentTree(
     sourceDir: Path,
     targetDir: DocumentFile,
 ) {
-    val sourceNames = Files.list(sourceDir).use { children ->
-        children.map { it.fileName.toString() }.toArray().map { it as String }.toSet()
-    }
+    val sourceChildren = listManagedWorkspacePlainChildren(sourceDir)
+    val sourceNames = sourceChildren.map { it.fileName.toString() }.toSet()
     targetDir.listFiles().forEach { existing ->
         val existingName = existing.name ?: return@forEach
         if (existingName !in sourceNames) {
             check(existing.delete()) { "删除授权目录旧文件失败：$existingName" }
         }
     }
-    Files.list(sourceDir).use { children ->
-        children.forEach { child ->
-            if (Files.isDirectory(child)) {
-                val existingEntry = targetDir.findFile(child.fileName.toString())
-                if (existingEntry?.isFile == true) {
-                    check(existingEntry.delete()) { "删除授权目录冲突文件失败：${child.fileName}" }
-                }
-                val directory = targetDir.findFile(child.fileName.toString())
-                    ?: targetDir.createDirectory(child.fileName.toString())
-                    ?: error("创建授权目录失败：${child.fileName}")
-                copyPathToDocumentTree(context, child, directory)
-            } else if (Files.isRegularFile(child)) {
-                val existingFile = targetDir.findFile(child.fileName.toString())
-                if (existingFile?.isDirectory == true) {
-                    check(existingFile.delete()) { "删除授权目录冲突目录失败：${child.fileName}" }
-                }
-                val targetFile = targetDir.findFile(child.fileName.toString())
-                    ?: targetDir.createFile("application/octet-stream", child.fileName.toString())
-                    ?: error("创建授权文件失败：${child.fileName}")
-                context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
-                    Files.newInputStream(child).use { input -> input.copyTo(output) }
-                } ?: error("打开授权文件输出流失败：${child.fileName}")
+    sourceChildren.forEach { child ->
+        if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
+            val existingEntry = targetDir.findFile(child.fileName.toString())
+            if (existingEntry?.isFile == true) {
+                check(existingEntry.delete()) { "删除授权目录冲突文件失败：${child.fileName}" }
             }
+            val directory = targetDir.findFile(child.fileName.toString())
+                ?: targetDir.createDirectory(child.fileName.toString())
+                ?: error("创建授权目录失败：${child.fileName}")
+            copyPathToDocumentTree(context, child, directory)
+        } else if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)) {
+            val existingFile = targetDir.findFile(child.fileName.toString())
+            if (existingFile?.isDirectory == true) {
+                check(existingFile.delete()) { "删除授权目录冲突目录失败：${child.fileName}" }
+            }
+            val targetFile = targetDir.findFile(child.fileName.toString())
+                ?: targetDir.createFile("application/octet-stream", child.fileName.toString())
+                ?: error("创建授权文件失败：${child.fileName}")
+            context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
+                Files.newInputStream(child).use { input -> input.copyTo(output) }
+            } ?: error("打开授权文件输出流失败：${child.fileName}")
         }
     }
 }
@@ -1048,42 +1046,61 @@ private fun copyDocumentTreeToPath(
 }
 
 private fun copyPathToPath(sourceDir: Path, targetDir: Path) {
-    Files.createDirectories(targetDir)
-    val sourceNames = Files.list(sourceDir).use { children ->
-        children.map { it.fileName.toString() }.toArray().map { it as String }.toSet()
+    if (!Files.isDirectory(sourceDir, LinkOption.NOFOLLOW_LINKS)) return
+    if (Files.exists(targetDir, LinkOption.NOFOLLOW_LINKS) && !Files.isDirectory(targetDir, LinkOption.NOFOLLOW_LINKS)) {
+        Files.deleteIfExists(targetDir)
     }
+    Files.createDirectories(targetDir)
+    val sourceChildren = listManagedWorkspacePlainChildren(sourceDir)
+    val sourceNames = sourceChildren.map { it.fileName.toString() }.toSet()
     Files.list(targetDir).use { existingChildren ->
         existingChildren.forEach { existing ->
             if (existing.fileName.toString() !in sourceNames) {
-                if (Files.isDirectory(existing)) {
-                    clearManagedServerWorkspace(existing)
-                } else {
-                    Files.deleteIfExists(existing)
-                }
+                deleteManagedWorkspacePathEntry(existing)
             }
         }
     }
-    Files.list(sourceDir).use { children ->
-        children.forEach { child ->
-            val target = targetDir.resolve(child.fileName.toString())
-            if (Files.isDirectory(child)) {
-                if (Files.isRegularFile(target)) {
-                    Files.deleteIfExists(target)
-                }
-                copyPathToPath(child, target)
-            } else if (Files.isRegularFile(child)) {
-                if (Files.isDirectory(target)) {
-                    clearManagedServerWorkspace(target)
-                }
-                target.parent?.let(Files::createDirectories)
-                Files.copy(child, target, StandardCopyOption.REPLACE_EXISTING)
+    sourceChildren.forEach { child ->
+        val target = targetDir.resolve(child.fileName.toString())
+        if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
+            if (Files.exists(target, LinkOption.NOFOLLOW_LINKS) && !Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)) {
+                Files.deleteIfExists(target)
             }
+            copyPathToPath(child, target)
+        } else if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)) {
+            if (Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)) {
+                clearManagedServerWorkspace(target)
+            } else if (Files.exists(target, LinkOption.NOFOLLOW_LINKS) && !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
+                Files.deleteIfExists(target)
+            }
+            target.parent?.let(Files::createDirectories)
+            Files.copy(child, target, StandardCopyOption.REPLACE_EXISTING, LinkOption.NOFOLLOW_LINKS)
         }
     }
 }
 
+private fun listManagedWorkspacePlainChildren(directory: Path): List<Path> = Files.list(directory).use { children ->
+    children.iterator().asSequence()
+        .filter { child ->
+            Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS) || Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)
+        }
+        .toList()
+}
+
+private fun deleteManagedWorkspacePathEntry(path: Path) {
+    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+        clearManagedServerWorkspace(path)
+    } else {
+        Files.deleteIfExists(path)
+    }
+}
+
 private fun clearManagedServerWorkspace(targetDir: Path) {
-    if (!Files.exists(targetDir)) return
+    if (!Files.exists(targetDir, LinkOption.NOFOLLOW_LINKS)) return
+    if (!Files.isDirectory(targetDir, LinkOption.NOFOLLOW_LINKS)) {
+        Files.deleteIfExists(targetDir)
+        return
+    }
     Files.walk(targetDir).use { stream ->
         stream.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
     }

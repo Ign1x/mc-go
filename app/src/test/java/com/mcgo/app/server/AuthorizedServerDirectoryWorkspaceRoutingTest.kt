@@ -241,6 +241,32 @@ class AuthorizedServerDirectoryWorkspaceRoutingTest {
     }
 
     @Test
+    fun releaseManagedServerWorkspaceAfterForegroundAccess_doesNotFollowSymlinkedAuthorizedWorkspaceEntries() {
+        val filesDir = Files.createTempDirectory("mcgo-private-symlink-release")
+        val authorizedRoot = Files.createTempDirectory("mcgo-authorized-symlink-release")
+        val authorizedServersRoot = authorizedRoot.resolve("servers")
+        val authorizedServerDir = authorizedServersRoot.resolve("server-demo")
+        Files.createDirectories(authorizedServerDir)
+        val outsideTarget = Files.createTempDirectory("mcgo-authorized-outside-release")
+        val symlinkedDirectory = authorizedServerDir.resolve("mods")
+        Files.createSymbolicLink(symlinkedDirectory, outsideTarget)
+
+        val privateMirror = managedPaperServerDirectory(filesDir, "server-demo")
+        Files.createDirectories(privateMirror.resolve("mods"))
+        Files.write(privateMirror.resolve("mods/example.jar"), "jar".toByteArray())
+
+        releaseManagedServerWorkspaceAfterForegroundAccess(
+            filesDir = filesDir,
+            authorizedServersRoot = authorizedServersRoot,
+            serverId = "server-demo",
+        )
+
+        assertThat(Files.isSymbolicLink(symlinkedDirectory)).isFalse()
+        assertThat(Files.exists(outsideTarget.resolve("example.jar"))).isFalse()
+        assertThat(Files.isRegularFile(authorizedServerDir.resolve("mods/example.jar"))).isTrue()
+    }
+
+    @Test
     fun discardManagedServerWorkspaceAfterForegroundAccess_clearsPrivateMirrorWithoutSyncingAuthorizedWorkspace() {
         val filesDir = Files.createTempDirectory("mcgo-private-discard")
         val authorizedRoot = Files.createTempDirectory("mcgo-authorized-discard")
