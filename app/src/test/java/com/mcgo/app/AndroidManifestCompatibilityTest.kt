@@ -19,6 +19,19 @@ class AndroidManifestCompatibilityTest {
     }
 
     @Test
+    fun sourceManifest_disablesSystemBackupForSensitiveLocalProfiles() {
+        val manifest = readTextFromExisting(
+            listOf(
+                Path.of("src/main/AndroidManifest.xml"),
+                Path.of("app/src/main/AndroidManifest.xml"),
+            ),
+        )
+
+        assertThat(manifest).contains("android:allowBackup=\"false\"")
+        assertThat(manifest).doesNotContain("android:allowBackup=\"true\"")
+    }
+
+    @Test
     fun sourceManifest_forcesNativeLibExtraction_forBundledExecutableFrpc() {
         val manifest = readTextFromExisting(
             listOf(

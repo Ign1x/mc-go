@@ -9,6 +9,8 @@ data class TcpEndpoint(
     val port: Int,
 )
 
+private val UnsafeTcpEndpointHostChars = setOf('"', '\'', '=', '[', ']', '#', '/', '\\')
+
 fun parseTcpEndpoint(rawEndpoint: String): TcpEndpoint? {
     val trimmed = rawEndpoint.trim()
     if (trimmed.isBlank()) return null
@@ -27,13 +29,23 @@ fun parseTcpEndpoint(rawEndpoint: String): TcpEndpoint? {
     }
 
     val port = portText.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
-    return TcpEndpoint(host.trim().takeIf { it.isNotBlank() } ?: return null, port)
+    val normalizedHost = host
+        .takeIf { it.isNotBlank() && it == it.trim() && isSafeTcpEndpointHost(it) }
+        ?: return null
+    return TcpEndpoint(normalizedHost, port)
 }
 
 fun formatTcpEndpoint(host: String, port: Int): String {
     require(port in 1..65535) { "TCP 端口无效：$port" }
     val trimmedHost = host.trim()
     require(trimmedHost.isNotBlank()) { "TCP 主机不能为空" }
+    require(host == trimmedHost) { "TCP 主机不能包含首尾空白" }
+    val hostForValidation = if (trimmedHost.startsWith("[") && trimmedHost.endsWith("]")) {
+        trimmedHost.removePrefix("[").removeSuffix("]")
+    } else {
+        trimmedHost
+    }
+    require(isSafeTcpEndpointHost(hostForValidation)) { "TCP 主机包含不安全字符" }
     val displayHost = if (trimmedHost.startsWith("[") && trimmedHost.endsWith("]")) {
         trimmedHost
     } else if (':' in trimmedHost) {
@@ -43,6 +55,9 @@ fun formatTcpEndpoint(host: String, port: Int): String {
     }
     return "$displayHost:$port"
 }
+
+private fun isSafeTcpEndpointHost(host: String): Boolean =
+    host.none { char -> char.isISOControl() || char.isWhitespace() || char in UnsafeTcpEndpointHostChars }
 
 fun measureTcpLatency(
     endpoint: TcpEndpoint,

@@ -23,6 +23,20 @@ class TcpLatencyProbeTest {
     }
 
     @Test
+    fun parseTcpEndpoint_rejectsHostsWithControlCharactersOrConfigDelimiters() {
+        assertThat(parseTcpEndpoint("frp.example.com\nserverPort = 1:7000")).isNull()
+        assertThat(parseTcpEndpoint("frp.example.com\r:7000")).isNull()
+        assertThat(parseTcpEndpoint("frp.example.com\t:7000")).isNull()
+        assertThat(parseTcpEndpoint("frp.example.com\":7000")).isNull()
+        assertThat(parseTcpEndpoint("frp.example.com':7000")).isNull()
+        assertThat(parseTcpEndpoint("frp.example.com=:7000")).isNull()
+        assertThat(parseTcpEndpoint("frp.example.com#:7000")).isNull()
+        assertThat(parseTcpEndpoint("frp.example.com/path:7000")).isNull()
+        assertThat(parseTcpEndpoint("frp.example.com\\path:7000")).isNull()
+        assertThat(parseTcpEndpoint("[2001:db8::1\n]:443")).isNull()
+    }
+
+    @Test
     fun formatTcpEndpoint_bracketsIpv6HostWhenAppendingPort() {
         assertThat(formatTcpEndpoint("frp.example.com", 7000)).isEqualTo("frp.example.com:7000")
         assertThat(formatTcpEndpoint("192.168.1.2", 8080)).isEqualTo("192.168.1.2:8080")
@@ -39,6 +53,24 @@ class TcpLatencyProbeTest {
     @Test
     fun formatTcpEndpoint_rejectsBlankHost() {
         assertFailsWith<IllegalArgumentException> { formatTcpEndpoint("   ", 7000) }
+    }
+
+    @Test
+    fun formatTcpEndpoint_rejectsUnsafeHostsBeforeRendering() {
+        listOf(
+            "frp.example.com\nserverPort=1",
+            "frp.example.com\t",
+            "frp.example.com\"",
+            "frp.example.com'",
+            "frp.example.com=evil",
+            "frp.example.com#fragment",
+            "frp.example.com/path",
+            "frp.example.com\\path",
+        ).forEach { host ->
+            assertFailsWith<IllegalArgumentException>(message = host) {
+                formatTcpEndpoint(host, 7000)
+            }
+        }
     }
 
     @Test
