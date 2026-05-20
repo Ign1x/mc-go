@@ -1,7 +1,9 @@
 package com.mcgo.app.server
 
 import com.google.common.truth.Truth.assertThat
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
@@ -134,5 +136,35 @@ class JavaRuntimeImportTest {
         Files.write(file, "abc".toByteArray())
 
         assertThat(sha256Hex(file)).isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+
+    @Test
+    fun sha256Hex_rejectsSymlinkedFiles() {
+        assertFailsWith<IOException> {
+            sha256Hex(symlinkToTempFile("mcgo-sha256"))
+        }
+    }
+
+    @Test
+    fun sha1Hex_rejectsSymlinkedFiles() {
+        assertFailsWith<IOException> {
+            sha1Hex(symlinkToTempFile("mcgo-sha1"))
+        }
+    }
+
+    @Test
+    fun md5Hex_rejectsSymlinkedFiles() {
+        assertFailsWith<IOException> {
+            md5Hex(symlinkToTempFile("mcgo-md5"))
+        }
+    }
+
+    private fun symlinkToTempFile(prefix: String): Path {
+        val dir = Files.createTempDirectory("$prefix-link")
+        val outside = Files.createTempFile("$prefix-outside", ".bin")
+        Files.write(outside, "outside".toByteArray())
+        val link = dir.resolve("linked.bin")
+        Files.createSymbolicLink(link, outside)
+        return link
     }
 }

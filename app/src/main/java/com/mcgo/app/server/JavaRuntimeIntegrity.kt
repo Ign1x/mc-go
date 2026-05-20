@@ -2,6 +2,7 @@ package com.mcgo.app.server
 
 import java.io.InputStream
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.security.DigestInputStream
 import java.security.MessageDigest
@@ -14,11 +15,11 @@ enum class JavaRuntimeArchiveSource {
 const val OfficialPojavLauncherApkSha256 = "cc8479e1600e3a094d2184bbb88b19809ce41a0f8f7882aefd4527c9d032fc56"
 const val OfficialPojavLauncherCertSha256 = "d0d0886a0d7e3486e6627f9b8011027fe3c6b0fb09424530b6d7be14f8c2cc33"
 
-fun sha256Hex(path: Path): String = Files.newInputStream(path).use(::sha256Hex)
+fun sha256Hex(path: Path): String = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS).use(::sha256Hex)
 
-fun sha1Hex(path: Path): String = Files.newInputStream(path).use(::sha1Hex)
+fun sha1Hex(path: Path): String = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS).use(::sha1Hex)
 
-fun md5Hex(path: Path): String = Files.newInputStream(path).use(::md5Hex)
+fun md5Hex(path: Path): String = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS).use(::md5Hex)
 
 fun sha256Hex(input: InputStream): String {
     val digest = MessageDigest.getInstance("SHA-256")
