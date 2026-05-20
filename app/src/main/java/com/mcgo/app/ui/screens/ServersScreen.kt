@@ -453,7 +453,11 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
     val context = LocalContext.current
     val consoleText = remember(server.runtimeLogPath, server.runtimeLogs) { resolveServerConsoleText(server) }
     val latestRuntimeLog = server.runtimeLogs.lastOrNull().orEmpty()
-    val progressTitle = if (server.runtimeLogs.lastOrNull()?.contains("导入整合包") == true) "导入进度" else "启动进度"
+    val progressTitle = when {
+        server.launchStatus == ServerLaunchStatus.Stopping -> "停止进度"
+        server.runtimeLogs.lastOrNull()?.contains("导入整合包") == true -> "导入进度"
+        else -> "启动进度"
+    }
     val progressColor = if (latestRuntimeLog.contains("导入整合包")) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(

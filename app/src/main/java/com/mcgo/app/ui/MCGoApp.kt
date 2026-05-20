@@ -1564,7 +1564,7 @@ private fun MCGoAppScaffold(
                                 )
                                 onServersChange(updatedServers)
                                 syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-                                scope.launch { snackbarHostState.showSnackbar("已停止并删除 ${targetServer.name}") }
+                                scope.launch { snackbarHostState.showSnackbar("已请求停止并删除 ${targetServer.name}，退出后会自动移除") }
                             } else {
                                 val updatedServers = finalizePendingServerDeletion(servers.filterNot { it.id == serverId })
                                 deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), serverId)

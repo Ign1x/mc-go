@@ -739,6 +739,49 @@ class ServerModelsTest {
     }
 
     @Test
+    fun requestServerDeletionShowsStoppingUntilRuntimeExits() {
+        val running = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            isOnline = true,
+            launchStatus = ServerLaunchStatus.Running,
+            launchProgress = 100,
+        )
+
+        val pending = requestServerDeletion(running)
+
+        assertThat(pending.pendingDeletion).isTrue()
+        assertThat(pending.launchStatus).isEqualTo(ServerLaunchStatus.Stopping)
+        assertThat(pending.launchProgress).isEqualTo(1)
+        assertThat(pending.runtimeLogs.last()).contains("已请求删除，正在停止服务")
+        assertThat(pending.runtimeLogs.last()).contains("退出后会自动移除")
+    }
+
+    @Test
+    fun requestServerDeletionKeepsStoppedServerReadyForImmediateFinalization() {
+        val stopped = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            isOnline = false,
+            launchStatus = ServerLaunchStatus.Ready,
+            launchProgress = 0,
+        )
+
+        val pending = requestServerDeletion(stopped)
+
+        assertThat(pending.pendingDeletion).isTrue()
+        assertThat(pending.launchStatus).isEqualTo(ServerLaunchStatus.Ready)
+        assertThat(pending.launchProgress).isEqualTo(0)
+        assertThat(finalizePendingServerDeletion(listOf(pending))).isEmpty()
+    }
+
+    @Test
     fun applyPaperServerEdits_preservesVanillaServerTypeAndEditionFamily() {
         val original = createVanillaServer(
             name = "原版服",

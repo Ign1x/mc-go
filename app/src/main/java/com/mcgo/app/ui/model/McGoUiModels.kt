@@ -766,10 +766,20 @@ private fun readServerConsoleRuntimeLogTextOrNull(path: Path): String? = runCatc
     }
 }.getOrNull()
 
-fun requestServerDeletion(server: ServerCardState): ServerCardState = server.copy(
-    pendingDeletion = true,
-    runtimeLogs = (server.runtimeLogs + "已请求删除，待服务停止后自动移除").takeLast(12),
-)
+fun requestServerDeletion(server: ServerCardState): ServerCardState {
+    val runtimeBusy = server.isRuntimeBusy()
+    val deleteMessage = if (runtimeBusy) {
+        "已请求删除，正在停止服务，退出后会自动移除"
+    } else {
+        "已请求删除，待服务停止后自动移除"
+    }
+    return server.copy(
+        pendingDeletion = true,
+        launchStatus = if (runtimeBusy) ServerLaunchStatus.Stopping else server.launchStatus,
+        launchProgress = if (runtimeBusy) 1 else server.launchProgress,
+        runtimeLogs = (server.runtimeLogs + deleteMessage).takeLast(12),
+    )
+}
 
 fun finalizePendingServerDeletion(servers: List<ServerCardState>): List<ServerCardState> =
     servers.filterNot { it.pendingDeletion && !it.isRuntimeBusy() }

@@ -66,7 +66,10 @@ class MCGoServerFileManagementContractTest {
         assertThat(serverCardSource).contains("enabled = !modpackImportInProgress")
         assertThat(serverCardSource).contains("val startEnabled = canStartServerFromUi(server) && !modpackImportInProgress")
         assertThat(serverCardSource).contains("val stopEnabled = server.isRuntimeBusy() && !modpackImportInProgress")
-        assertThat(serversScreenSource).contains("val progressTitle = if (server.runtimeLogs.lastOrNull()?.contains(\"导入整合包\") == true) \"导入进度\" else \"启动进度\"")
+        assertThat(serversScreenSource).contains("val progressTitle = when {")
+        assertThat(serversScreenSource).contains("server.launchStatus == ServerLaunchStatus.Stopping -> \"停止进度\"")
+        assertThat(serversScreenSource).contains("server.runtimeLogs.lastOrNull()?.contains(\"导入整合包\") == true -> \"导入进度\"")
+        assertThat(serversScreenSource).contains("else -> \"启动进度\"")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds + server.id")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds - server.id")
         assertThat(appSource).contains("resolveNewModpackServerImportFailureRecovery(")
@@ -206,6 +209,20 @@ class MCGoServerFileManagementContractTest {
         assertThat(queuedCreateSource).contains("createServerFromModpackNow(queuedModpackCreate.server, queuedModpackCreate.archiveUri)")
         assertThat(queuedCreateSource).contains("!serverDirectoryGrantProcessing")
         assertThat(queuedCreateSource).contains("showServerComposer = true")
+    }
+
+    @Test
+    fun deletingRunningServerCommunicatesDeferredRemoval() {
+        val deleteHandlerSource = appSource
+            .substringAfter("onDeleteServer = { serverId ->")
+            .substringBefore("                        onOpenConsole = { serverId ->")
+        val runningDeleteBranch = deleteHandlerSource
+            .substringAfter("if (targetServer?.isRuntimeBusy() == true) {")
+            .substringBefore("} else {")
+
+        assertThat(runningDeleteBranch).contains("requestServerDeletion(server)")
+        assertThat(runningDeleteBranch).contains("snackbarHostState.showSnackbar(\"已请求停止并删除 \${targetServer.name}，退出后会自动移除\")")
+        assertThat(runningDeleteBranch).doesNotContain("snackbarHostState.showSnackbar(\"已停止并删除")
     }
 
     @Test
