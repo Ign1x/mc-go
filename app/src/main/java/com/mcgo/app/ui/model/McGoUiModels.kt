@@ -1,6 +1,11 @@
 package com.mcgo.app.ui.model
 
-import java.io.File
+import java.nio.channels.Channels
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.nio.file.StandardOpenOption
 
 enum class MetricAccent {
     Blue,
@@ -723,13 +728,43 @@ fun applyPaperServerEdits(
     )
 }
 
+const val MaxServerConsoleLogReadBytes = 256 * 1024
+
 fun resolveServerConsoleText(server: ServerCardState): String =
     server.runtimeLogPath
-        ?.let(::File)
-        ?.takeIf { it.isFile }
-        ?.readText()
+        ?.let(::readServerConsoleRuntimeLogTextOrNull)
         ?.takeIf { it.isNotBlank() }
         ?: server.runtimeLogs.joinToString(separator = "\n")
+
+private fun readServerConsoleRuntimeLogTextOrNull(rawPath: String): String? = runCatching {
+    readServerConsoleRuntimeLogTextOrNull(Paths.get(rawPath))
+}.getOrNull()
+
+private fun readServerConsoleRuntimeLogTextOrNull(path: Path): String? = runCatching {
+    if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(path)) return@runCatching null
+    Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use { channel ->
+        val fileSize = channel.size()
+        val bytesToRead = minOf(fileSize, MaxServerConsoleLogReadBytes.toLong()).toInt()
+        val startOffset = (fileSize - bytesToRead).coerceAtLeast(0L)
+        channel.position(startOffset)
+        val text = Channels.newInputStream(channel).use { input ->
+            val buffer = ByteArray(bytesToRead)
+            var totalRead = 0
+            while (totalRead < bytesToRead) {
+                val read = input.read(buffer, totalRead, bytesToRead - totalRead)
+                if (read <= 0) break
+                totalRead += read
+            }
+            buffer.copyOf(totalRead).toString(Charsets.UTF_8)
+        }
+        if (startOffset > 0L) {
+            val trimmed = text.substringAfter('\n', missingDelimiterValue = text)
+            "===== 仅显示最后 ${MaxServerConsoleLogReadBytes / 1024} KiB 日志 =====\n$trimmed"
+        } else {
+            text
+        }
+    }
+}.getOrNull()
 
 fun requestServerDeletion(server: ServerCardState): ServerCardState = server.copy(
     pendingDeletion = true,

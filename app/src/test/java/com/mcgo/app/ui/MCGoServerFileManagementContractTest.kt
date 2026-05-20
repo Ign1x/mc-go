@@ -220,6 +220,16 @@ class MCGoServerFileManagementContractTest {
         assertThat(serverConsoleDialogSource).contains("踢出玩家")
         assertThat(serverConsoleDialogSource).contains("授予 OP")
         assertThat(serverConsoleDialogSource).contains("移除 OP")
+        assertThat(serverConsoleDialogSource).contains("ClipData.newPlainText(\"${'$'}{server.name} logs\", consoleText)")
+        assertThat(serverConsoleDialogSource).doesNotContain("?.let { java.io.File(it) }")
+        assertThat(serverConsoleDialogSource).doesNotContain("?.readText()")
+        val runtimeProgressPanelSource = serversScreenSource
+            .substringAfter("private fun RuntimeProgressPanel(server: ServerCardState) {")
+            .substringBefore("@Composable\nprivate fun DeleteServerDialog(")
+        assertThat(runtimeProgressPanelSource).contains("resolveServerConsoleText(server)")
+        assertThat(runtimeProgressPanelSource).contains("ClipData.newPlainText(\"${'$'}{server.name} MC-GO logs\", consoleText)")
+        assertThat(runtimeProgressPanelSource).doesNotContain("?.let(::File)")
+        assertThat(runtimeProgressPanelSource).doesNotContain("?.readText()")
     }
 
     @Test

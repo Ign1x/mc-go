@@ -90,7 +90,7 @@ import com.mcgo.app.ui.model.formatPlayerCapacity
 import com.mcgo.app.ui.PendingServerIconChange
 import com.mcgo.app.ui.ServerAvatar
 import com.mcgo.app.ui.model.isRuntimeBusy
-import java.io.File
+import com.mcgo.app.ui.model.resolveServerConsoleText
 
 @Composable
 fun ServersScreen(
@@ -451,7 +451,7 @@ private fun ServerCard(
 @Composable
 private fun RuntimeProgressPanel(server: ServerCardState) {
     val context = LocalContext.current
-    val fallbackLogsText = remember(server.runtimeLogs) { server.runtimeLogs.joinToString(separator = "\n") }
+    val consoleText = remember(server.runtimeLogPath, server.runtimeLogs) { resolveServerConsoleText(server) }
     val latestRuntimeLog = server.runtimeLogs.lastOrNull().orEmpty()
     val progressTitle = if (server.runtimeLogs.lastOrNull()?.contains("导入整合包") == true) "导入进度" else "启动进度"
     val progressColor = if (latestRuntimeLog.contains("导入整合包")) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
@@ -477,16 +477,10 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
                     fontWeight = FontWeight.Medium,
                 )
                 IconButton(
-                    enabled = fallbackLogsText.isNotBlank() || server.runtimeLogPath != null,
+                    enabled = consoleText.isNotBlank(),
                     onClick = {
-                        val copiedText = server.runtimeLogPath
-                            ?.let(::File)
-                            ?.takeIf { it.isFile }
-                            ?.readText()
-                            ?.takeIf { it.isNotBlank() }
-                            ?: fallbackLogsText
                         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                            ClipData.newPlainText("${server.name} MC-GO logs", copiedText),
+                            ClipData.newPlainText("${server.name} MC-GO logs", consoleText),
                         )
                         Toast.makeText(context, "日志已复制", Toast.LENGTH_SHORT).show()
                     },

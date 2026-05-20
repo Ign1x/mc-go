@@ -121,14 +121,8 @@ internal fun ServerConsoleDialog(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            val clipboard = server.runtimeLogPath
-                                ?.let { java.io.File(it) }
-                                ?.takeIf { it.isFile }
-                                ?.readText()
-                                ?.takeIf { it.isNotBlank() }
-                                ?: consoleText
                             context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                                ClipData.newPlainText("${server.name} logs", clipboard),
+                                ClipData.newPlainText("${server.name} logs", consoleText),
                             )
                         },
                     ) {

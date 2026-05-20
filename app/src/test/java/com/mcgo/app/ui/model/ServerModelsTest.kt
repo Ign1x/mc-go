@@ -924,6 +924,81 @@ class ServerModelsTest {
         assertThat(resolveServerConsoleText(missing)).isEqualTo("fallback-1\nfallback-2")
     }
 
+    @Test
+    fun resolveServerConsoleText_rejectsSymlinkRuntimeLogPath() {
+        val realLog = Files.createTempFile("mcgo-console-real", ".log")
+        Files.write(realLog, "outside-secret\n".toByteArray())
+        val symlinkLog = Files.createTempFile("mcgo-console-link", ".log")
+        Files.deleteIfExists(symlinkLog)
+        if (runCatching { Files.createSymbolicLink(symlinkLog, realLog) }.isFailure) return
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            runtimeLogs = listOf("fallback-safe"),
+            runtimeLogPath = symlinkLog.toString(),
+        )
+
+        assertThat(resolveServerConsoleText(server)).isEqualTo("fallback-safe")
+    }
+
+    @Test
+    fun resolveServerConsoleText_readsOnlyBoundedTailOfLargeRuntimeLogFile() {
+        val logFile = Files.createTempFile("mcgo-console-large", ".log")
+        val headMarker = "head-marker\n"
+        val filler = "x".repeat(MaxServerConsoleLogReadBytes + 1024)
+        val tail = "\ntail-visible\n"
+        Files.write(logFile, (headMarker + filler + tail).toByteArray())
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            runtimeLogs = listOf("fallback-1", "fallback-2"),
+            runtimeLogPath = logFile.toString(),
+        )
+
+        val consoleText = resolveServerConsoleText(server)
+
+        assertThat(consoleText).contains("===== 仅显示最后")
+        assertThat(consoleText).contains("tail-visible")
+        assertThat(consoleText).doesNotContain("head-marker")
+    }
+
+    @Test
+    fun resolveServerConsoleText_fallsBackWhenRuntimeLogPathIsInvalid() {
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            runtimeLogs = listOf("fallback-safe"),
+            runtimeLogPath = "\u0000invalid-path",
+        )
+
+        assertThat(resolveServerConsoleText(server)).isEqualTo("fallback-safe")
+    }
+
+    @Test
+    fun serverConsoleRuntimeLogSource_usesBoundedNoFollowReads() {
+        val modelSource = readSource("app/src/main/java/com/mcgo/app/ui/model/McGoUiModels.kt")
+
+        val consoleSlice = modelSource
+            .substringAfter("fun resolveServerConsoleText(")
+            .substringBefore("fun requestServerDeletion(")
+
+        assertThat(consoleSlice).contains("Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)")
+        assertThat(consoleSlice).contains("Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)")
+        assertThat(consoleSlice).contains("MaxServerConsoleLogReadBytes")
+        assertThat(consoleSlice).doesNotContain("?.let(::File)")
+        assertThat(consoleSlice).doesNotContain("?.readText()")
+        assertThat(consoleSlice).doesNotContain("Files.readAllBytes")
+    }
+
     private fun readSource(relativePath: String): String =
         String(Files.readAllBytes(projectRoot().resolve(relativePath)))
 
