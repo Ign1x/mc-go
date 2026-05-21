@@ -20,11 +20,15 @@ internal fun buildManagedServerDebugLogLine(
     val normalizedDetails = details.entries
         .asSequence()
         .filter { (_, value) -> value != null }
-        .joinToString(separator = " ") { (key, value) -> "$key=$value" }
+        .joinToString(separator = " ") { (key, value) -> "$key=${value!!.toStructuredDebugLogPart()}" }
         .trim()
-    val prefix = "[debug] ${ManagedServerDebugTimestampFormatter.format(timestamp)} $message"
+    val prefix = "[debug] ${ManagedServerDebugTimestampFormatter.format(timestamp)} ${message.toStructuredDebugLogPart()}"
     return if (normalizedDetails.isBlank()) prefix else "$prefix | $normalizedDetails"
 }
+
+private fun Any.toStructuredDebugLogPart(): String = toString()
+    .replace(Regex("\\s+"), " ")
+    .trim()
 
 internal fun appendManagedServerDebugLog(
     logFile: Path,

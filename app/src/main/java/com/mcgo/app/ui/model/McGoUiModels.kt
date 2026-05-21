@@ -93,6 +93,8 @@ data class ServerTunnelBinding(
     val runtimeAddress: String? = null,
 )
 
+const val MaxServerRuntimeLogEntries = 80
+
 data class ServerCardState(
     val name: String,
     val id: String = createServerId(name),
@@ -484,7 +486,7 @@ fun ServerCardState.withLaunchProgress(
     isOnline = online,
     launchStatus = status,
     launchProgress = progress.coerceIn(0, 100),
-    runtimeLogs = (runtimeLogs + listOfNotNull(logLine)).takeLast(12),
+    runtimeLogs = (runtimeLogs + listOfNotNull(logLine)).takeLast(MaxServerRuntimeLogEntries),
 )
 
 fun ServerCardState.markAwaitingManagedRuntimeInstall(majorVersion: Int): ServerCardState =
@@ -537,7 +539,7 @@ fun ServerCardState.markLaunchRunning(logLine: String = "服务端进程已进�
     isOnline = true,
     launchStatus = ServerLaunchStatus.Running,
     launchProgress = 100,
-    runtimeLogs = (runtimeLogs + logLine).takeLast(12),
+    runtimeLogs = (runtimeLogs + logLine).takeLast(MaxServerRuntimeLogEntries),
 )
 
 fun ServerCardState.markLaunchFailed(error: String): ServerCardState = clearTunnelRuntimeBindings().copy(
@@ -548,7 +550,7 @@ fun ServerCardState.markLaunchFailed(error: String): ServerCardState = clearTunn
     runtimeAddress = null,
     launchStatus = ServerLaunchStatus.Failed,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + "启动失败：$error").takeLast(12),
+    runtimeLogs = (runtimeLogs + "启动失败：$error").takeLast(MaxServerRuntimeLogEntries),
     runtimeSlot = null,
 )
 
@@ -560,7 +562,7 @@ fun ServerCardState.markModpackImportRecoveredAfterSyncFailure(error: String): S
     runtimeAddress = null,
     launchStatus = ServerLaunchStatus.Failed,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + "导入整合包后同步失败：$error").takeLast(12),
+    runtimeLogs = (runtimeLogs + "导入整合包后同步失败：$error").takeLast(MaxServerRuntimeLogEntries),
     runtimeSlot = null,
 )
 
@@ -568,7 +570,7 @@ fun ServerCardState.markModpackImportInProgress(progress: Int, logLine: String):
     isOnline = false,
     launchStatus = ServerLaunchStatus.Launching,
     launchProgress = progress.coerceIn(1, 99),
-    runtimeLogs = (runtimeLogs + logLine).takeLast(12),
+    runtimeLogs = (runtimeLogs + logLine).takeLast(MaxServerRuntimeLogEntries),
 )
 
 fun ServerCardState.isRuntimeBusy(): Boolean =
@@ -777,7 +779,7 @@ fun requestServerDeletion(server: ServerCardState): ServerCardState {
         pendingDeletion = true,
         launchStatus = if (runtimeBusy) ServerLaunchStatus.Stopping else server.launchStatus,
         launchProgress = if (runtimeBusy) 1 else server.launchProgress,
-        runtimeLogs = (server.runtimeLogs + deleteMessage).takeLast(12),
+        runtimeLogs = (server.runtimeLogs + deleteMessage).takeLast(MaxServerRuntimeLogEntries),
     )
 }
 
@@ -804,7 +806,7 @@ fun ServerCardState.markUnsupportedManagedRuntime(supportedProvisionableVersions
             runtimeAddress = null,
             launchStatus = ServerLaunchStatus.Failed,
             launchProgress = 0,
-            runtimeLogs = (runtimeLogs + reason).distinct().takeLast(12),
+            runtimeLogs = (runtimeLogs + reason).distinct().takeLast(MaxServerRuntimeLogEntries),
             runtimeSlot = null,
         )
     }

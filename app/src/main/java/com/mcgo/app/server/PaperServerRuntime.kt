@@ -38,6 +38,16 @@ data class PaperDownloadArtifact(
     val downloadUrl: String,
 )
 
+internal data class ManagedServerArchiveExtractionSummary(
+    val fileCount: Int = 0,
+    val directoryCount: Int = 0,
+    val totalBytes: Long = 0L,
+    val skippedReservedEntryCount: Int = 0,
+) {
+    fun toDiagnosticProgressMessage(): String =
+        "整合包导入摘要 | files=$fileCount directories=$directoryCount bytes=$totalBytes skippedReserved=$skippedReservedEntryCount"
+}
+
 
 fun fallbackPaperVersions(): List<String> = listOf(
     "1.8.8",
@@ -624,11 +634,14 @@ fun importManagedServerModpackArchive(
         onProgress?.invoke(progress.coerceIn(1, 100), message)
     }
     Files.createDirectories(serverWorkDir.parent ?: serverWorkDir)
+    reportProgress(2, "正在检查整合包导入目标")
     if (shouldImportModpackDirectlyIntoTarget(serverWorkDir)) {
         try {
+            reportProgress(4, "目标目录为空，直接导入整合包")
             reportProgress(5, "正在解压整合包到目标目录")
-            unzipManagedServerArchive(archiveFile, serverWorkDir)
+            val summary = unzipManagedServerArchive(archiveFile, serverWorkDir)
             writeManagedServerPayloadSha(serverWorkDir, targetJar)
+            reportProgress(98, summary.toDiagnosticProgressMessage())
             reportProgress(100, "整合包导入完成")
             return serverWorkDir
         } catch (error: Exception) {
@@ -638,10 +651,12 @@ fun importManagedServerModpackArchive(
         }
     }
 
+    reportProgress(4, "目标目录已有内容，使用临时目录安全导入")
     val stagingDir = Files.createTempDirectory(serverWorkDir.parent ?: serverWorkDir, "mcgo-modpack-stage-")
     try {
         reportProgress(5, "正在解压整合包")
-        unzipManagedServerArchive(archiveFile, stagingDir)
+        val summary = unzipManagedServerArchive(archiveFile, stagingDir)
+        reportProgress(34, summary.toDiagnosticProgressMessage())
         reportProgress(35, "整合包解压完成，正在准备目标目录")
         clearManagedServerImportTarget(serverWorkDir)
         Files.createDirectories(serverWorkDir)
@@ -761,30 +776,49 @@ private fun httpGet(url: String): String {
     }
 }
 
-private fun unzipManagedServerArchive(archiveFile: Path, targetDir: Path) {
+private fun unzipManagedServerArchive(archiveFile: Path, targetDir: Path): ManagedServerArchiveExtractionSummary {
     Files.createDirectories(targetDir)
+    var fileCount = 0
+    var directoryCount = 0
+    var totalBytes = 0L
+    var skippedReservedEntryCount = 0
     Files.newInputStream(archiveFile).use { input ->
         ZipInputStream(BufferedInputStream(input)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
-                val normalized = entry.name.replace('\\', '/').trimStart('/')
-                if (normalized.isBlank()) continue
-                val target = targetDir.resolve(normalized).normalize()
-                require(target.startsWith(targetDir)) { "整合包包含越界路径：${entry.name}" }
-                if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) continue
-                if (entry.isDirectory) {
-                    Files.createDirectories(target)
-                } else {
-                    Files.createDirectories(target.parent)
-                    Files.newOutputStream(target).use { output -> zip.copyTo(output) }
-                    if (normalized.endsWith(".sh", ignoreCase = true)) {
-                        target.toFile().setExecutable(true, false)
+                try {
+                    val normalized = entry.name.replace('\\', '/').trimStart('/')
+                    if (normalized.isBlank()) continue
+                    val target = targetDir.resolve(normalized).normalize()
+                    require(target.startsWith(targetDir)) { "整合包包含越界路径：${entry.name}" }
+                    if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) {
+                        skippedReservedEntryCount += 1
+                        continue
                     }
+                    if (entry.isDirectory) {
+                        Files.createDirectories(target)
+                        directoryCount += 1
+                    } else {
+                        Files.createDirectories(target.parent)
+                        val copiedBytes = Files.newOutputStream(target).use { output -> zip.copyTo(output) }
+                        if (normalized.endsWith(".sh", ignoreCase = true)) {
+                            target.toFile().setExecutable(true, false)
+                        }
+                        fileCount += 1
+                        totalBytes += copiedBytes
+                    }
+                } finally {
+                    zip.closeEntry()
                 }
-                zip.closeEntry()
             }
         }
     }
+    return ManagedServerArchiveExtractionSummary(
+        fileCount = fileCount,
+        directoryCount = directoryCount,
+        totalBytes = totalBytes,
+        skippedReservedEntryCount = skippedReservedEntryCount,
+    )
 }
 
 internal fun resolveNeoForgeMinecraftVersions(

@@ -442,23 +442,26 @@ private fun ServerCard(
         ) {
             Column {
                 Spacer(modifier = Modifier.height(12.dp))
-                RuntimeProgressPanel(server)
+                RuntimeProgressPanel(server, modpackImportInProgress = modpackImportInProgress)
             }
         }
     }
 }
 
 @Composable
-private fun RuntimeProgressPanel(server: ServerCardState) {
+private fun RuntimeProgressPanel(server: ServerCardState, modpackImportInProgress: Boolean = false) {
     val context = LocalContext.current
     val consoleText = remember(server.runtimeLogPath, server.runtimeLogs) { resolveServerConsoleText(server) }
     val latestRuntimeLog = server.runtimeLogs.lastOrNull().orEmpty()
-    val progressTitle = when {
-        server.launchStatus == ServerLaunchStatus.Stopping -> "停止进度"
-        server.runtimeLogs.lastOrNull()?.contains("导入整合包") == true -> "导入进度"
-        else -> "启动进度"
-    }
-    val progressColor = if (latestRuntimeLog.contains("导入整合包")) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+    val importProgressActive = isModpackImportProgressActive(
+        modpackImportInProgress = modpackImportInProgress,
+        latestRuntimeLog = latestRuntimeLog,
+    )
+    val progressTitle = runtimeProgressTitle(
+        launchStatus = server.launchStatus,
+        importProgressActive = importProgressActive,
+    )
+    val progressColor = if (importProgressActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -501,7 +504,7 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
             modifier = Modifier.fillMaxWidth(),
             color = progressColor,
         )
-        server.runtimeLogs.takeLast(3).forEach { log ->
+        server.runtimeLogs.takeLast(6).forEach { log ->
             Text(
                 text = "• $log",
                 style = MaterialTheme.typography.bodySmall,
@@ -509,6 +512,23 @@ private fun RuntimeProgressPanel(server: ServerCardState) {
             )
         }
     }
+}
+
+internal fun isModpackImportProgressActive(
+    modpackImportInProgress: Boolean,
+    latestRuntimeLog: String,
+): Boolean = modpackImportInProgress ||
+    latestRuntimeLog.contains("导入整合包") ||
+    latestRuntimeLog.contains("解压整合包") ||
+    latestRuntimeLog.contains("整合包导入")
+
+internal fun runtimeProgressTitle(
+    launchStatus: ServerLaunchStatus,
+    importProgressActive: Boolean,
+): String = when {
+    launchStatus == ServerLaunchStatus.Stopping -> "停止进度"
+    importProgressActive -> "导入进度"
+    else -> "启动进度"
 }
 
 @Composable

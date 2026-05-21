@@ -66,10 +66,17 @@ class MCGoServerFileManagementContractTest {
         assertThat(serverCardSource).contains("enabled = !modpackImportInProgress")
         assertThat(serverCardSource).contains("val startEnabled = canStartServerFromUi(server) && !modpackImportInProgress")
         assertThat(serverCardSource).contains("val stopEnabled = server.isRuntimeBusy() && !modpackImportInProgress")
-        assertThat(serversScreenSource).contains("val progressTitle = when {")
-        assertThat(serversScreenSource).contains("server.launchStatus == ServerLaunchStatus.Stopping -> \"停止进度\"")
-        assertThat(serversScreenSource).contains("server.runtimeLogs.lastOrNull()?.contains(\"导入整合包\") == true -> \"导入进度\"")
+        assertThat(serverCardSource).contains("RuntimeProgressPanel(server, modpackImportInProgress = modpackImportInProgress)")
+        assertThat(serversScreenSource).contains("private fun RuntimeProgressPanel(server: ServerCardState, modpackImportInProgress: Boolean = false)")
+        assertThat(serversScreenSource).contains("isModpackImportProgressActive(")
+        assertThat(serversScreenSource).contains("latestRuntimeLog.contains(\"导入整合包\") ||")
+        assertThat(serversScreenSource).contains("latestRuntimeLog.contains(\"整合包导入\")")
+        assertThat(serversScreenSource).contains("runtimeProgressTitle(")
+        assertThat(serversScreenSource).contains("launchStatus == ServerLaunchStatus.Stopping -> \"停止进度\"")
+        assertThat(serversScreenSource).contains("importProgressActive -> \"导入进度\"")
         assertThat(serversScreenSource).contains("else -> \"启动进度\"")
+        assertThat(serversScreenSource).contains("val progressColor = if (importProgressActive)")
+        assertThat(serversScreenSource).contains("server.runtimeLogs.takeLast(6).forEach")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds + server.id")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds - server.id")
         assertThat(appSource).contains("resolveNewModpackServerImportFailureRecovery(")
@@ -78,6 +85,29 @@ class MCGoServerFileManagementContractTest {
         assertThat(appSource).contains("markModpackImportRecoveredAfterSyncFailure(")
         assertThat(appSource).doesNotContain("val containsInstallerBootstrap = isInstallerBootstrapScript(")
         assertThat(appSource).contains("确认整合包安装脚本后同步服务器目录失败")
+    }
+
+    @Test
+    fun createServerFromModpackNow_writesLifecycleDiagnosticsWithoutRawUri() {
+        val createFromModpackSource = appSource
+            .substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest) {")
+
+        assertThat(createFromModpackSource).contains("appendMcGoAppDebugLog(")
+        assertThat(createFromModpackSource).contains("message = \"开始导入整合包\"")
+        assertThat(createFromModpackSource).contains("message = \"整合包导入完成\"")
+        assertThat(createFromModpackSource).contains("message = \"整合包导入失败\"")
+        assertThat(createFromModpackSource).contains("archiveDisplayName")
+        assertThat(createFromModpackSource).contains("workspaceMode")
+        assertThat(createFromModpackSource).contains("suspend fun updateImportProgress(progress: Int, message: String)")
+        assertThat(createFromModpackSource).contains("withContext(Dispatchers.Main.immediate)")
+        assertThat(createFromModpackSource).contains("runBlocking { updateImportProgress(mapped, message) }")
+        val tempPackCopySource = createFromModpackSource
+            .substringAfter("val tempPack = Files.createTempFile")
+            .substringBefore("val workspaceAccess = prepareManagedServerWorkspaceAccess")
+        assertThat(tempPackCopySource.indexOf("try {")).isLessThan(tempPackCopySource.indexOf("openInputStream(archiveUri)"))
+        assertThat(createFromModpackSource).doesNotContain("val updateImportProgress = { progress: Int, message: String ->")
+        assertThat(createFromModpackSource).doesNotContain("archiveUri.toString()")
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.mcgo.app.server
 
 import android.content.Context
+import com.mcgo.app.ui.model.MaxServerRuntimeLogEntries
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.clearTunnelRuntimeBindings
@@ -53,7 +54,7 @@ fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): S
         null -> mergedServer.copy(
             onlinePlayers = resolvedOnlinePlayers,
             onlinePlayerNames = resolvedOnlinePlayerNames,
-            runtimeLogs = (mergedServer.runtimeLogs + event.message).takeLast(12),
+            runtimeLogs = (mergedServer.runtimeLogs + event.message).takeLast(MaxServerRuntimeLogEntries),
         )
     }
 }
@@ -140,7 +141,7 @@ fun reconcilePersistedRuntimeState(
 private fun ServerCardState.markLaunchStopping(message: String): ServerCardState = copy(
     launchStatus = ServerLaunchStatus.Stopping,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + message).takeLast(12),
+    runtimeLogs = (runtimeLogs + message).takeLast(MaxServerRuntimeLogEntries),
 )
 
 private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, message: String): ServerCardState = clearTunnelRuntimeBindings().copy(
@@ -152,6 +153,6 @@ private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, messag
     runtimeAddress = null,
     launchStatus = status,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + message).takeLast(12),
+    runtimeLogs = (runtimeLogs + message).takeLast(MaxServerRuntimeLogEntries),
     runtimeSlot = null,
 )

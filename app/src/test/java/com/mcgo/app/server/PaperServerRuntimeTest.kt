@@ -349,7 +349,13 @@ class PaperServerRuntimeTest {
         assertThat(reportedProgress.first()).isAtLeast(1)
         assertThat(reportedProgress.last()).isEqualTo(100)
         assertThat(reportedProgress).isInOrder()
+        assertThat(messageText).contains("正在检查整合包导入目标")
+        assertThat(messageText).contains("目标目录为空，直接导入整合包")
         assertThat(messageText).contains("正在解压整合包到目标目录")
+        assertThat(messageText).contains("整合包导入摘要")
+        assertThat(messageText).contains("files=2")
+        assertThat(messageText).contains("directories=1")
+        assertThat(messageText).contains("bytes=9")
         assertThat(messageText).doesNotContain("正在复制整合包文件")
     }
 

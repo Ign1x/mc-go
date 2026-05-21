@@ -204,6 +204,22 @@ class ServerModelsTest {
     }
 
     @Test
+    fun runtimeLogReducers_keepLastEightyEntriesForDiagnostics() {
+        val server = createForgeServer(
+            name = "ATM10",
+            minecraftVersion = "1.21.1",
+            maxPlayers = 20,
+            memoryMb = 6144,
+        ).copy(runtimeLogs = (1..79).map { index -> "diagnostic-$index" })
+
+        val importing = server.markModpackImportInProgress(progress = 37, logLine = "diagnostic-80")
+
+        assertThat(importing.runtimeLogs).hasSize(80)
+        assertThat(importing.runtimeLogs.first()).isEqualTo("diagnostic-1")
+        assertThat(importing.runtimeLogs.last()).isEqualTo("diagnostic-80")
+    }
+
+    @Test
     fun markAwaitingManagedRuntimeInstall_keepsServerInLaunchingStateUntilAutoInstallCompletes() {
         val server = createPaperServer(
             name = "生存服",

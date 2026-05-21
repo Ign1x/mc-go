@@ -95,6 +95,7 @@ private data class AuthorizedModpackExtractionResult(
     val entryNames: List<String>,
     val sha256ByEntryName: Map<String, String>,
     val setupScriptNames: List<String>,
+    val summary: ManagedServerArchiveExtractionSummary,
 )
 
 internal fun importManagedServerModpackArchiveToAuthorizedDirectory(
@@ -115,6 +116,7 @@ internal fun importManagedServerModpackArchiveToAuthorizedDirectory(
     ) ?: error("服务器目录未授权，请先选择并授权 MCGO 目录")
 
     return try {
+        reportProgress(2, "正在清理授权目录中的旧整合包文件")
         clearDocumentFileChildren(targetServerDir)
         reportProgress(5, "正在解压整合包到授权目录")
         val extraction = unzipManagedServerArchiveToDocumentTree(
@@ -122,6 +124,7 @@ internal fun importManagedServerModpackArchiveToAuthorizedDirectory(
             archiveInput = archiveInput,
             targetServerDir = targetServerDir,
         )
+        reportProgress(70, extraction.summary.toDiagnosticProgressMessage())
         val metadata = detectImportedModpackServerMetadataFromEntryNames(extraction.entryNames)
         val targetJarFileName = managedServerTargetJarFileName(
             serverTypeName = metadata.serverType.name,
@@ -851,16 +854,24 @@ private fun unzipManagedServerArchiveToDocumentTree(
     val entryNames = mutableListOf<String>()
     val sha256ByEntryName = mutableMapOf<String, String>()
     val setupScriptNames = mutableListOf<String>()
+    var fileCount = 0
+    var directoryCount = 0
+    var totalBytes = 0L
+    var skippedReservedEntryCount = 0
     ZipInputStream(BufferedInputStream(archiveInput)).use { zip ->
         while (true) {
             val entry = zip.nextEntry ?: break
             try {
                 val normalized = normalizeAuthorizedImportEntryName(entry.name)
                 if (normalized.isBlank()) continue
-                if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) continue
+                if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) {
+                    skippedReservedEntryCount += 1
+                    continue
+                }
                 val segments = normalized.split('/').filter(String::isNotBlank)
                 if (entry.isDirectory) {
                     resolveOrCreateDocumentDirectory(targetServerDir, segments)
+                    directoryCount += 1
                 } else {
                     val parent = resolveOrCreateDocumentDirectory(targetServerDir, segments.dropLast(1))
                     val fileName = segments.last()
@@ -870,6 +881,8 @@ private fun unzipManagedServerArchiveToDocumentTree(
                     } ?: error("打开授权文件输出流失败：$normalized")
                     entryNames += normalized
                     sha256ByEntryName[normalized] = copyResult.sha256
+                    fileCount += 1
+                    totalBytes += copyResult.byteCount
                     if (isImportedSetupScriptName(normalized, copyResult.contentPrefix)) {
                         setupScriptNames += normalized
                     }
@@ -883,12 +896,19 @@ private fun unzipManagedServerArchiveToDocumentTree(
         entryNames = entryNames,
         sha256ByEntryName = sha256ByEntryName,
         setupScriptNames = setupScriptNames.sorted(),
+        summary = ManagedServerArchiveExtractionSummary(
+            fileCount = fileCount,
+            directoryCount = directoryCount,
+            totalBytes = totalBytes,
+            skippedReservedEntryCount = skippedReservedEntryCount,
+        ),
     )
 }
 
 private data class CopiedZipEntry(
     val sha256: String,
     val contentPrefix: String,
+    val byteCount: Long,
 )
 
 private fun copyZipEntryToDocumentFile(
@@ -898,11 +918,13 @@ private fun copyZipEntryToDocumentFile(
     val digest = MessageDigest.getInstance("SHA-256")
     val prefixBytes = java.io.ByteArrayOutputStream()
     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var byteCount = 0L
     while (true) {
         val read = zip.read(buffer)
         if (read < 0) break
         digest.update(buffer, 0, read)
         output.write(buffer, 0, read)
+        byteCount += read.toLong()
         if (prefixBytes.size() < 512) {
             prefixBytes.write(buffer, 0, minOf(read, 512 - prefixBytes.size()))
         }
@@ -910,6 +932,7 @@ private fun copyZipEntryToDocumentFile(
     return CopiedZipEntry(
         sha256 = digest.digest().joinToString(separator = "") { byte -> "%02x".format(Locale.US, byte) },
         contentPrefix = prefixBytes.toString(Charsets.UTF_8.name()),
+        byteCount = byteCount,
     )
 }
 

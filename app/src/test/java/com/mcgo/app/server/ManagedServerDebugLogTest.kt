@@ -24,6 +24,21 @@ class ManagedServerDebugLogTest {
     }
 
     @Test
+    fun structuredDebugLog_rendersDetailValuesAsSingleLine() {
+        val line = buildManagedServerDebugLogLine(
+            message = "开始导入整合包",
+            details = mapOf(
+                "archiveDisplayName" to "pack.zip\nmalicious=1",
+                "notes" to "  has\tmultiple   spaces  ",
+            ),
+            timestamp = LocalDateTime.of(2026, 5, 18, 21, 31, 0),
+        )
+
+        assertThat(line).isEqualTo("[debug] 2026-05-18 21:31:00 开始导入整合包 | archiveDisplayName=pack.zip malicious=1 notes=has multiple spaces")
+        assertThat(line).doesNotContain("\n")
+    }
+
+    @Test
     fun recentDebugLogPreview_combinesAppAndManagedServerLogsWithMostRecentLinesOnly() {
         val filesDir = Files.createTempDirectory("mcgo-recent-debug-preview")
         val appLog = mcGoAppDebugLogFile(filesDir)

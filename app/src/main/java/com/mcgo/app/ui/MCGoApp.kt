@@ -114,6 +114,7 @@ import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearancePreferencesSaver
 import com.mcgo.app.ui.model.JavaSelectionMode
+import com.mcgo.app.ui.model.MaxServerRuntimeLogEntries
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.SettingsDestination
 import com.mcgo.app.ui.model.ServerCardState
@@ -160,6 +161,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
@@ -461,12 +463,15 @@ private fun MCGoAppScaffold(
             if (uri == null) remove(ServerDirectoryUriKey) else putString(ServerDirectoryUriKey, uri.toString())
         }.apply()
     }
-    fun syncServerProfilesToAuthorizedDirectoryNow(serverSnapshot: List<ServerCardState>) {
+    fun syncServerProfilesToAuthorizedDirectoryNow(
+        serverSnapshot: List<ServerCardState>,
+        authorizedDirectoryUriTextSnapshot: String? = serverDirectoryUriText,
+    ) {
         synchronized(ServerProfileStoreGlobalLock) {
             onPersistServers(serverSnapshot)
             syncServerProfilesToAuthorizedDirectory(
                 context = appContext,
-                authorizedDirectoryUri = serverDirectoryUriText,
+                authorizedDirectoryUri = authorizedDirectoryUriTextSnapshot,
                 sourceProfilesPath = serverStorePath,
             )
         }
@@ -679,41 +684,69 @@ private fun MCGoAppScaffold(
         pendingCreateServerFromModpack = PendingCreateServerFromModpack(server, archiveUri)
         currentModpackImportServerIds = currentModpackImportServerIds + server.id
         scope.launch {
-            val currentServers = latestServers
-            val provisionalServers = currentServers + server
-                .markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
-                .markModpackImportInProgress(3, "正在准备导入整合包")
-            onServersChange(provisionalServers)
-            syncServerProfilesToAuthorizedDirectoryNow(provisionalServers)
+            val serverDirectoryUriTextAtImportStart = serverDirectoryUriText
+            try {
+                val currentServers = latestServers
+                val provisionalServers = currentServers + server
+                    .markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+                    .markModpackImportInProgress(3, "正在准备导入整合包")
+                onServersChange(provisionalServers)
+                syncServerProfilesToAuthorizedDirectoryNow(provisionalServers, serverDirectoryUriTextAtImportStart)
             var importCompleted = false
             var importedWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror
             var recoveredImportedServer: ServerCardState? = null
+            var archiveDisplayName = "modpack.zip"
+            suspend fun updateImportProgress(progress: Int, message: String) {
+                val (updatedServers, directoryUriSnapshot) = withContext(Dispatchers.Main.immediate) {
+                    val serverSnapshot = latestServers.map { existing ->
+                        if (existing.id == server.id) {
+                            existing.markModpackImportInProgress(progress, message)
+                        } else {
+                            existing
+                        }
+                    }
+                    onServersChange(serverSnapshot)
+                    serverSnapshot to serverDirectoryUriTextAtImportStart
+                }
+                withContext(Dispatchers.IO) {
+                    syncServerProfilesToAuthorizedDirectoryNow(updatedServers, directoryUriSnapshot)
+                }
+            }
             runCatching {
                 withContext(Dispatchers.IO) {
                     val filesDir = appContext.filesDir.toPath()
-                    val updateImportProgress = { progress: Int, message: String ->
-                        val updatedServers = latestServers.map { existing ->
-                            if (existing.id == server.id) {
-                                existing.markModpackImportInProgress(progress, message)
-                            } else {
-                                existing
-                            }
-                        }
-                        onServersChange(updatedServers)
-                        syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
-                    }
                     updateImportProgress(8, "正在读取整合包文件")
-                    if (serverDirectoryUriText != null && resolveAuthorizedServersRootPath(appContext, serverDirectoryUriText) == null) {
+                    archiveDisplayName = archiveUri.displayName(appContext).ifBlank { "modpack.zip" }
+                    appendMcGoAppDebugLog(
+                        filesDir = filesDir,
+                        message = "开始导入整合包",
+                        details = mapOf(
+                            "serverId" to server.id,
+                            "serverName" to server.name,
+                            "archiveDisplayName" to archiveDisplayName,
+                            "hasServerDirectoryUri" to (serverDirectoryUriTextAtImportStart != null),
+                        ),
+                    )
+                    if (serverDirectoryUriTextAtImportStart != null && resolveAuthorizedServersRootPath(appContext, serverDirectoryUriTextAtImportStart) == null) {
                         importedWorkspaceMode = ManagedServerWorkspaceMode.DirectExternal
+                        appendMcGoAppDebugLog(
+                            filesDir = filesDir,
+                            message = "整合包导入路径已选择",
+                            details = mapOf(
+                                "serverId" to server.id,
+                                "workspaceMode" to importedWorkspaceMode.name,
+                                "archiveDisplayName" to archiveDisplayName,
+                            ),
+                        )
                         val directImport = appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
                             importManagedServerModpackArchiveToAuthorizedDirectory(
                                 context = appContext,
-                                authorizedDirectoryUri = serverDirectoryUriText,
+                                authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
                                 serverId = server.id,
                                 archiveInput = input,
                                 onProgress = { progress, message ->
                                     val mapped = 16 + ((progress.coerceIn(0, 100) * 66) / 100)
-                                    updateImportProgress(mapped, message)
+                                    runBlocking { updateImportProgress(mapped, message) }
                                 },
                             )
                         } ?: error("无法读取整合包文件")
@@ -734,19 +767,37 @@ private fun MCGoAppScaffold(
                         Pair(updatedServer, setupScriptNames)
                     } else {
                         val tempPack = Files.createTempFile("mcgo-modpack-", ".zip")
-                        appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
-                            Files.newOutputStream(tempPack).use { output -> input.copyTo(output) }
-                        } ?: error("无法读取整合包文件")
                         try {
+                            appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
+                                Files.newOutputStream(tempPack).use { output -> input.copyTo(output) }
+                            } ?: error("无法读取整合包文件")
+                            appendMcGoAppDebugLog(
+                                filesDir = filesDir,
+                                message = "整合包已复制到临时文件",
+                                details = mapOf(
+                                    "serverId" to server.id,
+                                    "archiveDisplayName" to archiveDisplayName,
+                                    "tempBytes" to Files.size(tempPack),
+                                ),
+                            )
                             val workspaceAccess = prepareManagedServerWorkspaceAccess(
                                 context = appContext,
-                                authorizedDirectoryUri = serverDirectoryUriText,
+                                authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
                                 filesDir = filesDir,
                                 serverId = server.id,
                             )
                             updateImportProgress(16, "正在准备整合包目标目录")
                             importedWorkspaceMode = workspaceAccess.mode
                             val workDir = workspaceAccess.path
+                            appendMcGoAppDebugLog(
+                                filesDir = filesDir,
+                                message = "整合包导入路径已选择",
+                                details = mapOf(
+                                    "serverId" to server.id,
+                                    "workspaceMode" to importedWorkspaceMode.name,
+                                    "workspaceDirectoryName" to workDir.fileName,
+                                ),
+                            )
                             var operationSucceeded = false
                             try {
                                 importManagedServerModpackArchive(
@@ -754,7 +805,7 @@ private fun MCGoAppScaffold(
                                     serverWorkDir = workDir,
                                     onProgress = { progress, message ->
                                         val mapped = 20 + ((progress.coerceIn(0, 100) * 55) / 100)
-                                        updateImportProgress(mapped, message)
+                                        runBlocking { updateImportProgress(mapped, message) }
                                     },
                                 )
                                 importCompleted = true
@@ -783,7 +834,7 @@ private fun MCGoAppScaffold(
                                     check(
                                         releaseManagedServerWorkspaceAfterForegroundAccess(
                                             context = appContext,
-                                            authorizedDirectoryUri = serverDirectoryUriText,
+                                            authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
                                             filesDir = filesDir,
                                             serverId = server.id,
                                             workspaceMode = workspaceAccess.mode,
@@ -803,12 +854,26 @@ private fun MCGoAppScaffold(
                     }
                 }
             }.onSuccess { (updatedServer, setupScriptNames) ->
+                withContext(Dispatchers.IO) {
+                    appendMcGoAppDebugLog(
+                        filesDir = appContext.filesDir.toPath(),
+                        message = "整合包导入完成",
+                        details = mapOf(
+                            "serverId" to updatedServer.id,
+                            "serverName" to updatedServer.name,
+                            "archiveDisplayName" to archiveDisplayName,
+                            "serverType" to updatedServer.serverType.name,
+                            "minecraftVersion" to updatedServer.minecraftVersion,
+                            "javaMajorVersion" to updatedServer.javaMajorVersion,
+                            "workspaceMode" to importedWorkspaceMode.name,
+                            "setupScriptCount" to setupScriptNames.size,
+                        ),
+                    )
+                }
                 val updatedServers = latestServers.filterNot { it.id == server.id } + updatedServer
                 onServersChange(updatedServers)
-                syncServerProfilesToAuthorizedDirectoryNow(updatedServers)
+                syncServerProfilesToAuthorizedDirectoryNow(updatedServers, serverDirectoryUriTextAtImportStart)
                 showServerComposer = false
-                pendingCreateServerFromModpack = null
-                currentModpackImportServerIds = currentModpackImportServerIds - server.id
                 val suffix = if (setupScriptNames.isNotEmpty()) {
                     "；整合包包含可执行脚本 ${setupScriptNames.take(3).joinToString("、")}，启动时请输入要执行的脚本相对路径"
                 } else {
@@ -817,6 +882,21 @@ private fun MCGoAppScaffold(
                 snackbarHostState.showSnackbar("已导入整合包并创建 ${updatedServer.name}${suffix}")
             }.onFailure {
                 val errorMessage = it.message ?: "未知错误"
+                withContext(Dispatchers.IO) {
+                    appendMcGoAppDebugLog(
+                        filesDir = appContext.filesDir.toPath(),
+                        message = "整合包导入失败",
+                        details = mapOf(
+                            "serverId" to server.id,
+                            "serverName" to server.name,
+                            "archiveDisplayName" to archiveDisplayName,
+                            "workspaceMode" to importedWorkspaceMode.name,
+                            "importCompleted" to importCompleted,
+                            "errorType" to it.javaClass.simpleName,
+                            "errorMessage" to errorMessage.take(160),
+                        ),
+                    )
+                }
                 val recovery = resolveNewModpackServerImportFailureRecovery(
                     workspaceMode = importedWorkspaceMode,
                     importCompleted = importCompleted,
@@ -829,16 +909,18 @@ private fun MCGoAppScaffold(
                     latestServers.filterNot { existing -> existing.id == server.id }
                 }
                 onServersChange(recoveredServers)
-                syncServerProfilesToAuthorizedDirectoryNow(recoveredServers)
+                syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)
                 if (recovery.deletePrivateWorkspace) {
                     deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
                 }
                 if (recovery.deleteAuthorizedWorkspace) {
-                    deleteManagedServerWorkspaceFromAuthorizedDirectory(appContext, serverDirectoryUriText, server.id)
+                    deleteManagedServerWorkspaceFromAuthorizedDirectory(appContext, serverDirectoryUriTextAtImportStart, server.id)
                 }
+                snackbarHostState.showSnackbar("导入整合包失败：$errorMessage")
+            }
+            } finally {
                 pendingCreateServerFromModpack = null
                 currentModpackImportServerIds = currentModpackImportServerIds - server.id
-                snackbarHostState.showSnackbar("导入整合包失败：$errorMessage")
             }
         }
     }
@@ -1540,7 +1622,7 @@ private fun MCGoAppScaffold(
                                 if (server.id == serverId) {
                                     server.copy(
                                         launchStatus = ServerLaunchStatus.Stopping,
-                                        runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(12),
+                                        runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(MaxServerRuntimeLogEntries),
                                     )
                                 } else {
                                     server
@@ -1558,7 +1640,7 @@ private fun MCGoAppScaffold(
                                 val updatedServers = finalizePendingServerDeletion(
                                     servers.map { server ->
                                         if (server.id == serverId) requestServerDeletion(server).copy(
-                                            runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(12),
+                                            runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(MaxServerRuntimeLogEntries),
                                         ) else server
                                     },
                                 )
