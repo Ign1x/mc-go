@@ -146,7 +146,7 @@ class MCGoServerFileManagementContractTest {
             .substringBefore("fun startServerNow(request: PendingStartRequest) {")
         val provisionalSyncSource = createFromModpackSource
             .substringAfter("onServersChange(provisionalServers)")
-            .substringBefore("var importCompleted = false")
+            .substringBefore("archiveDisplayName = archiveUri.displayName(appContext)")
         val successSyncSource = createFromModpackSource
             .substringAfter("onServersChange(updatedServers)")
             .substringBefore("showServerComposer = false")
@@ -160,6 +160,22 @@ class MCGoServerFileManagementContractTest {
         assertThat(successSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(updatedServers, serverDirectoryUriTextAtImportStart)")
         assertThat(failureSyncSource.trimStart()).startsWith("withContext(Dispatchers.IO) {")
         assertThat(failureSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)")
+    }
+
+    @Test
+    fun createServerFromModpackNow_routesInitialPersistenceFailuresThroughImportRecovery() {
+        val createFromModpackSource = appSource
+            .substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest) {")
+
+        assertThat(createFromModpackSource.indexOf("runCatching {")).isLessThan(
+            createFromModpackSource.indexOf("onServersChange(provisionalServers)"),
+        )
+        assertThat(createFromModpackSource.indexOf("runCatching {")).isLessThan(
+            createFromModpackSource.indexOf("syncServerProfilesToAuthorizedDirectoryNow(provisionalServers, serverDirectoryUriTextAtImportStart)"),
+        )
+        assertThat(createFromModpackSource).contains("message = \"整合包导入失败\"")
+        assertThat(createFromModpackSource).contains("snackbarHostState.showSnackbar(\"导入整合包失败：${'$'}errorMessage\")")
     }
 
     @Test
