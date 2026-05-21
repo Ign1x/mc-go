@@ -137,6 +137,29 @@ class MCGoServerFileManagementContractTest {
     }
 
     @Test
+    fun createServerFromModpackNow_movesProfileSyncOffMainThread() {
+        val createFromModpackSource = appSource
+            .substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest) {")
+        val provisionalSyncSource = createFromModpackSource
+            .substringAfter("onServersChange(provisionalServers)")
+            .substringBefore("var importCompleted = false")
+        val successSyncSource = createFromModpackSource
+            .substringAfter("onServersChange(updatedServers)")
+            .substringBefore("showServerComposer = false")
+        val failureSyncSource = createFromModpackSource
+            .substringAfter("onServersChange(recoveredServers)")
+            .substringBefore("if (recovery.deletePrivateWorkspace)")
+
+        assertThat(provisionalSyncSource.trimStart()).startsWith("withContext(Dispatchers.IO) {")
+        assertThat(provisionalSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(provisionalServers, serverDirectoryUriTextAtImportStart)")
+        assertThat(successSyncSource.trimStart()).startsWith("withContext(Dispatchers.IO) {")
+        assertThat(successSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(updatedServers, serverDirectoryUriTextAtImportStart)")
+        assertThat(failureSyncSource.trimStart()).startsWith("withContext(Dispatchers.IO) {")
+        assertThat(failureSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)")
+    }
+
+    @Test
     fun startServerNow_movesWorkspacePreparationOffMainThread() {
         val startServerSource = appSource
             .substringAfter("fun startServerNow(request: PendingStartRequest) {")

@@ -720,7 +720,9 @@ private fun MCGoAppScaffold(
                     .markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
                     .markModpackImportInProgress(3, "正在准备导入整合包")
                 onServersChange(provisionalServers)
-                syncServerProfilesToAuthorizedDirectoryNow(provisionalServers, serverDirectoryUriTextAtImportStart)
+                withContext(Dispatchers.IO) {
+                    syncServerProfilesToAuthorizedDirectoryNow(provisionalServers, serverDirectoryUriTextAtImportStart)
+                }
             var importCompleted = false
             var importedWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror
             var recoveredImportedServer: ServerCardState? = null
@@ -901,7 +903,9 @@ private fun MCGoAppScaffold(
                 }
                 val updatedServers = latestServers.filterNot { it.id == server.id } + updatedServer
                 onServersChange(updatedServers)
-                syncServerProfilesToAuthorizedDirectoryNow(updatedServers, serverDirectoryUriTextAtImportStart)
+                withContext(Dispatchers.IO) {
+                    syncServerProfilesToAuthorizedDirectoryNow(updatedServers, serverDirectoryUriTextAtImportStart)
+                }
                 showServerComposer = false
                 val suffix = if (setupScriptNames.isNotEmpty()) {
                     "；整合包包含可执行脚本 ${setupScriptNames.take(3).joinToString("、")}，启动时请输入要执行的脚本相对路径"
@@ -938,7 +942,9 @@ private fun MCGoAppScaffold(
                     latestServers.filterNot { existing -> existing.id == server.id }
                 }
                 onServersChange(recoveredServers)
-                syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)
+                withContext(Dispatchers.IO) {
+                    syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)
+                }
                 if (recovery.deletePrivateWorkspace) {
                     deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
                 }
