@@ -55,6 +55,8 @@ internal fun CreateServerDialog(
     onDismiss: () -> Unit,
     onCreate: (ServerCardState) -> Unit,
     onCreateFromModpack: (ServerCardState, android.net.Uri) -> Unit,
+    onOpenModpackPicker: (ServerCardState) -> Unit,
+    onCancelModpackPicker: (ServerCardState) -> Unit,
 ) {
     val vanillaVersionOptions = remember(vanillaVersions, supportedProvisionableJavaVersions) {
         vanillaVersions.filter { recommendedJavaMajorVersion(it) in supportedProvisionableJavaVersions }
@@ -109,7 +111,9 @@ internal fun CreateServerDialog(
     val modpackImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
-        if (uri != null) {
+        if (uri == null) {
+            onCancelModpackPicker(modpackPreviewServer.copy(name = importName))
+        } else {
             onCreateFromModpack(modpackPreviewServer.copy(name = importName), uri)
             onDismiss()
         }
@@ -248,6 +252,7 @@ internal fun CreateServerDialog(
                     versionMenuExpanded = false
                 },
                 onLaunchModpackPicker = {
+                    onOpenModpackPicker(modpackPreviewServer.copy(name = importName))
                     modpackImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                 },
             )

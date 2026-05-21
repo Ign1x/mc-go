@@ -114,6 +114,8 @@ fun ServersScreen(
     onDismissCreateServer: () -> Unit = {},
     onCreateServer: (ServerCardState) -> Unit = {},
     onCreateServerFromModpack: (ServerCardState, android.net.Uri) -> Unit = { _, _ -> },
+    onOpenModpackPicker: (ServerCardState) -> Unit = {},
+    onCancelModpackPicker: (ServerCardState) -> Unit = {},
     onImportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onExportWorldArchive: (String, android.net.Uri) -> Unit = { _, _ -> },
     onImportModFile: (String, android.net.Uri) -> Unit = { _, _ -> },
@@ -140,6 +142,8 @@ fun ServersScreen(
             onDismiss = onDismissCreateServer,
             onCreate = onCreateServer,
             onCreateFromModpack = onCreateServerFromModpack,
+            onOpenModpackPicker = onOpenModpackPicker,
+            onCancelModpackPicker = onCancelModpackPicker,
         )
     }
 

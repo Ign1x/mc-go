@@ -1572,6 +1572,24 @@ private fun MCGoAppScaffold(
                             }
                             createServerFromModpackNow(server, archiveUri)
                         },
+                        onOpenModpackPicker = { server ->
+                            appendAppDebugLogAsync(
+                                message = "整合包文件选择器已打开",
+                                details = mapOf(
+                                    "serverId" to server.id,
+                                    "serverName" to server.name,
+                                ),
+                            )
+                        },
+                        onCancelModpackPicker = { server ->
+                            appendAppDebugLogAsync(
+                                message = "整合包文件选择已取消",
+                                details = mapOf(
+                                    "serverId" to server.id,
+                                    "serverName" to server.name,
+                                ),
+                            )
+                        },
                         onImportWorldArchive = { serverId, archiveUri ->
                             val targetServer = servers.firstOrNull { it.id == serverId } ?: return@ServersScreen
                             if (targetServer.isRuntimeBusy()) {

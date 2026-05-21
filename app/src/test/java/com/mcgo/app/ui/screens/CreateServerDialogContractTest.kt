@@ -94,6 +94,35 @@ class CreateServerDialogContractTest {
     }
 
     @Test
+    fun createServerDialog_logsModpackPickerOpenAndCancelBoundaries() {
+        val createDialogSource = createServerDialogSource
+            .substringAfter("internal fun CreateServerDialog(")
+            .substringBefore("private fun createServerFromDialogSelection(")
+        val serversScreenParams = serversScreenSource
+            .substringAfter("fun ServersScreen(")
+            .substringBefore(") {")
+        val createDialogCallSource = serversScreenSource
+            .substringAfter("CreateServerDialog(")
+            .substringBefore("pendingStartServer?.let")
+        val mcGoServersDestinationSource = appSource
+            .substringAfter("McGoDestination.Servers -> ServersScreen(")
+            .substringBefore("onImportWorldArchive = { serverId, archiveUri ->")
+
+        assertThat(createDialogSource).contains("onOpenModpackPicker: (ServerCardState) -> Unit")
+        assertThat(createDialogSource).contains("onCancelModpackPicker: (ServerCardState) -> Unit")
+        assertThat(createDialogSource).contains("onCancelModpackPicker(modpackPreviewServer.copy(name = importName))")
+        assertThat(createDialogSource).contains("onOpenModpackPicker(modpackPreviewServer.copy(name = importName))")
+        assertThat(createDialogSource.indexOf("onOpenModpackPicker(modpackPreviewServer.copy(name = importName))"))
+            .isLessThan(createDialogSource.indexOf("modpackImportLauncher.launch(arrayOf"))
+        assertThat(serversScreenParams).contains("onOpenModpackPicker: (ServerCardState) -> Unit = {}")
+        assertThat(serversScreenParams).contains("onCancelModpackPicker: (ServerCardState) -> Unit = {}")
+        assertThat(createDialogCallSource).contains("onOpenModpackPicker = onOpenModpackPicker")
+        assertThat(createDialogCallSource).contains("onCancelModpackPicker = onCancelModpackPicker")
+        assertThat(mcGoServersDestinationSource).contains("message = \"整合包文件选择器已打开\"")
+        assertThat(mcGoServersDestinationSource).contains("message = \"整合包文件选择已取消\"")
+    }
+
+    @Test
     fun serverModelRuntimeAndPersistence_supportVanillaPaperPurpurFabricForgeNeoForgeAndQuiltTypes() {
         assertThat(modelSource).contains("Vanilla(\"Vanilla\")")
         assertThat(modelSource).contains("Paper(\"Paper\")")
