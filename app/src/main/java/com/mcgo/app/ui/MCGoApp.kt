@@ -877,6 +877,11 @@ private fun MCGoAppScaffold(
                                                 filesDir = filesDir,
                                                 serverId = server.id,
                                                 workspaceMode = workspaceAccess.mode,
+                                                onProgress = { progress ->
+                                                    val mapped = 96 + ((progress.fileCount.coerceAtMost(progress.totalFileCount.coerceAtLeast(1)) * 3) /
+                                                        progress.totalFileCount.coerceAtLeast(1))
+                                                    runBlocking { updateImportProgress(mapped.coerceIn(96, 99), progress.toDiagnosticSyncProgressMessage()) }
+                                                },
                                             ),
                                         ) { "同步服务器目录到已授权位置失败" }
                                     }

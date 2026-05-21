@@ -91,6 +91,15 @@ internal data class AuthorizedModpackImportResult(
     val setupScriptNames: List<String>,
 )
 
+data class ManagedServerWorkspaceSyncProgress(
+    val fileCount: Int,
+    val totalFileCount: Int,
+    val totalBytes: Long,
+) {
+    fun toDiagnosticSyncProgressMessage(): String =
+        "正在同步整合包到已授权目录 · files=$fileCount/$totalFileCount bytes=$totalBytes"
+}
+
 private data class AuthorizedModpackExtractionResult(
     val entryNames: List<String>,
     val sha256ByEntryName: Map<String, String>,
@@ -647,6 +656,7 @@ fun releaseManagedServerWorkspaceAfterForegroundAccess(
     filesDir: Path,
     serverId: String,
     workspaceMode: ManagedServerWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
+    onProgress: ((ManagedServerWorkspaceSyncProgress) -> Unit)? = null,
 ): Boolean {
     if (!workspaceMode.shouldSyncBack) return true
     val privateWorkspaceDir = managedPaperServerDirectory(filesDir, serverId)
@@ -656,6 +666,7 @@ fun releaseManagedServerWorkspaceAfterForegroundAccess(
         authorizedDirectoryUri = authorizedDirectoryUri,
         serverId = serverId,
         sourceWorkspaceDir = privateWorkspaceDir,
+        onProgress = onProgress,
     )
     if (synced && workspaceMode.shouldClearPrivateWorkspaceOnSuccessfulSync) {
         clearManagedServerWorkspace(privateWorkspaceDir)
@@ -758,6 +769,7 @@ fun syncManagedServerWorkspaceToAuthorizedDirectory(
     authorizedDirectoryUri: String?,
     serverId: String,
     sourceWorkspaceDir: Path,
+    onProgress: ((ManagedServerWorkspaceSyncProgress) -> Unit)? = null,
 ): Boolean {
     if (!Files.isDirectory(sourceWorkspaceDir, LinkOption.NOFOLLOW_LINKS)) return false
     val directAuthorizedWorkspace = resolveAuthorizedServersRootPath(context, authorizedDirectoryUri)
@@ -776,7 +788,9 @@ fun syncManagedServerWorkspaceToAuthorizedDirectory(
         ?: return false
     clearAuthorizedManagedServerWorkspaceReady(context, authorizedDirectoryUri, serverId)
     return runCatching {
-        copyPathToDocumentTree(context, sourceWorkspaceDir, targetServerDir)
+        val progressReporter = onProgress?.let { ManagedServerWorkspaceSyncProgressReporter(sourceWorkspaceDir, it) }
+        progressReporter?.report(force = true)
+        copyPathToDocumentTree(context, sourceWorkspaceDir, targetServerDir, progressReporter)
         val directAuthorizedWorkspace = resolveAuthorizedServersRootPath(context, authorizedDirectoryUri)
             ?.takeIf(::canAccessAuthorizedServersRootDirectly)
             ?.resolve(sanitizeManagedServerId(serverId))
@@ -1047,10 +1061,62 @@ private fun authorizedDirectoryRoot(context: Context, authorizedDirectoryUri: St
     }.getOrNull()
 }
 
+private class ManagedServerWorkspaceSyncProgressReporter(
+    sourceDir: Path,
+    private val onProgress: (ManagedServerWorkspaceSyncProgress) -> Unit,
+) {
+    private val totalFileCount: Int = countManagedWorkspaceRegularFiles(sourceDir)
+    private var fileCount = 0
+    private var totalBytes = 0L
+    private var lastAttemptedFileCount = -1
+    private var lastAttemptedBytes = Long.MIN_VALUE
+
+    fun report(force: Boolean = false) {
+        val shouldReport = force ||
+            lastAttemptedFileCount < 0 ||
+            fileCount > lastAttemptedFileCount ||
+            totalBytes - lastAttemptedBytes >= ManagedServerImportCopyProgressIntervalBytes
+        if (!shouldReport) return
+        val progress = ManagedServerWorkspaceSyncProgress(
+            fileCount = fileCount,
+            totalFileCount = totalFileCount,
+            totalBytes = totalBytes,
+        )
+        runCatching { onProgress(progress) }
+        lastAttemptedFileCount = fileCount
+        lastAttemptedBytes = totalBytes
+    }
+
+    fun copyRegularFile(context: Context, sourceFile: Path, targetFile: DocumentFile) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
+            Files.newInputStream(sourceFile).use { input ->
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    totalBytes += read.toLong()
+                    report()
+                }
+            }
+        } ?: error("打开授权文件输出流失败：${sourceFile.fileName}")
+        fileCount += 1
+        report(force = true)
+    }
+}
+
+private fun countManagedWorkspaceRegularFiles(sourceDir: Path): Int {
+    if (!Files.isDirectory(sourceDir, LinkOption.NOFOLLOW_LINKS)) return 0
+    Files.walk(sourceDir).use { paths ->
+        return paths.filter { path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) }.count().toInt()
+    }
+}
+
 private fun copyPathToDocumentTree(
     context: Context,
     sourceDir: Path,
     targetDir: DocumentFile,
+    progressReporter: ManagedServerWorkspaceSyncProgressReporter? = null,
 ) {
     val sourceChildren = listManagedWorkspacePlainChildren(sourceDir)
     val sourceNames = sourceChildren.map { it.fileName.toString() }.toSet()
@@ -1069,7 +1135,7 @@ private fun copyPathToDocumentTree(
             val directory = targetDir.findFile(child.fileName.toString())
                 ?: targetDir.createDirectory(child.fileName.toString())
                 ?: error("创建授权目录失败：${child.fileName}")
-            copyPathToDocumentTree(context, child, directory)
+            copyPathToDocumentTree(context, child, directory, progressReporter)
         } else if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)) {
             val existingFile = targetDir.findFile(child.fileName.toString())
             if (existingFile?.isDirectory == true) {
@@ -1078,9 +1144,13 @@ private fun copyPathToDocumentTree(
             val targetFile = targetDir.findFile(child.fileName.toString())
                 ?: targetDir.createFile("application/octet-stream", child.fileName.toString())
                 ?: error("创建授权文件失败：${child.fileName}")
-            context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
-                Files.newInputStream(child).use { input -> input.copyTo(output) }
-            } ?: error("打开授权文件输出流失败：${child.fileName}")
+            if (progressReporter != null) {
+                progressReporter.copyRegularFile(context, child, targetFile)
+            } else {
+                context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
+                    Files.newInputStream(child).use { input -> input.copyTo(output) }
+                } ?: error("打开授权文件输出流失败：${child.fileName}")
+            }
         }
     }
 }

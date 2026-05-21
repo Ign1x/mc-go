@@ -112,6 +112,33 @@ class AuthorizedServerDirectoryContractTest {
         )
     }
 
+    @Test
+    fun modpackImport_reportsAuthorizedSyncBackProgressWithFilesAndBytes() {
+        val importSlice = appSource.substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest)")
+        val syncBackSlice = importSlice.substringAfter("if (workspaceAccess.mode.shouldSyncBack) {")
+            .substringBefore("updateImportProgress(100, \"整合包导入完成\")")
+        val releaseSource = authorizedSyncSource.substringAfter("fun releaseManagedServerWorkspaceAfterForegroundAccess(\n    context: Context,")
+            .substringBefore("fun discardManagedServerWorkspaceAfterForegroundAccess(\n    context: Context,")
+        val syncSource = authorizedSyncSource.substringAfter("fun syncManagedServerWorkspaceToAuthorizedDirectory(")
+            .substringBefore("fun migratePrivateServerDataToAuthorizedDirectory(")
+        val copySource = authorizedSyncSource.substringAfter("private fun copyPathToDocumentTree(")
+            .substringBefore("private fun copyDocumentTreeToPath(")
+
+        assertThat(authorizedSyncSource).contains("data class ManagedServerWorkspaceSyncProgress")
+        assertThat(authorizedSyncSource).contains("fun toDiagnosticSyncProgressMessage(): String =")
+        assertThat(releaseSource).contains("onProgress: ((ManagedServerWorkspaceSyncProgress) -> Unit)? = null")
+        assertThat(syncSource).contains("onProgress: ((ManagedServerWorkspaceSyncProgress) -> Unit)? = null")
+        assertThat(syncSource).contains("ManagedServerWorkspaceSyncProgressReporter")
+        assertThat(syncSource.indexOf("return runCatching {")).isLessThan(
+            syncSource.indexOf("val progressReporter = onProgress?.let"),
+        )
+        assertThat(copySource).contains("progressReporter.copyRegularFile(")
+        assertThat(syncBackSlice).contains("onProgress = { progress ->")
+        assertThat(syncBackSlice).contains("progress.toDiagnosticSyncProgressMessage()")
+        assertThat(syncBackSlice).contains("正在同步整合包到已授权目录")
+    }
+
     private fun projectRoot(): Path =
         generateSequence(Path.of(".").toAbsolutePath().normalize()) { it.parent }
             .firstOrNull { Files.exists(it.resolve("app/build.gradle.kts")) }

@@ -5,8 +5,8 @@ import org.junit.Test
 
 class BuildVersionTest {
     @Test
-    fun releaseVersion_isV02114Code124() {
-        assertThat(BuildConfig.VERSION_NAME).isEqualTo("0.2.114")
-        assertThat(BuildConfig.VERSION_CODE).isEqualTo(124)
+    fun releaseVersion_isV02115Code125() {
+        assertThat(BuildConfig.VERSION_NAME).isEqualTo("0.2.115")
+        assertThat(BuildConfig.VERSION_CODE).isEqualTo(125)
     }
 }
