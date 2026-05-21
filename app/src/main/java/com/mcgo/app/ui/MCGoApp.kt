@@ -60,6 +60,7 @@ import com.mcgo.app.server.activePaperRuntimeSlots
 import com.mcgo.app.server.allocateRuntimeSlot
 import com.mcgo.app.server.appendMcGoAppDebugLog
 import com.mcgo.app.server.authorizedServerProfilesAvailable
+import com.mcgo.app.server.copyManagedServerImportStreamToTempFile
 import com.mcgo.app.server.managedPaperServerIconFile
 import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
@@ -800,7 +801,14 @@ private fun MCGoAppScaffold(
                         val tempPack = Files.createTempFile("mcgo-modpack-", ".zip")
                         try {
                             appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
-                                Files.newOutputStream(tempPack).use { output -> input.copyTo(output) }
+                                copyManagedServerImportStreamToTempFile(
+                                    input = input,
+                                    targetFile = tempPack,
+                                    onProgress = { progress, message ->
+                                        val mapped = 8 + ((progress.coerceIn(0, 100) * 8) / 100)
+                                        runBlocking { updateImportProgress(mapped, message) }
+                                    },
+                                )
                             } ?: error("无法读取整合包文件")
                             appendMcGoAppDebugLog(
                                 filesDir = filesDir,

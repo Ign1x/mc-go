@@ -319,6 +319,26 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun copyManagedServerImportStreamToTempFile_reportsProgressAndByteCount() {
+        val sourceBytes = ByteArray(10_000) { index -> (index % 251).toByte() }
+        val target = Files.createTempFile("mcgo-modpack-copy-progress", ".zip")
+        val reported = mutableListOf<Pair<Int, String>>()
+
+        val copiedBytes = copyManagedServerImportStreamToTempFile(
+            input = sourceBytes.inputStream(),
+            targetFile = target,
+            onProgress = { progress, message -> reported += progress to message },
+        )
+
+        assertThat(copiedBytes).isEqualTo(sourceBytes.size.toLong())
+        assertThat(Files.readAllBytes(target).toList()).containsExactlyElementsIn(sourceBytes.toList()).inOrder()
+        assertThat(reported.map { it.first }).containsAtLeast(1, 100).inOrder()
+        assertThat(reported.last().first).isEqualTo(100)
+        assertThat(reported.joinToString("\n") { it.second }).contains("正在缓存整合包文件")
+        assertThat(reported.last().second).contains("10000 bytes")
+    }
+
+    @Test
     fun importManagedServerModpackArchive_reportsProgressAcrossDirectExtractionForFreshTarget() {
         val zipFile = Files.createTempFile("mcgo-modpack-progress", ".zip")
         java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->

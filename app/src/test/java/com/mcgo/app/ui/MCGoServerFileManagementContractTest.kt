@@ -14,6 +14,7 @@ class MCGoServerFileManagementContractTest {
     private val modelSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/model/McGoUiModels.kt")))
     private val eventSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerEvents.kt")))
     private val archiveSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerWorldArchive.kt")))
+    private val runtimeSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
 
     @Test
     fun serverCard_placesPerServerFileManagementToTheLeftOfConsole() {
@@ -105,6 +106,8 @@ class MCGoServerFileManagementContractTest {
         assertThat(createFromModpackSource).contains("message = \"整合包导入失败\"")
         assertThat(createFromModpackSource).contains("archiveDisplayName")
         assertThat(createFromModpackSource).contains("workspaceMode")
+        assertThat(createFromModpackSource).contains("copyManagedServerImportStreamToTempFile(")
+        assertThat(runtimeSource).contains("正在缓存整合包文件")
         assertThat(modpackCallbackSource).contains("\"整合包文件已选择\"")
         assertThat(modpackCallbackSource).contains("\"整合包导入等待目录授权\"")
         assertThat(modpackCallbackSource).contains("\"整合包导入等待目录同步\"")

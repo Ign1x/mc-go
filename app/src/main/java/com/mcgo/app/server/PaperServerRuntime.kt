@@ -3,6 +3,7 @@ package com.mcgo.app.server
 import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.AtomicMoveNotSupportedException
@@ -21,6 +22,7 @@ private const val ForgeMavenMetadataUrl = "https://maven.minecraftforge.net/net/
 private const val NeoForgeMavenMetadataUrl = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
 private const val VanillaVersionManifestUrl = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 private const val DefaultProvisionablePaperVersion = "1.21.11"
+private const val ManagedServerImportCopyProgressIntervalBytes = 16L * 1024L * 1024L
 val PaperDownloadUserAgent: String = McGoUserAgent
 
 data class PreparedPaperServerFiles(
@@ -696,6 +698,37 @@ private fun shouldImportModpackDirectlyIntoTarget(serverWorkDir: Path): Boolean 
     if (!Files.exists(serverWorkDir)) return true
     if (!Files.isDirectory(serverWorkDir)) return false
     return Files.list(serverWorkDir).use { children -> !children.findAny().isPresent }
+}
+
+internal fun copyManagedServerImportStreamToTempFile(
+    input: InputStream,
+    targetFile: Path,
+    onProgress: ((Int, String) -> Unit)? = null,
+): Long {
+    fun reportProgress(progress: Int, copiedBytes: Long) {
+        onProgress?.invoke(
+            progress.coerceIn(1, 100),
+            "正在缓存整合包文件 · $copiedBytes bytes",
+        )
+    }
+    Files.newOutputStream(targetFile).use { output ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var copiedBytes = 0L
+        var lastProgressBytes = 0L
+        reportProgress(1, copiedBytes)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            output.write(buffer, 0, read)
+            copiedBytes += read.toLong()
+            if (copiedBytes - lastProgressBytes >= ManagedServerImportCopyProgressIntervalBytes) {
+                lastProgressBytes = copiedBytes
+                reportProgress(50, copiedBytes)
+            }
+        }
+        reportProgress(100, copiedBytes)
+        return copiedBytes
+    }
 }
 
 fun installManagedServerModFile(
