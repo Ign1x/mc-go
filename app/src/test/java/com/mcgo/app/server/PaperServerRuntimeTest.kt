@@ -339,6 +339,21 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun copyManagedServerImportStreamToTempFile_ignoresProgressCallbackFailures() {
+        val sourceBytes = "pack-bytes".toByteArray()
+        val target = Files.createTempFile("mcgo-modpack-copy-progress-failure", ".zip")
+
+        val copiedBytes = copyManagedServerImportStreamToTempFile(
+            input = sourceBytes.inputStream(),
+            targetFile = target,
+            onProgress = { _, _ -> error("progress sink failed") },
+        )
+
+        assertThat(copiedBytes).isEqualTo(sourceBytes.size.toLong())
+        assertThat(String(Files.readAllBytes(target))).isEqualTo("pack-bytes")
+    }
+
+    @Test
     fun importManagedServerModpackArchive_reportsProgressAcrossDirectExtractionForFreshTarget() {
         val zipFile = Files.createTempFile("mcgo-modpack-progress", ".zip")
         java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
@@ -381,6 +396,25 @@ class PaperServerRuntimeTest {
         assertThat(messageText).contains("directories=1")
         assertThat(messageText).contains("bytes=9")
         assertThat(messageText).doesNotContain("正在复制整合包文件")
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_ignoresProgressCallbackFailures() {
+        val zipFile = Files.createTempFile("mcgo-modpack-progress-failure", ".zip")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("server.jar"))
+            zip.write(byteArrayOf(0x50, 0x4b, 0x03, 0x04))
+            zip.closeEntry()
+        }
+        val targetDir = Files.createTempDirectory("mcgo-modpack-progress-failure-target")
+
+        importManagedServerModpackArchive(
+            archiveFile = zipFile,
+            serverWorkDir = targetDir,
+            onProgress = { _, _ -> error("progress sink failed") },
+        )
+
+        assertThat(Files.isRegularFile(targetDir.resolve("server.jar"))).isTrue()
     }
 
     @Test

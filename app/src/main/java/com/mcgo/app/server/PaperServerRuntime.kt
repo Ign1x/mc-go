@@ -636,7 +636,7 @@ fun importManagedServerModpackArchive(
 ): Path {
     require(Files.isRegularFile(archiveFile)) { "整合包文件不存在：$archiveFile" }
     fun reportProgress(progress: Int, message: String) {
-        onProgress?.invoke(progress.coerceIn(1, 100), message)
+        runCatching { onProgress?.invoke(progress.coerceIn(1, 100), message) }
     }
     Files.createDirectories(serverWorkDir.parent ?: serverWorkDir)
     reportProgress(2, "正在检查整合包导入目标")
@@ -713,10 +713,12 @@ internal fun copyManagedServerImportStreamToTempFile(
     onProgress: ((Int, String) -> Unit)? = null,
 ): Long {
     fun reportProgress(progress: Int, copiedBytes: Long) {
-        onProgress?.invoke(
-            progress.coerceIn(1, 100),
-            "正在缓存整合包文件 · $copiedBytes bytes",
-        )
+        runCatching {
+            onProgress?.invoke(
+                progress.coerceIn(1, 100),
+                "正在缓存整合包文件 · $copiedBytes bytes",
+            )
+        }
     }
     Files.newOutputStream(targetFile).use { output ->
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
