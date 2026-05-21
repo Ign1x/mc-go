@@ -673,9 +673,21 @@ fun importManagedServerModpackArchive(
             paths.sorted().iterator().asSequence().toList()
         }
         val stagedEntries = stagedPaths.filter { it != stagingDir }
-        val stagedFileCount = stagedEntries.count { Files.isRegularFile(it) }.coerceAtLeast(1)
+        val stagedFiles = stagedEntries.filter { Files.isRegularFile(it) }
+        val stagedFileCount = stagedFiles.size.coerceAtLeast(1)
+        val stagedTotalBytes = stagedFiles.sumOf { Files.size(it) }.coerceAtLeast(1L)
         var copiedFileCount = 0
-        reportProgress(45, "正在复制整合包文件")
+        var copiedBytes = 0L
+        var lastReportedCopyBytes = 0L
+        var hasReportedCopyProgress = false
+        fun reportCopyProgress(force: Boolean = false) {
+            if (!force && hasReportedCopyProgress && copiedBytes - lastReportedCopyBytes < ManagedServerImportCopyProgressIntervalBytes) return
+            hasReportedCopyProgress = true
+            lastReportedCopyBytes = copiedBytes
+            val fileProgress = 45 + ((copiedBytes * 50) / stagedTotalBytes).toInt().coerceIn(0, 50)
+            reportProgress(fileProgress, "正在复制整合包文件 · files=$copiedFileCount/$stagedFileCount bytes=$copiedBytes")
+        }
+        reportCopyProgress(force = true)
         stagedEntries.forEach { path ->
             val relative = stagingDir.relativize(path)
             val target = serverWorkDir.resolve(relative.toString())
@@ -683,13 +695,23 @@ fun importManagedServerModpackArchive(
                 Files.createDirectories(target)
             } else {
                 Files.createDirectories(target.parent)
-                Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
+                Files.newInputStream(path).use { input ->
+                    Files.newOutputStream(target).use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            copiedBytes += read.toLong()
+                            reportCopyProgress()
+                        }
+                    }
+                }
                 if (target.fileName.toString().endsWith(".sh", ignoreCase = true)) {
                     target.toFile().setExecutable(true, false)
                 }
                 copiedFileCount += 1
-                val fileProgress = 45 + ((copiedFileCount * 50) / stagedFileCount)
-                reportProgress(fileProgress, "正在复制整合包文件 · ${copiedFileCount}/$stagedFileCount")
+                reportCopyProgress(force = true)
             }
         }
         writeManagedServerPayloadSha(serverWorkDir, targetJar)

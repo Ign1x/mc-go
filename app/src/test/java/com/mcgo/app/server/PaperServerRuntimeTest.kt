@@ -435,7 +435,10 @@ class PaperServerRuntimeTest {
             onProgress = { _, message -> reportedMessages += message },
         )
 
-        assertThat(reportedMessages.joinToString("\n")).contains("正在复制整合包文件")
+        val copyProgressMessages = reportedMessages.filter { it.startsWith("正在复制整合包文件 ·") }
+        assertThat(copyProgressMessages).isNotEmpty()
+        assertThat(copyProgressMessages.last()).contains("files=1/1")
+        assertThat(copyProgressMessages.last()).contains("bytes=4")
         assertThat(Files.readAllBytes(targetDir.resolve("server.jar")).map { it.toInt() }).containsExactly(0x50, 0x4b, 0x03, 0x04).inOrder()
     }
 
