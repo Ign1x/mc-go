@@ -158,7 +158,8 @@ class MCGoServerFileManagementContractTest {
         assertThat(provisionalSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(provisionalServers, serverDirectoryUriTextAtImportStart)")
         assertThat(successSyncSource.trimStart()).startsWith("withContext(Dispatchers.IO) {")
         assertThat(successSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(updatedServers, serverDirectoryUriTextAtImportStart)")
-        assertThat(failureSyncSource.trimStart()).startsWith("withContext(Dispatchers.IO) {")
+        assertThat(failureSyncSource.trimStart()).startsWith("runCatching {")
+        assertThat(failureSyncSource).contains("withContext(Dispatchers.IO) {")
         assertThat(failureSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)")
     }
 
@@ -176,6 +177,31 @@ class MCGoServerFileManagementContractTest {
         )
         assertThat(createFromModpackSource).contains("message = \"整合包导入失败\"")
         assertThat(createFromModpackSource).contains("snackbarHostState.showSnackbar(\"导入整合包失败：${'$'}errorMessage\")")
+    }
+
+    @Test
+    fun createServerFromModpackNow_keepsFailureRecoveryVisibleWhenRecoverySyncFails() {
+        val createFromModpackSource = appSource
+            .substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest) {")
+        val failureRecoverySource = createFromModpackSource
+            .substringAfter("onServersChange(recoveredServers)")
+            .substringBefore("snackbarHostState.showSnackbar(\"导入整合包失败：${'$'}errorMessage\")")
+
+        assertThat(failureRecoverySource).contains("runCatching {")
+        assertThat(failureRecoverySource).contains("syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)")
+        assertThat(failureRecoverySource).contains(".onFailure { recoverySyncError ->")
+        assertThat(failureRecoverySource).contains("message = \"整合包导入失败恢复同步失败\"")
+        assertThat(failureRecoverySource.indexOf("runCatching {")).isLessThan(
+            failureRecoverySource.indexOf("if (recovery.deletePrivateWorkspace)"),
+        )
+        val recoverySyncLogSource = failureRecoverySource
+            .substringAfter(".onFailure { recoverySyncError ->")
+            .substringBefore("if (recovery.deletePrivateWorkspace)")
+        assertThat(recoverySyncLogSource).contains("runCatching {")
+        assertThat(recoverySyncLogSource.indexOf("runCatching {")).isLessThan(
+            recoverySyncLogSource.indexOf("appendMcGoAppDebugLog("),
+        )
     }
 
     @Test

@@ -950,8 +950,25 @@ private fun MCGoAppScaffold(
                         latestServers.filterNot { existing -> existing.id == server.id }
                     }
                     onServersChange(recoveredServers)
-                    withContext(Dispatchers.IO) {
-                        syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)
+                        }
+                    }.onFailure { recoverySyncError ->
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                appendMcGoAppDebugLog(
+                                    filesDir = appContext.filesDir.toPath(),
+                                    message = "整合包导入失败恢复同步失败",
+                                    details = mapOf(
+                                        "serverId" to server.id,
+                                        "workspaceMode" to importedWorkspaceMode.name,
+                                        "errorType" to recoverySyncError.javaClass.simpleName,
+                                        "errorMessage" to (recoverySyncError.message ?: "未知错误").take(160),
+                                    ),
+                                )
+                            }
+                        }
                     }
                     if (recovery.deletePrivateWorkspace) {
                         deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
