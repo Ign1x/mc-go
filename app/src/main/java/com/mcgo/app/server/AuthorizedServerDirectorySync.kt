@@ -123,6 +123,9 @@ internal fun importManagedServerModpackArchiveToAuthorizedDirectory(
             context = context,
             archiveInput = archiveInput,
             targetServerDir = targetServerDir,
+            onProgress = { progress ->
+                reportProgress(6, progress.toDiagnosticExtractionProgressMessage())
+            },
         )
         reportProgress(70, extraction.summary.toDiagnosticProgressMessage())
         val metadata = detectImportedModpackServerMetadataFromEntryNames(extraction.entryNames)
@@ -850,6 +853,7 @@ private fun unzipManagedServerArchiveToDocumentTree(
     context: Context,
     archiveInput: InputStream,
     targetServerDir: DocumentFile,
+    onProgress: ((ManagedServerArchiveExtractionSummary) -> Unit)? = null,
 ): AuthorizedModpackExtractionResult {
     val entryNames = mutableListOf<String>()
     val sha256ByEntryName = mutableMapOf<String, String>()
@@ -858,6 +862,29 @@ private fun unzipManagedServerArchiveToDocumentTree(
     var directoryCount = 0
     var totalBytes = 0L
     var skippedReservedEntryCount = 0
+    var hasReportedExtractionProgress = false
+    var lastReportedBytes = 0L
+    var lastReportedEntryCount = 0
+    fun currentSummary(): ManagedServerArchiveExtractionSummary = ManagedServerArchiveExtractionSummary(
+        fileCount = fileCount,
+        directoryCount = directoryCount,
+        totalBytes = totalBytes,
+        skippedReservedEntryCount = skippedReservedEntryCount,
+    )
+    fun reportExtractionProgress() {
+        val entryCount = fileCount + directoryCount + skippedReservedEntryCount
+        if (entryCount == 0 && totalBytes == lastReportedBytes) return
+        val shouldReport = !hasReportedExtractionProgress ||
+            (entryCount > 0 && lastReportedEntryCount == 0) ||
+            entryCount - lastReportedEntryCount >= 25 ||
+            totalBytes - lastReportedBytes >= ManagedServerImportCopyProgressIntervalBytes
+        if (shouldReport) {
+            hasReportedExtractionProgress = true
+            lastReportedEntryCount = entryCount
+            lastReportedBytes = totalBytes
+            onProgress?.invoke(currentSummary())
+        }
+    }
     ZipInputStream(BufferedInputStream(archiveInput)).use { zip ->
         while (true) {
             val entry = zip.nextEntry ?: break
@@ -866,23 +893,30 @@ private fun unzipManagedServerArchiveToDocumentTree(
                 if (normalized.isBlank()) continue
                 if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) {
                     skippedReservedEntryCount += 1
+                    reportExtractionProgress()
                     continue
                 }
                 val segments = normalized.split('/').filter(String::isNotBlank)
                 if (entry.isDirectory) {
                     resolveOrCreateDocumentDirectory(targetServerDir, segments)
                     directoryCount += 1
+                    reportExtractionProgress()
                 } else {
                     val parent = resolveOrCreateDocumentDirectory(targetServerDir, segments.dropLast(1))
                     val fileName = segments.last()
                     val targetFile = replaceOrCreateDocumentFile(parent, fileName)
+                    val totalBytesBeforeEntry = totalBytes
                     val copyResult = context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
-                        copyZipEntryToDocumentFile(zip, output)
+                        copyZipEntryToDocumentFile(zip, output) { entryByteCount ->
+                            totalBytes = totalBytesBeforeEntry + entryByteCount
+                            reportExtractionProgress()
+                        }
                     } ?: error("打开授权文件输出流失败：$normalized")
+                    totalBytes = totalBytesBeforeEntry + copyResult.byteCount
                     entryNames += normalized
                     sha256ByEntryName[normalized] = copyResult.sha256
                     fileCount += 1
-                    totalBytes += copyResult.byteCount
+                    reportExtractionProgress()
                     if (isImportedSetupScriptName(normalized, copyResult.contentPrefix)) {
                         setupScriptNames += normalized
                     }
@@ -914,6 +948,7 @@ private data class CopiedZipEntry(
 private fun copyZipEntryToDocumentFile(
     zip: ZipInputStream,
     output: java.io.OutputStream,
+    onEntryBytesCopied: ((Long) -> Unit)? = null,
 ): CopiedZipEntry {
     val digest = MessageDigest.getInstance("SHA-256")
     val prefixBytes = java.io.ByteArrayOutputStream()
@@ -925,6 +960,7 @@ private fun copyZipEntryToDocumentFile(
         digest.update(buffer, 0, read)
         output.write(buffer, 0, read)
         byteCount += read.toLong()
+        onEntryBytesCopied?.invoke(byteCount)
         if (prefixBytes.size() < 512) {
             prefixBytes.write(buffer, 0, minOf(read, 512 - prefixBytes.size()))
         }

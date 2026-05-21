@@ -22,7 +22,7 @@ private const val ForgeMavenMetadataUrl = "https://maven.minecraftforge.net/net/
 private const val NeoForgeMavenMetadataUrl = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
 private const val VanillaVersionManifestUrl = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 private const val DefaultProvisionablePaperVersion = "1.21.11"
-private const val ManagedServerImportCopyProgressIntervalBytes = 16L * 1024L * 1024L
+internal const val ManagedServerImportCopyProgressIntervalBytes = 16L * 1024L * 1024L
 val PaperDownloadUserAgent: String = McGoUserAgent
 
 data class PreparedPaperServerFiles(
@@ -46,6 +46,9 @@ internal data class ManagedServerArchiveExtractionSummary(
     val totalBytes: Long = 0L,
     val skippedReservedEntryCount: Int = 0,
 ) {
+    fun toDiagnosticExtractionProgressMessage(): String =
+        "正在解压整合包文件 · files=$fileCount directories=$directoryCount bytes=$totalBytes skippedReserved=$skippedReservedEntryCount"
+
     fun toDiagnosticProgressMessage(): String =
         "整合包导入摘要 | files=$fileCount directories=$directoryCount bytes=$totalBytes skippedReserved=$skippedReservedEntryCount"
 }
@@ -641,7 +644,9 @@ fun importManagedServerModpackArchive(
         try {
             reportProgress(4, "目标目录为空，直接导入整合包")
             reportProgress(5, "正在解压整合包到目标目录")
-            val summary = unzipManagedServerArchive(archiveFile, serverWorkDir)
+            val summary = unzipManagedServerArchive(archiveFile, serverWorkDir) { progress ->
+                reportProgress(6, progress.toDiagnosticExtractionProgressMessage())
+            }
             writeManagedServerPayloadSha(serverWorkDir, targetJar)
             reportProgress(98, summary.toDiagnosticProgressMessage())
             reportProgress(100, "整合包导入完成")
@@ -657,7 +662,9 @@ fun importManagedServerModpackArchive(
     val stagingDir = Files.createTempDirectory(serverWorkDir.parent ?: serverWorkDir, "mcgo-modpack-stage-")
     try {
         reportProgress(5, "正在解压整合包")
-        val summary = unzipManagedServerArchive(archiveFile, stagingDir)
+        val summary = unzipManagedServerArchive(archiveFile, stagingDir) { progress ->
+            reportProgress(6, progress.toDiagnosticExtractionProgressMessage())
+        }
         reportProgress(34, summary.toDiagnosticProgressMessage())
         reportProgress(35, "整合包解压完成，正在准备目标目录")
         clearManagedServerImportTarget(serverWorkDir)
@@ -809,12 +816,39 @@ private fun httpGet(url: String): String {
     }
 }
 
-private fun unzipManagedServerArchive(archiveFile: Path, targetDir: Path): ManagedServerArchiveExtractionSummary {
+private fun unzipManagedServerArchive(
+    archiveFile: Path,
+    targetDir: Path,
+    onProgress: ((ManagedServerArchiveExtractionSummary) -> Unit)? = null,
+): ManagedServerArchiveExtractionSummary {
     Files.createDirectories(targetDir)
     var fileCount = 0
     var directoryCount = 0
     var totalBytes = 0L
     var skippedReservedEntryCount = 0
+    var hasReportedExtractionProgress = false
+    var lastReportedBytes = 0L
+    var lastReportedEntryCount = 0
+    fun currentSummary(): ManagedServerArchiveExtractionSummary = ManagedServerArchiveExtractionSummary(
+        fileCount = fileCount,
+        directoryCount = directoryCount,
+        totalBytes = totalBytes,
+        skippedReservedEntryCount = skippedReservedEntryCount,
+    )
+    fun reportExtractionProgress() {
+        val entryCount = fileCount + directoryCount + skippedReservedEntryCount
+        if (entryCount == 0 && totalBytes == lastReportedBytes) return
+        val shouldReport = !hasReportedExtractionProgress ||
+            (entryCount > 0 && lastReportedEntryCount == 0) ||
+            entryCount - lastReportedEntryCount >= 25 ||
+            totalBytes - lastReportedBytes >= ManagedServerImportCopyProgressIntervalBytes
+        if (shouldReport) {
+            hasReportedExtractionProgress = true
+            lastReportedEntryCount = entryCount
+            lastReportedBytes = totalBytes
+            onProgress?.invoke(currentSummary())
+        }
+    }
     Files.newInputStream(archiveFile).use { input ->
         ZipInputStream(BufferedInputStream(input)).use { zip ->
             while (true) {
@@ -826,19 +860,30 @@ private fun unzipManagedServerArchive(archiveFile: Path, targetDir: Path): Manag
                     require(target.startsWith(targetDir)) { "整合包包含越界路径：${entry.name}" }
                     if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) {
                         skippedReservedEntryCount += 1
+                        reportExtractionProgress()
                         continue
                     }
                     if (entry.isDirectory) {
                         Files.createDirectories(target)
                         directoryCount += 1
+                        reportExtractionProgress()
                     } else {
                         Files.createDirectories(target.parent)
-                        val copiedBytes = Files.newOutputStream(target).use { output -> zip.copyTo(output) }
+                        Files.newOutputStream(target).use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (true) {
+                                val read = zip.read(buffer)
+                                if (read < 0) break
+                                output.write(buffer, 0, read)
+                                totalBytes += read.toLong()
+                                reportExtractionProgress()
+                            }
+                        }
                         if (normalized.endsWith(".sh", ignoreCase = true)) {
                             target.toFile().setExecutable(true, false)
                         }
                         fileCount += 1
-                        totalBytes += copiedBytes
+                        reportExtractionProgress()
                     }
                 } finally {
                     zip.closeEntry()

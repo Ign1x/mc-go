@@ -10,6 +10,7 @@ class AuthorizedServerDirectoryContractTest {
     private val serviceSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
     private val receiverSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperRuntimeEventReceiver.kt")))
     private val authorizedSyncSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/AuthorizedServerDirectorySync.kt")))
+    private val runtimeSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
     private val runtimePermissionModelsSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/model/RuntimePermissionModels.kt")))
 
     @Test
@@ -104,6 +105,8 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(importSlice).doesNotContain("importedWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror\n                                            val directImport")
         assertThat(callbackSlice).contains("createServerFromModpackNow(server, archiveUri)")
         assertThat(authorizedSyncSource).contains("正在解压整合包到授权目录")
+        assertThat(authorizedSyncSource).contains("progress.toDiagnosticExtractionProgressMessage()")
+        assertThat(runtimeSource).contains("正在解压整合包文件 · files=")
         assertThat(importSlice.indexOf("importManagedServerModpackArchiveToAuthorizedDirectory(")).isLessThan(
             importSlice.indexOf("Files.createTempFile(\"mcgo-modpack-\", \".zip\")"),
         )

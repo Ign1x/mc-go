@@ -372,6 +372,10 @@ class PaperServerRuntimeTest {
         assertThat(messageText).contains("正在检查整合包导入目标")
         assertThat(messageText).contains("目标目录为空，直接导入整合包")
         assertThat(messageText).contains("正在解压整合包到目标目录")
+        assertThat(messageText).contains("正在解压整合包文件")
+        assertThat(messageText.indexOf("正在解压整合包文件")).isLessThan(
+            messageText.indexOf("整合包导入摘要"),
+        )
         assertThat(messageText).contains("整合包导入摘要")
         assertThat(messageText).contains("files=2")
         assertThat(messageText).contains("directories=1")
