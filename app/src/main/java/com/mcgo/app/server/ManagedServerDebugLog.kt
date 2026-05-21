@@ -20,7 +20,7 @@ internal fun buildManagedServerDebugLogLine(
     val normalizedDetails = details.entries
         .asSequence()
         .filter { (_, value) -> value != null }
-        .joinToString(separator = " ") { (key, value) -> "$key=${value!!.toStructuredDebugLogPart()}" }
+        .joinToString(separator = " ") { (key, value) -> "${key.toStructuredDebugLogPart()}=${value!!.toStructuredDebugLogPart()}" }
         .trim()
     val prefix = "[debug] ${ManagedServerDebugTimestampFormatter.format(timestamp)} ${message.toStructuredDebugLogPart()}"
     return if (normalizedDetails.isBlank()) prefix else "$prefix | $normalizedDetails"
@@ -28,6 +28,8 @@ internal fun buildManagedServerDebugLogLine(
 
 private fun Any.toStructuredDebugLogPart(): String = toString()
     .replace(Regex("\\s+"), " ")
+    .replace('|', '¦')
+    .replace('=', ':')
     .trim()
 
 internal fun appendManagedServerDebugLog(

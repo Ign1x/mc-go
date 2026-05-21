@@ -26,16 +26,20 @@ class ManagedServerDebugLogTest {
     @Test
     fun structuredDebugLog_rendersDetailValuesAsSingleLine() {
         val line = buildManagedServerDebugLogLine(
-            message = "开始导入整合包",
+            message = "开始导入整合包 | fake=1",
             details = mapOf(
-                "archiveDisplayName" to "pack.zip\nmalicious=1",
+                "archiveDisplayName" to "pack.zip\nmalicious=1|field=spoof",
                 "notes" to "  has\tmultiple   spaces  ",
+                "bad|key=spoof" to "safe",
             ),
             timestamp = LocalDateTime.of(2026, 5, 18, 21, 31, 0),
         )
 
-        assertThat(line).isEqualTo("[debug] 2026-05-18 21:31:00 开始导入整合包 | archiveDisplayName=pack.zip malicious=1 notes=has multiple spaces")
+        assertThat(line).isEqualTo("[debug] 2026-05-18 21:31:00 开始导入整合包 ¦ fake:1 | archiveDisplayName=pack.zip malicious:1¦field:spoof notes=has multiple spaces bad¦key:spoof=safe")
         assertThat(line).doesNotContain("\n")
+        assertThat(line.substringAfter(" | ")).doesNotContain("|field=")
+        assertThat(line.substringAfter("archiveDisplayName=")).doesNotContain("malicious=1")
+        assertThat(line).doesNotContain("bad|key=spoof")
     }
 
     @Test

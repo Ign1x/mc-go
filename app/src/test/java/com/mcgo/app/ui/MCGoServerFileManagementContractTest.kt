@@ -92,6 +92,12 @@ class MCGoServerFileManagementContractTest {
         val createFromModpackSource = appSource
             .substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
             .substringBefore("fun startServerNow(request: PendingStartRequest) {")
+        val modpackCallbackSource = appSource
+            .substringAfter("onCreateServerFromModpack = { server, archiveUri ->")
+            .substringBefore("onImportWorldArchive = { serverId, archiveUri ->")
+        val directoryPickerSource = appSource
+            .substringAfter("val directoryPickerLauncher = rememberLauncherForActivityResult(")
+            .substringBefore("LaunchedEffect(serverDirectoryUriText)")
 
         assertThat(createFromModpackSource).contains("appendMcGoAppDebugLog(")
         assertThat(createFromModpackSource).contains("message = \"开始导入整合包\"")
@@ -99,6 +105,12 @@ class MCGoServerFileManagementContractTest {
         assertThat(createFromModpackSource).contains("message = \"整合包导入失败\"")
         assertThat(createFromModpackSource).contains("archiveDisplayName")
         assertThat(createFromModpackSource).contains("workspaceMode")
+        assertThat(modpackCallbackSource).contains("\"整合包文件已选择\"")
+        assertThat(modpackCallbackSource).contains("\"整合包导入等待目录授权\"")
+        assertThat(modpackCallbackSource).contains("\"整合包导入等待目录同步\"")
+        assertThat(directoryPickerSource).contains("\"请求服务器目录授权\"")
+        assertThat(directoryPickerSource).contains("\"服务器目录授权失败\"")
+        assertThat(directoryPickerSource).contains("\"服务器目录授权取消\"")
         assertThat(createFromModpackSource).contains("suspend fun updateImportProgress(progress: Int, message: String)")
         assertThat(createFromModpackSource).contains("withContext(Dispatchers.Main.immediate)")
         assertThat(createFromModpackSource).contains("runBlocking { updateImportProgress(mapped, message) }")
@@ -108,6 +120,7 @@ class MCGoServerFileManagementContractTest {
         assertThat(tempPackCopySource.indexOf("try {")).isLessThan(tempPackCopySource.indexOf("openInputStream(archiveUri)"))
         assertThat(createFromModpackSource).doesNotContain("val updateImportProgress = { progress: Int, message: String ->")
         assertThat(createFromModpackSource).doesNotContain("archiveUri.toString()")
+        assertThat(modpackCallbackSource).doesNotContain("archiveUri.toString()")
     }
 
     @Test

@@ -367,6 +367,17 @@ private fun MCGoAppScaffold(
     val chrome = McGoPageChrome.forPage(destination.page)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    fun appendAppDebugLogAsync(message: String, details: Map<String, Any?> = emptyMap()) {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                appendMcGoAppDebugLog(
+                    filesDir = appContext.filesDir.toPath(),
+                    message = message,
+                    details = details,
+                )
+            }
+        }
+    }
     var recentLogPreview by remember { mutableStateOf("") }
     fun refreshRecentLogPreview() {
         scope.launch {
@@ -522,6 +533,13 @@ private fun MCGoAppScaffold(
                 true
             }.getOrDefault(false)
             if (!permissionGranted) {
+                appendAppDebugLogAsync(
+                    message = "服务器目录授权失败",
+                    details = mapOf(
+                        "pendingAction" to pendingServerDirectoryAction?.name,
+                        "reason" to "persistable_permission_denied",
+                    ),
+                )
                 pendingStartRequest = null
                 pendingCreateServer = null
                 pendingCreateServerFromModpack = null
@@ -607,6 +625,10 @@ private fun MCGoAppScaffold(
                 } else {
                     "目录功能需要先授权服务器目录"
                 }
+                appendAppDebugLogAsync(
+                    message = "服务器目录授权取消",
+                    details = mapOf("pendingAction" to pendingServerDirectoryAction?.name),
+                )
                 pendingServerDirectoryAction = null
                 pendingStartRequest = null
                 pendingCreateServer = null
@@ -616,6 +638,13 @@ private fun MCGoAppScaffold(
         }
     }
     fun requestServerDirectory(action: PendingServerDirectoryAction) {
+        appendAppDebugLogAsync(
+            message = "请求服务器目录授权",
+            details = mapOf(
+                "action" to action.name,
+                "hasExistingDirectoryUri" to (serverDirectoryUriText != null),
+            ),
+        )
         pendingServerDirectoryAction = action
         directoryPickerLauncher.launch(serverDirectoryPickerInitialUri(serverDirectoryUriText))
     }
@@ -1507,13 +1536,36 @@ private fun MCGoAppScaffold(
                             createServerNow(server)
                         },
                         onCreateServerFromModpack = { server, archiveUri ->
+                            appendAppDebugLogAsync(
+                                message = "整合包文件已选择",
+                                details = mapOf(
+                                    "serverId" to server.id,
+                                    "serverName" to server.name,
+                                    "hasServerDirectoryGrant" to hasServerDirectoryGrant(),
+                                    "serverDirectoryGrantProcessing" to serverDirectoryGrantProcessing,
+                                ),
+                            )
                             if (!hasServerDirectoryGrant()) {
+                                appendAppDebugLogAsync(
+                                    message = "整合包导入等待目录授权",
+                                    details = mapOf(
+                                        "serverId" to server.id,
+                                        "serverName" to server.name,
+                                    ),
+                                )
                                 pendingCreateServerFromModpack = PendingCreateServerFromModpack(server, archiveUri)
                                 requestServerDirectory(PendingServerDirectoryAction.CreateServerFromModpack)
                                 scope.launch { snackbarHostState.showSnackbar("请先授权服务器目录，授权后会继续导入整合包") }
                                 return@ServersScreen
                             }
                             if (serverDirectoryGrantProcessing) {
+                                appendAppDebugLogAsync(
+                                    message = "整合包导入等待目录同步",
+                                    details = mapOf(
+                                        "serverId" to server.id,
+                                        "serverName" to server.name,
+                                    ),
+                                )
                                 pendingCreateServerFromModpack = PendingCreateServerFromModpack(server, archiveUri)
                                 scope.launch { snackbarHostState.showSnackbar("服务器目录正在完成同步，稍后会继续导入整合包") }
                                 return@ServersScreen
