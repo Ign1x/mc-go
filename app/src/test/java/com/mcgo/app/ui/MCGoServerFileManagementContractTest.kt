@@ -152,7 +152,7 @@ class MCGoServerFileManagementContractTest {
             .substringBefore("showServerComposer = false")
         val failureSyncSource = createFromModpackSource
             .substringAfter("onServersChange(recoveredServers)")
-            .substringBefore("if (recovery.deletePrivateWorkspace)")
+            .substringBefore("runNewModpackServerImportFailureCleanup(")
 
         assertThat(provisionalSyncSource.trimStart()).startsWith("withContext(Dispatchers.IO) {")
         assertThat(provisionalSyncSource).contains("syncServerProfilesToAuthorizedDirectoryNow(provisionalServers, serverDirectoryUriTextAtImportStart)")
@@ -184,24 +184,76 @@ class MCGoServerFileManagementContractTest {
         val createFromModpackSource = appSource
             .substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
             .substringBefore("fun startServerNow(request: PendingStartRequest) {")
+        val importFailureLogHelperSource = createFromModpackSource
+            .substringAfter("suspend fun logModpackImportFailure(importError: Throwable, errorMessage: String) {")
+            .substringBefore("suspend fun logModpackRecoverySyncFailure")
+        val recoverySyncLogHelperSource = createFromModpackSource
+            .substringAfter("suspend fun logModpackRecoverySyncFailure(recoverySyncError: Throwable) {")
+            .substringBefore("suspend fun logModpackFailureCleanupError")
+        val failureLogSource = createFromModpackSource
+            .substringAfter("val errorMessage = it.message ?: \"未知错误\"")
+            .substringBefore("val recovery = resolveNewModpackServerImportFailureRecovery")
         val failureRecoverySource = createFromModpackSource
             .substringAfter("onServersChange(recoveredServers)")
             .substringBefore("snackbarHostState.showSnackbar(\"导入整合包失败：${'$'}errorMessage\")")
 
+        assertThat(importFailureLogHelperSource).contains("try {")
+        assertThat(importFailureLogHelperSource).contains("message = \"整合包导入失败\"")
+        assertThat(importFailureLogHelperSource).contains("if (logError is CancellationException) throw logError")
+        assertThat(failureLogSource).contains("logModpackImportFailure(it, errorMessage)")
+        assertThat(recoverySyncLogHelperSource).contains("try {")
+        assertThat(recoverySyncLogHelperSource).contains("message = \"整合包导入失败恢复同步失败\"")
+        assertThat(recoverySyncLogHelperSource).contains("if (logError is CancellationException) throw logError")
         assertThat(failureRecoverySource).contains("runCatching {")
         assertThat(failureRecoverySource).contains("syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)")
         assertThat(failureRecoverySource).contains(".onFailure { recoverySyncError ->")
-        assertThat(failureRecoverySource).contains("message = \"整合包导入失败恢复同步失败\"")
+        assertThat(failureRecoverySource).contains("logModpackRecoverySyncFailure(recoverySyncError)")
         assertThat(failureRecoverySource.indexOf("runCatching {")).isLessThan(
-            failureRecoverySource.indexOf("if (recovery.deletePrivateWorkspace)"),
+            failureRecoverySource.indexOf("runNewModpackServerImportFailureCleanup("),
         )
-        val recoverySyncLogSource = failureRecoverySource
+    }
+
+    @Test
+    fun createServerFromModpackNow_keepsFailureSnackbarVisibleWhenRecoveryCleanupFails() {
+        val createFromModpackSource = appSource
+            .substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest) {")
+        val cleanupRecoverySource = createFromModpackSource
+            .substringAfter("runNewModpackServerImportFailureCleanup(")
+            .substringBefore("snackbarHostState.showSnackbar(\"导入整合包失败：${'$'}errorMessage\")")
+        val cleanupLogHelperSource = createFromModpackSource
+            .substringAfter("suspend fun logModpackFailureCleanupError(cleanupTarget: String, cleanupError: Throwable) {")
+            .substringBefore("\n            try {\n                runCatching {")
+
+        assertThat(cleanupLogHelperSource).contains("try {")
+        assertThat(cleanupLogHelperSource).contains("appendMcGoAppDebugLog(")
+        assertThat(cleanupLogHelperSource).contains("message = \"整合包导入失败清理失败\"")
+        assertThat(cleanupLogHelperSource).contains("\"cleanupTarget\" to cleanupTarget")
+        assertThat(cleanupLogHelperSource).contains("if (logError is CancellationException) throw logError")
+        assertThat(cleanupRecoverySource).contains("recovery = recovery")
+        assertThat(cleanupRecoverySource).contains("deletePrivateWorkspace = {")
+        assertThat(cleanupRecoverySource).contains("withContext(Dispatchers.IO) {")
+        assertThat(cleanupRecoverySource).contains("deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)")
+        assertThat(cleanupRecoverySource).contains("deleteAuthorizedWorkspace = {")
+        assertThat(cleanupRecoverySource).contains("deleteManagedServerWorkspaceFromAuthorizedDirectory(appContext, serverDirectoryUriTextAtImportStart, server.id)")
+        assertThat(cleanupRecoverySource).contains("logCleanupFailure = { cleanupTarget, cleanupError ->")
+        assertThat(cleanupRecoverySource).contains("logModpackFailureCleanupError(cleanupTarget, cleanupError)")
+    }
+
+    @Test
+    fun createServerFromModpackNow_rethrowsCancellationFailuresInsteadOfRecoveringAsUserErrors() {
+        val createFromModpackSource = appSource
+            .substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest) {")
+        val importFailureHandlerPrefix = createFromModpackSource
+            .substringAfter("}.onFailure {")
+            .substringBefore("val errorMessage = it.message ?: \"未知错误\"")
+        val recoverySyncFailureHandlerPrefix = createFromModpackSource
             .substringAfter(".onFailure { recoverySyncError ->")
-            .substringBefore("if (recovery.deletePrivateWorkspace)")
-        assertThat(recoverySyncLogSource).contains("runCatching {")
-        assertThat(recoverySyncLogSource.indexOf("runCatching {")).isLessThan(
-            recoverySyncLogSource.indexOf("appendMcGoAppDebugLog("),
-        )
+            .substringBefore("logModpackRecoverySyncFailure(recoverySyncError)")
+
+        assertThat(importFailureHandlerPrefix).contains("if (it is CancellationException) throw it")
+        assertThat(recoverySyncFailureHandlerPrefix).contains("if (recoverySyncError is CancellationException) throw recoverySyncError")
     }
 
     @Test

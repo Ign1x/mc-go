@@ -98,6 +98,7 @@ import com.mcgo.app.server.prepareManagedServerWorkspaceAccess
 import com.mcgo.app.server.releaseManagedServerWorkspaceAfterForegroundAccess
 import com.mcgo.app.server.resolveAuthorizedServersRootPath
 import com.mcgo.app.server.resolveNewModpackServerImportFailureRecovery
+import com.mcgo.app.server.runNewModpackServerImportFailureCleanup
 import com.mcgo.app.server.migratePrivateServerDataToAuthorizedDirectory
 import com.mcgo.app.server.reconcilePersistedRuntimeState
 import com.mcgo.app.server.reducePaperRuntimeEvent
@@ -158,6 +159,7 @@ import com.mcgo.app.ui.storage.ServerProfileStoreGlobalLock
 import com.mcgo.app.ui.storage.TunnelProfileStore
 import com.mcgo.app.ui.theme.LocalMcGoVisualTokens
 import com.mcgo.app.ui.theme.McGoTheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -735,6 +737,64 @@ private fun MCGoAppScaffold(
                     syncServerProfilesToAuthorizedDirectoryNow(updatedServers, directoryUriSnapshot)
                 }
             }
+            suspend fun logModpackImportFailure(importError: Throwable, errorMessage: String) {
+                try {
+                    withContext(Dispatchers.IO) {
+                        appendMcGoAppDebugLog(
+                            filesDir = appContext.filesDir.toPath(),
+                            message = "整合包导入失败",
+                            details = mapOf(
+                                "serverId" to server.id,
+                                "serverName" to server.name,
+                                "archiveDisplayName" to archiveDisplayName,
+                                "workspaceMode" to importedWorkspaceMode.name,
+                                "importCompleted" to importCompleted,
+                                "errorType" to importError.javaClass.simpleName,
+                                "errorMessage" to errorMessage.take(160),
+                            ),
+                        )
+                    }
+                } catch (logError: Throwable) {
+                    if (logError is CancellationException) throw logError
+                }
+            }
+            suspend fun logModpackRecoverySyncFailure(recoverySyncError: Throwable) {
+                try {
+                    withContext(Dispatchers.IO) {
+                        appendMcGoAppDebugLog(
+                            filesDir = appContext.filesDir.toPath(),
+                            message = "整合包导入失败恢复同步失败",
+                            details = mapOf(
+                                "serverId" to server.id,
+                                "workspaceMode" to importedWorkspaceMode.name,
+                                "errorType" to recoverySyncError.javaClass.simpleName,
+                                "errorMessage" to (recoverySyncError.message ?: "未知错误").take(160),
+                            ),
+                        )
+                    }
+                } catch (logError: Throwable) {
+                    if (logError is CancellationException) throw logError
+                }
+            }
+            suspend fun logModpackFailureCleanupError(cleanupTarget: String, cleanupError: Throwable) {
+                try {
+                    withContext(Dispatchers.IO) {
+                        appendMcGoAppDebugLog(
+                            filesDir = appContext.filesDir.toPath(),
+                            message = "整合包导入失败清理失败",
+                            details = mapOf(
+                                "serverId" to server.id,
+                                "workspaceMode" to importedWorkspaceMode.name,
+                                "cleanupTarget" to cleanupTarget,
+                                "errorType" to cleanupError.javaClass.simpleName,
+                                "errorMessage" to (cleanupError.message ?: "未知错误").take(160),
+                            ),
+                        )
+                    }
+                } catch (logError: Throwable) {
+                    if (logError is CancellationException) throw logError
+                }
+            }
             try {
                 runCatching {
                     val currentServers = latestServers
@@ -927,22 +987,9 @@ private fun MCGoAppScaffold(
                     }
                     snackbarHostState.showSnackbar("已导入整合包并创建 ${updatedServer.name}${suffix}")
                 }.onFailure {
+                    if (it is CancellationException) throw it
                     val errorMessage = it.message ?: "未知错误"
-                    withContext(Dispatchers.IO) {
-                        appendMcGoAppDebugLog(
-                            filesDir = appContext.filesDir.toPath(),
-                            message = "整合包导入失败",
-                            details = mapOf(
-                                "serverId" to server.id,
-                                "serverName" to server.name,
-                                "archiveDisplayName" to archiveDisplayName,
-                                "workspaceMode" to importedWorkspaceMode.name,
-                                "importCompleted" to importCompleted,
-                                "errorType" to it.javaClass.simpleName,
-                                "errorMessage" to errorMessage.take(160),
-                            ),
-                        )
-                    }
+                    logModpackImportFailure(it, errorMessage)
                     val recovery = resolveNewModpackServerImportFailureRecovery(
                         workspaceMode = importedWorkspaceMode,
                         importCompleted = importCompleted,
@@ -960,27 +1007,25 @@ private fun MCGoAppScaffold(
                             syncServerProfilesToAuthorizedDirectoryNow(recoveredServers, serverDirectoryUriTextAtImportStart)
                         }
                     }.onFailure { recoverySyncError ->
-                        runCatching {
+                        if (recoverySyncError is CancellationException) throw recoverySyncError
+                        logModpackRecoverySyncFailure(recoverySyncError)
+                    }
+                    runNewModpackServerImportFailureCleanup(
+                        recovery = recovery,
+                        deletePrivateWorkspace = {
                             withContext(Dispatchers.IO) {
-                                appendMcGoAppDebugLog(
-                                    filesDir = appContext.filesDir.toPath(),
-                                    message = "整合包导入失败恢复同步失败",
-                                    details = mapOf(
-                                        "serverId" to server.id,
-                                        "workspaceMode" to importedWorkspaceMode.name,
-                                        "errorType" to recoverySyncError.javaClass.simpleName,
-                                        "errorMessage" to (recoverySyncError.message ?: "未知错误").take(160),
-                                    ),
-                                )
+                                deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
                             }
-                        }
-                    }
-                    if (recovery.deletePrivateWorkspace) {
-                        deleteManagedServerWorkspaceFromPrivateDirectory(appContext.filesDir.toPath(), server.id)
-                    }
-                    if (recovery.deleteAuthorizedWorkspace) {
-                        deleteManagedServerWorkspaceFromAuthorizedDirectory(appContext, serverDirectoryUriTextAtImportStart, server.id)
-                    }
+                        },
+                        deleteAuthorizedWorkspace = {
+                            withContext(Dispatchers.IO) {
+                                deleteManagedServerWorkspaceFromAuthorizedDirectory(appContext, serverDirectoryUriTextAtImportStart, server.id)
+                            }
+                        },
+                        logCleanupFailure = { cleanupTarget, cleanupError ->
+                            logModpackFailureCleanupError(cleanupTarget, cleanupError)
+                        },
+                    )
                     snackbarHostState.showSnackbar("导入整合包失败：$errorMessage")
                 }
             } finally {

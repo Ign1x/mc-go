@@ -15,6 +15,7 @@ import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.zip.ZipInputStream
+import kotlinx.coroutines.CancellationException
 
 private const val AuthorizedServerProfilesFileName = "server_profiles.properties"
 private const val AuthorizedServersDirectoryName = "servers"
@@ -78,6 +79,36 @@ internal fun resolveNewModpackServerImportFailureRecovery(
         deletePrivateWorkspace = false,
         deleteAuthorizedWorkspace = true,
     )
+}
+
+internal suspend fun runNewModpackServerImportFailureCleanup(
+    recovery: NewModpackServerImportFailureRecovery,
+    deletePrivateWorkspace: suspend () -> Unit,
+    deleteAuthorizedWorkspace: suspend () -> Unit,
+    logCleanupFailure: suspend (cleanupTarget: String, cleanupError: Throwable) -> Unit,
+) {
+    suspend fun attemptCleanup(cleanupTarget: String, cleanup: suspend () -> Unit) {
+        try {
+            cleanup()
+        } catch (cleanupError: Throwable) {
+            cleanupError.rethrowIfCoroutineCancellation()
+            try {
+                logCleanupFailure(cleanupTarget, cleanupError)
+            } catch (logError: Throwable) {
+                logError.rethrowIfCoroutineCancellation()
+            }
+        }
+    }
+    if (recovery.deletePrivateWorkspace) {
+        attemptCleanup("privateWorkspace", deletePrivateWorkspace)
+    }
+    if (recovery.deleteAuthorizedWorkspace) {
+        attemptCleanup("authorizedWorkspace", deleteAuthorizedWorkspace)
+    }
+}
+
+private fun Throwable.rethrowIfCoroutineCancellation() {
+    if (this is CancellationException) throw this
 }
 
 internal fun shouldPersistManagedServerWorkspaceAfterLaunchAttempt(
