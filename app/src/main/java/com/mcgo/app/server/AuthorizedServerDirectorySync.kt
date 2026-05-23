@@ -910,11 +910,14 @@ private fun unzipManagedServerArchiveToDocumentTree(
     var hasReportedExtractionProgress = false
     var lastReportedBytes = 0L
     var lastReportedEntryCount = 0
+    val extractionStartedAtNanos = System.nanoTime()
+    fun elapsedExtractionMillis(): Long = ((System.nanoTime() - extractionStartedAtNanos) / 1_000_000L).coerceAtLeast(1L)
     fun currentSummary(): ManagedServerArchiveExtractionSummary = ManagedServerArchiveExtractionSummary(
         fileCount = fileCount,
         directoryCount = directoryCount,
         totalBytes = totalBytes,
         skippedReservedEntryCount = skippedReservedEntryCount,
+        elapsedMillis = elapsedExtractionMillis(),
     )
     fun reportExtractionProgress() {
         val entryCount = fileCount + directoryCount + skippedReservedEntryCount
@@ -980,6 +983,7 @@ private fun unzipManagedServerArchiveToDocumentTree(
             directoryCount = directoryCount,
             totalBytes = totalBytes,
             skippedReservedEntryCount = skippedReservedEntryCount,
+            elapsedMillis = elapsedExtractionMillis(),
         ),
     )
 }

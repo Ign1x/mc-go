@@ -354,6 +354,22 @@ class PaperServerRuntimeTest {
     }
 
     @Test
+    fun managedServerArchiveExtractionSummary_reportsUnzipRate() {
+        val message = ManagedServerArchiveExtractionSummary(
+            fileCount = 1,
+            directoryCount = 0,
+            totalBytes = 10L * 1024L * 1024L,
+            skippedReservedEntryCount = 0,
+            elapsedMillis = 2_000L,
+        ).toDiagnosticExtractionProgressMessage()
+
+        assertThat(message).contains("正在解压整合包文件")
+        assertThat(message).contains("bytes=10485760")
+        assertThat(message).contains("速率=5.0 MB/s")
+        assertThat(formatModpackExtractionRate(10L * 1024L, 2_000L)).isEqualTo("5.0 KB/s")
+    }
+
+    @Test
     fun importManagedServerModpackArchive_reportsProgressAcrossDirectExtractionForFreshTarget() {
         val zipFile = Files.createTempFile("mcgo-modpack-progress", ".zip")
         java.util.zip.ZipOutputStream(Files.newOutputStream(zipFile)).use { zip ->
@@ -388,6 +404,7 @@ class PaperServerRuntimeTest {
         assertThat(messageText).contains("目标目录为空，直接导入整合包")
         assertThat(messageText).contains("正在解压整合包到目标目录")
         assertThat(messageText).contains("正在解压整合包文件")
+        assertThat(messageText).contains("速率=")
         assertThat(messageText.indexOf("正在解压整合包文件")).isLessThan(
             messageText.indexOf("整合包导入摘要"),
         )

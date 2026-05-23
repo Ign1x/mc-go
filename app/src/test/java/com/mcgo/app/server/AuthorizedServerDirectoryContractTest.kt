@@ -107,6 +107,7 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(authorizedSyncSource).contains("正在解压整合包到授权目录")
         assertThat(authorizedSyncSource).contains("progress.toDiagnosticExtractionProgressMessage()")
         assertThat(runtimeSource).contains("正在解压整合包文件 · files=")
+        assertThat(runtimeSource).contains("速率=")
         assertThat(importSlice.indexOf("importManagedServerModpackArchiveToAuthorizedDirectory(")).isLessThan(
             importSlice.indexOf("Files.createTempFile(\"mcgo-modpack-\", \".zip\")"),
         )

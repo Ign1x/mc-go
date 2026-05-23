@@ -3,6 +3,7 @@ package com.mcgo.app.server
 import com.mcgo.app.McGoUserAgent
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
+import java.io.BufferedInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -10,7 +11,7 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.io.BufferedInputStream
+import java.util.Locale
 import java.util.zip.ZipInputStream
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
@@ -45,12 +46,23 @@ internal data class ManagedServerArchiveExtractionSummary(
     val directoryCount: Int = 0,
     val totalBytes: Long = 0L,
     val skippedReservedEntryCount: Int = 0,
+    val elapsedMillis: Long = 0L,
 ) {
     fun toDiagnosticExtractionProgressMessage(): String =
-        "正在解压整合包文件 · files=$fileCount directories=$directoryCount bytes=$totalBytes skippedReserved=$skippedReservedEntryCount"
+        "正在解压整合包文件 · files=$fileCount directories=$directoryCount bytes=$totalBytes skippedReserved=$skippedReservedEntryCount 速率=${formatModpackExtractionRate(totalBytes, elapsedMillis)}"
 
     fun toDiagnosticProgressMessage(): String =
         "整合包导入摘要 | files=$fileCount directories=$directoryCount bytes=$totalBytes skippedReserved=$skippedReservedEntryCount"
+}
+
+internal fun formatModpackExtractionRate(totalBytes: Long, elapsedMillis: Long): String {
+    if (totalBytes <= 0L || elapsedMillis <= 0L) return "计算中"
+    val bytesPerSecond = (totalBytes.toDouble() * 1_000.0) / elapsedMillis.toDouble()
+    val kibibytesPerSecond = bytesPerSecond / 1024.0
+    if (kibibytesPerSecond < 1024.0) {
+        return String.format(Locale.US, "%.1f KB/s", kibibytesPerSecond)
+    }
+    return String.format(Locale.US, "%.1f MB/s", kibibytesPerSecond / 1024.0)
 }
 
 
@@ -853,11 +865,14 @@ private fun unzipManagedServerArchive(
     var hasReportedExtractionProgress = false
     var lastReportedBytes = 0L
     var lastReportedEntryCount = 0
+    val extractionStartedAtNanos = System.nanoTime()
+    fun elapsedExtractionMillis(): Long = ((System.nanoTime() - extractionStartedAtNanos) / 1_000_000L).coerceAtLeast(1L)
     fun currentSummary(): ManagedServerArchiveExtractionSummary = ManagedServerArchiveExtractionSummary(
         fileCount = fileCount,
         directoryCount = directoryCount,
         totalBytes = totalBytes,
         skippedReservedEntryCount = skippedReservedEntryCount,
+        elapsedMillis = elapsedExtractionMillis(),
     )
     fun reportExtractionProgress() {
         val entryCount = fileCount + directoryCount + skippedReservedEntryCount
@@ -920,6 +935,7 @@ private fun unzipManagedServerArchive(
         directoryCount = directoryCount,
         totalBytes = totalBytes,
         skippedReservedEntryCount = skippedReservedEntryCount,
+        elapsedMillis = elapsedExtractionMillis(),
     )
 }
 
