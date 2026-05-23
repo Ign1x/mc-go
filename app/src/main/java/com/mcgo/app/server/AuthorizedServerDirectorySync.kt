@@ -270,15 +270,7 @@ internal fun resolveInstalledPayloadEntryName(
         .map { it.replace('\\', '/').trimStart('/') }
         .filter { entryName ->
             val name = entryName.substringAfterLast('/')
-            name !in ReservedManagedServerImportEntries && when {
-                name == "fabric-server-launch.jar" -> true
-                name == "server.jar" -> true
-                name == "quilt-server-launch.jar" -> true
-                name.endsWith("-server.jar") -> true
-                name.endsWith("-universal.jar") -> true
-                name.endsWith("-shim.jar") -> true
-                else -> false
-            }
+            name !in ReservedManagedServerImportEntries && isImportedPayloadCandidateName(name)
         }
     fun rank(path: String): Int {
         val name = path.substringAfterLast('/')
@@ -915,7 +907,8 @@ private fun unzipManagedServerArchiveToDocumentTree(
     var lastReportedEntryCount = 0
     var lastReportedArchiveBytes = 0L
     var archiveBytesRead = 0L
-    val countingInput = CountingInputStream(archiveInput)
+    val bufferedArchiveInput = BufferedInputStream(archiveInput, ManagedServerImportBufferBytes)
+    val countingInput = CountingInputStream(bufferedArchiveInput)
     val extractionStartedAtNanos = System.nanoTime()
     fun elapsedExtractionMillis(): Long = ((System.nanoTime() - extractionStartedAtNanos) / 1_000_000L).coerceAtLeast(1L)
     fun refreshArchiveBytesRead() {
@@ -936,7 +929,7 @@ private fun unzipManagedServerArchiveToDocumentTree(
         if (entryCount == 0 && totalBytes == lastReportedBytes && archiveBytesRead == lastReportedArchiveBytes) return
         val shouldReport = !hasReportedExtractionProgress ||
             (entryCount > 0 && lastReportedEntryCount == 0) ||
-            entryCount - lastReportedEntryCount >= 25 ||
+            entryCount - lastReportedEntryCount >= ManagedServerImportProgressEntryInterval ||
             totalBytes - lastReportedBytes >= ManagedServerImportCopyProgressIntervalBytes ||
             archiveBytesRead - lastReportedArchiveBytes >= ManagedServerImportCopyProgressIntervalBytes
         if (shouldReport) {
@@ -947,7 +940,8 @@ private fun unzipManagedServerArchiveToDocumentTree(
             onProgress?.invoke(currentSummary())
         }
     }
-    ZipInputStream(BufferedInputStream(countingInput, ManagedServerImportBufferBytes)).use { zip ->
+    val documentWriter = AuthorizedDocumentTreeImportWriter(targetServerDir)
+    ZipInputStream(countingInput).use { zip ->
         while (true) {
             val entry = zip.nextEntry ?: break
             try {
@@ -960,23 +954,21 @@ private fun unzipManagedServerArchiveToDocumentTree(
                 }
                 val segments = normalized.split('/').filter(String::isNotBlank)
                 if (entry.isDirectory) {
-                    resolveOrCreateDocumentDirectory(targetServerDir, segments)
+                    documentWriter.resolveOrCreateDirectory(segments)
                     directoryCount += 1
                     reportExtractionProgress()
                 } else {
-                    val parent = resolveOrCreateDocumentDirectory(targetServerDir, segments.dropLast(1))
-                    val fileName = segments.last()
-                    val targetFile = replaceOrCreateDocumentFile(parent, fileName)
                     val totalBytesBeforeEntry = totalBytes
-                    val copyResult = context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
-                        copyZipEntryToDocumentFile(zip, output) { entryByteCount ->
+                    val shouldHashEntry = shouldHashImportedPayloadCandidate(normalized)
+                    val copyResult = context.contentResolver.openOutputStream(documentWriter.replaceOrCreateFile(segments).uri, "wt")?.use { output ->
+                        copyZipEntryToDocumentFile(zip, output, shouldComputeSha256 = shouldHashEntry) { entryByteCount ->
                             totalBytes = totalBytesBeforeEntry + entryByteCount
                             reportExtractionProgress()
                         }
                     } ?: error("打开授权文件输出流失败：$normalized")
                     totalBytes = totalBytesBeforeEntry + copyResult.byteCount
                     entryNames += normalized
-                    sha256ByEntryName[normalized] = copyResult.sha256
+                    copyResult.sha256?.let { sha256ByEntryName[normalized] = it }
                     fileCount += 1
                     reportExtractionProgress()
                     if (isImportedSetupScriptName(normalized, copyResult.contentPrefix)) {
@@ -1006,7 +998,7 @@ private fun unzipManagedServerArchiveToDocumentTree(
 }
 
 private data class CopiedZipEntry(
-    val sha256: String,
+    val sha256: String?,
     val contentPrefix: String,
     val byteCount: Long,
 )
@@ -1014,16 +1006,17 @@ private data class CopiedZipEntry(
 private fun copyZipEntryToDocumentFile(
     zip: ZipInputStream,
     output: java.io.OutputStream,
+    shouldComputeSha256: Boolean = true,
     onEntryBytesCopied: ((Long) -> Unit)? = null,
 ): CopiedZipEntry {
-    val digest = MessageDigest.getInstance("SHA-256")
+    val digest = if (shouldComputeSha256) MessageDigest.getInstance("SHA-256") else null
     val prefixBytes = java.io.ByteArrayOutputStream()
     val buffer = ByteArray(ManagedServerImportBufferBytes)
     var byteCount = 0L
     while (true) {
         val read = zip.read(buffer)
         if (read < 0) break
-        digest.update(buffer, 0, read)
+        digest?.update(buffer, 0, read)
         output.write(buffer, 0, read)
         byteCount += read.toLong()
         onEntryBytesCopied?.invoke(byteCount)
@@ -1032,10 +1025,79 @@ private fun copyZipEntryToDocumentFile(
         }
     }
     return CopiedZipEntry(
-        sha256 = digest.digest().joinToString(separator = "") { byte -> "%02x".format(Locale.US, byte) },
+        sha256 = digest?.digest()?.joinToString(separator = "") { byte -> "%02x".format(Locale.US, byte) },
         contentPrefix = prefixBytes.toString(Charsets.UTF_8.name()),
         byteCount = byteCount,
     )
+}
+
+private fun shouldHashImportedPayloadCandidate(entryName: String): Boolean {
+    val name = entryName.replace('\\', '/').trimStart('/').substringAfterLast('/')
+    return isImportedPayloadCandidateName(name)
+}
+
+private fun isImportedPayloadCandidateName(name: String): Boolean =
+    name == "fabric-server-launch.jar" ||
+        name == "server.jar" ||
+        name == "quilt-server-launch.jar" ||
+        name.endsWith("-server.jar") ||
+        name.endsWith("-universal.jar") ||
+        name.endsWith("-shim.jar")
+
+private class AuthorizedDocumentTreeImportWriter(private val root: DocumentFile) {
+    private val directoriesByPath = mutableMapOf("" to root)
+    private val documentsByPath = mutableMapOf<String, DocumentFile>()
+
+    fun resolveOrCreateDirectory(segments: List<String>): DocumentFile {
+        var currentPath = ""
+        var current = root
+        segments.forEach { segment ->
+            val childPath = appendDocumentPath(currentPath, segment)
+            val cachedDirectory = directoriesByPath[childPath]
+            if (cachedDirectory != null) {
+                currentPath = childPath
+                current = cachedDirectory
+                return@forEach
+            }
+            documentsByPath.remove(childPath)?.let { existing ->
+                if (existing.isFile) check(existing.delete()) { "删除授权目录冲突文件失败：$segment" }
+            }
+            val created = current.createDirectory(segment)
+                ?: error("创建授权目录失败：$segment")
+            directoriesByPath[childPath] = created
+            currentPath = childPath
+            current = created
+        }
+        return current
+    }
+
+    fun replaceOrCreateFile(segments: List<String>): DocumentFile {
+        require(segments.isNotEmpty()) { "授权文件路径不能为空" }
+        val parentPath = segments.dropLast(1).joinToString("/")
+        val parent = resolveOrCreateDirectory(segments.dropLast(1))
+        val fileName = segments.last()
+        val filePath = appendDocumentPath(parentPath, fileName)
+        removeCachedSubtree(filePath)
+        val created = parent.createFile("application/octet-stream", fileName)
+            ?: error("创建授权文件失败：$fileName")
+        documentsByPath[filePath] = created
+        return created
+    }
+
+    private fun removeCachedSubtree(path: String) {
+        documentsByPath.remove(path)?.let { document ->
+            check(document.delete()) { "删除授权目录旧文件失败：$path" }
+        }
+        directoriesByPath.remove(path)?.let { directory ->
+            check(directory.delete()) { "删除授权目录冲突目录失败：$path" }
+        }
+        val prefix = "$path/"
+        directoriesByPath.keys.removeAll { candidate -> candidate.startsWith(prefix) }
+        documentsByPath.keys.removeAll { candidate -> candidate.startsWith(prefix) }
+    }
+
+    private fun appendDocumentPath(parentPath: String, childName: String): String =
+        if (parentPath.isBlank()) childName else "$parentPath/$childName"
 }
 
 private fun normalizeAuthorizedImportEntryName(rawName: String): String {
@@ -1200,7 +1262,7 @@ private fun copyPathToDocumentTree(
                 progressReporter.copyRegularFile(context, child, targetFile)
             } else {
                 context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
-                    Files.newInputStream(child).use { input -> input.copyTo(output) }
+                    Files.newInputStream(child).use { input -> input.copyTo(output, ManagedServerImportBufferBytes) }
                 } ?: error("打开授权文件输出流失败：${child.fileName}")
             }
         }

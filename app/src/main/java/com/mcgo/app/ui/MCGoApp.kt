@@ -722,7 +722,7 @@ private fun MCGoAppScaffold(
             var recoveredImportedServer: ServerCardState? = null
             var archiveDisplayName = "modpack.zip"
             suspend fun updateImportProgress(progress: Int, message: String) {
-                val (updatedServers, directoryUriSnapshot) = withContext(Dispatchers.Main.immediate) {
+                withContext(Dispatchers.Main.immediate) {
                     val serverSnapshot = latestServers.map { existing ->
                         if (existing.id == server.id) {
                             existing.markModpackImportInProgress(progress, message)
@@ -731,10 +731,6 @@ private fun MCGoAppScaffold(
                         }
                     }
                     onServersChange(serverSnapshot)
-                    serverSnapshot to serverDirectoryUriTextAtImportStart
-                }
-                withContext(Dispatchers.IO) {
-                    syncServerProfilesToAuthorizedDirectoryNow(updatedServers, directoryUriSnapshot)
                 }
             }
             suspend fun logModpackImportFailure(importError: Throwable, errorMessage: String) {

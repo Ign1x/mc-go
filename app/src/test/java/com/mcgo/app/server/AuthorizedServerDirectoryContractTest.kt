@@ -88,15 +88,25 @@ class AuthorizedServerDirectoryContractTest {
             .substringBefore("fun startServerNow(request: PendingStartRequest)")
         val callbackSlice = appSource.substringAfter("onCreateServerFromModpack = { server, archiveUri ->")
             .substringBefore("onImportWorldArchive = { serverId, archiveUri ->")
+        val authorizedUnzipSlice = authorizedSyncSource.substringAfter("private fun unzipManagedServerArchiveToDocumentTree(")
+            .substringBefore("private data class CopiedZipEntry")
+        val runtimeUnzipSlice = runtimeSource.substringAfter("private fun unzipManagedServerArchive(")
+            .substringBefore("internal fun resolveNeoForgeMinecraftVersions(")
 
         assertThat(authorizedSyncSource).contains("fun importManagedServerModpackArchiveToAuthorizedDirectory(")
-        assertThat(authorizedSyncSource).contains("ZipInputStream(BufferedInputStream(countingInput, ManagedServerImportBufferBytes))")
+        assertThat(authorizedUnzipSlice).contains("val bufferedArchiveInput = BufferedInputStream(archiveInput, ManagedServerImportBufferBytes)")
+        assertThat(authorizedUnzipSlice).contains("val countingInput = CountingInputStream(bufferedArchiveInput)")
+        assertThat(authorizedUnzipSlice).contains("ZipInputStream(countingInput)")
+        assertThat(authorizedUnzipSlice).doesNotContain("ZipInputStream(BufferedInputStream(countingInput")
+        assertThat(runtimeUnzipSlice).contains("val bufferedArchiveInput = BufferedInputStream(input, ManagedServerImportBufferBytes)")
+        assertThat(runtimeUnzipSlice).contains("val counting = CountingInputStream(bufferedArchiveInput)")
+        assertThat(runtimeUnzipSlice).contains("ZipInputStream(counting)")
         assertThat(authorizedSyncSource).contains("createFile(\"application/octet-stream\"")
         assertThat(authorizedSyncSource).contains("writeAuthorizedManagedServerWorkspaceReady(")
         assertThat(authorizedSyncSource).contains("deleteManagedServerWorkspaceFromAuthorizedDirectory(")
-        assertThat(authorizedSyncSource).contains("check(existing.delete()) { \"删除授权目录旧文件失败")
-        assertThat(authorizedSyncSource).contains("return parent.createFile(\"application/octet-stream\", fileName)")
-        assertThat(authorizedSyncSource).doesNotContain("return parent.findFile(fileName)")
+        assertThat(authorizedUnzipSlice).contains("AuthorizedDocumentTreeImportWriter(targetServerDir)")
+        assertThat(authorizedUnzipSlice).doesNotContain("resolveOrCreateDocumentDirectory(targetServerDir")
+        assertThat(authorizedUnzipSlice).doesNotContain("replaceOrCreateDocumentFile(parent, fileName)")
         assertThat(importSlice).contains("val serverDirectoryUriTextAtImportStart = serverDirectoryUriText")
         assertThat(importSlice).contains("resolveAuthorizedServersRootPath(appContext, serverDirectoryUriTextAtImportStart) == null")
         assertThat(importSlice).contains("appContext.contentResolver.openInputStream(archiveUri)?.use { input ->")
@@ -111,6 +121,16 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(importSlice.indexOf("importManagedServerModpackArchiveToAuthorizedDirectory(")).isLessThan(
             importSlice.indexOf("Files.createTempFile(\"mcgo-modpack-\", \".zip\")"),
         )
+    }
+
+    @Test
+    fun modpackImport_keepsProgressUpdatesInMemoryInsteadOfSyncingProfilesEveryTick() {
+        val updateProgressSlice = appSource.substringAfter("suspend fun updateImportProgress(progress: Int, message: String) {")
+            .substringBefore("suspend fun logModpackImportFailure")
+
+        assertThat(updateProgressSlice).contains("onServersChange(serverSnapshot)")
+        assertThat(updateProgressSlice).doesNotContain("syncServerProfilesToAuthorizedDirectoryNow(")
+        assertThat(updateProgressSlice).doesNotContain("withContext(Dispatchers.IO)")
     }
 
     @Test

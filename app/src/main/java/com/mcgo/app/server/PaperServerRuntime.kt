@@ -24,7 +24,8 @@ private const val NeoForgeMavenMetadataUrl = "https://maven.neoforged.net/releas
 private const val VanillaVersionManifestUrl = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 private const val DefaultProvisionablePaperVersion = "1.21.11"
 internal const val ManagedServerImportCopyProgressIntervalBytes = 16L * 1024L * 1024L
-internal const val ManagedServerImportBufferBytes = 256 * 1024
+internal const val ManagedServerImportProgressEntryInterval = 100
+internal const val ManagedServerImportBufferBytes = 1024 * 1024
 val PaperDownloadUserAgent: String = McGoUserAgent
 
 data class PreparedPaperServerFiles(
@@ -761,7 +762,7 @@ fun importManagedServerModpackArchive(
                 Files.createDirectories(target.parent)
                 Files.newInputStream(path).use { input ->
                     Files.newOutputStream(target).use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        val buffer = ByteArray(ManagedServerImportBufferBytes)
                         while (true) {
                             val read = input.read(buffer)
                             if (read < 0) break
@@ -941,7 +942,7 @@ private fun unzipManagedServerArchive(
         if (entryCount == 0 && totalBytes == lastReportedBytes && archiveBytesRead == lastReportedArchiveBytes) return
         val shouldReport = !hasReportedExtractionProgress ||
             (entryCount > 0 && lastReportedEntryCount == 0) ||
-            entryCount - lastReportedEntryCount >= 25 ||
+            entryCount - lastReportedEntryCount >= ManagedServerImportProgressEntryInterval ||
             totalBytes - lastReportedBytes >= ManagedServerImportCopyProgressIntervalBytes ||
             archiveBytesRead - lastReportedArchiveBytes >= ManagedServerImportCopyProgressIntervalBytes
         if (shouldReport) {
@@ -953,9 +954,10 @@ private fun unzipManagedServerArchive(
         }
     }
     Files.newInputStream(archiveFile).use { input ->
-        val counting = CountingInputStream(input)
+        val bufferedArchiveInput = BufferedInputStream(input, ManagedServerImportBufferBytes)
+        val counting = CountingInputStream(bufferedArchiveInput)
         countingInput = counting
-        ZipInputStream(BufferedInputStream(counting, ManagedServerImportBufferBytes)).use { zip ->
+        ZipInputStream(counting).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 try {
