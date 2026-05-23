@@ -1734,10 +1734,10 @@ private fun MCGoAppScaffold(
                                         val displayName = modUri.displayName(appContext).ifBlank { "mod.jar" }
                                         require(displayName.endsWith(".jar", ignoreCase = true)) { "请选择 .jar 模组文件" }
                                         val tempMod = Files.createTempFile("mcgo-mod-", ".jar")
-                                        appContext.contentResolver.openInputStream(modUri)?.use { input ->
-                                            Files.newOutputStream(tempMod).use { output -> input.copyTo(output) }
-                                        } ?: error("无法读取模组文件")
                                         try {
+                                            appContext.contentResolver.openInputStream(modUri)?.use { input ->
+                                                Files.newOutputStream(tempMod).use { output -> input.copyTo(output) }
+                                            } ?: error("无法读取模组文件")
                                             withPreparedManagedServerWorkspace(targetServer.id) { workDir ->
                                                 installManagedServerModFile(
                                                     sourceFile = tempMod,

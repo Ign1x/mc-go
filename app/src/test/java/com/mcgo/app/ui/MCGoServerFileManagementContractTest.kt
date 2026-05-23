@@ -11,6 +11,7 @@ class MCGoServerFileManagementContractTest {
     private val serversScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/ServersScreen.kt")))
     private val modpackSetupDialogSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/ModpackSetupApprovalDialog.kt")))
     private val appPendingActionsSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/MCGoAppPendingActions.kt")))
+    private val runtimeProgressPanelSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/ServerRuntimeProgressPanel.kt")))
     private val modelSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/model/McGoUiModels.kt")))
     private val eventSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerEvents.kt")))
     private val archiveSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedServerWorldArchive.kt")))
@@ -68,16 +69,19 @@ class MCGoServerFileManagementContractTest {
         assertThat(serverCardSource).contains("val startEnabled = canStartServerFromUi(server) && !modpackImportInProgress")
         assertThat(serverCardSource).contains("val stopEnabled = server.isRuntimeBusy() && !modpackImportInProgress")
         assertThat(serverCardSource).contains("RuntimeProgressPanel(server, modpackImportInProgress = modpackImportInProgress)")
-        assertThat(serversScreenSource).contains("private fun RuntimeProgressPanel(server: ServerCardState, modpackImportInProgress: Boolean = false)")
-        assertThat(serversScreenSource).contains("isModpackImportProgressActive(")
-        assertThat(serversScreenSource).contains("latestRuntimeLog.contains(\"导入整合包\") ||")
-        assertThat(serversScreenSource).contains("latestRuntimeLog.contains(\"整合包导入\")")
-        assertThat(serversScreenSource).contains("runtimeProgressTitle(")
-        assertThat(serversScreenSource).contains("launchStatus == ServerLaunchStatus.Stopping -> \"停止进度\"")
-        assertThat(serversScreenSource).contains("importProgressActive -> \"导入进度\"")
-        assertThat(serversScreenSource).contains("else -> \"启动进度\"")
-        assertThat(serversScreenSource).contains("val progressColor = if (importProgressActive)")
-        assertThat(serversScreenSource).contains("server.runtimeLogs.takeLast(6).forEach")
+        assertThat(serversScreenSource).doesNotContain("private fun RuntimeProgressPanel(")
+        assertThat(serversScreenSource).doesNotContain("internal fun isModpackImportProgressActive(")
+        assertThat(serversScreenSource).doesNotContain("internal fun runtimeProgressTitle(")
+        assertThat(runtimeProgressPanelSource).contains("internal fun RuntimeProgressPanel(server: ServerCardState, modpackImportInProgress: Boolean = false)")
+        assertThat(runtimeProgressPanelSource).contains("isModpackImportProgressActive(")
+        assertThat(runtimeProgressPanelSource).contains("latestRuntimeLog.contains(\"导入整合包\") ||")
+        assertThat(runtimeProgressPanelSource).contains("latestRuntimeLog.contains(\"整合包导入\")")
+        assertThat(runtimeProgressPanelSource).contains("runtimeProgressTitle(")
+        assertThat(runtimeProgressPanelSource).contains("launchStatus == ServerLaunchStatus.Stopping -> \"停止进度\"")
+        assertThat(runtimeProgressPanelSource).contains("importProgressActive -> \"导入进度\"")
+        assertThat(runtimeProgressPanelSource).contains("else -> \"启动进度\"")
+        assertThat(runtimeProgressPanelSource).contains("val progressColor = if (importProgressActive)")
+        assertThat(runtimeProgressPanelSource).contains("server.runtimeLogs.takeLast(6).forEach")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds + server.id")
         assertThat(appSource).contains("currentModpackImportServerIds = currentModpackImportServerIds - server.id")
         assertThat(appSource).contains("resolveNewModpackServerImportFailureRecovery(")
@@ -257,6 +261,19 @@ class MCGoServerFileManagementContractTest {
     }
 
     @Test
+    fun importModFileTempCopy_isCleanedWhenUriReadFails() {
+        val modImportSource = appSource
+            .substringAfter("onImportModFile = { serverId, modUri ->")
+            .substringBefore("onStartServer = { serverId, startupPort, tunnelSelections ->")
+        val tempModCopySource = modImportSource
+            .substringAfter("val tempMod = Files.createTempFile(\"mcgo-mod-\", \".jar\")")
+            .substringBefore("}.onSuccess {")
+
+        assertThat(tempModCopySource.indexOf("try {")).isLessThan(tempModCopySource.indexOf("openInputStream(modUri)"))
+        assertThat(tempModCopySource).contains("Files.deleteIfExists(tempMod)")
+    }
+
+    @Test
     fun startServerNow_movesWorkspacePreparationOffMainThread() {
         val startServerSource = appSource
             .substringAfter("fun startServerNow(request: PendingStartRequest) {")
@@ -403,13 +420,11 @@ class MCGoServerFileManagementContractTest {
         assertThat(serverConsoleDialogSource).contains("ClipData.newPlainText(\"${'$'}{server.name} logs\", consoleText)")
         assertThat(serverConsoleDialogSource).doesNotContain("?.let { java.io.File(it) }")
         assertThat(serverConsoleDialogSource).doesNotContain("?.readText()")
-        val runtimeProgressPanelSource = serversScreenSource
-            .substringAfter("private fun RuntimeProgressPanel(server: ServerCardState) {")
-            .substringBefore("@Composable\nprivate fun DeleteServerDialog(")
-        assertThat(runtimeProgressPanelSource).contains("resolveServerConsoleText(server)")
-        assertThat(runtimeProgressPanelSource).contains("ClipData.newPlainText(\"${'$'}{server.name} MC-GO logs\", consoleText)")
-        assertThat(runtimeProgressPanelSource).doesNotContain("?.let(::File)")
-        assertThat(runtimeProgressPanelSource).doesNotContain("?.readText()")
+        val progressPanelSource = runtimeProgressPanelSource
+        assertThat(progressPanelSource).contains("resolveServerConsoleText(server)")
+        assertThat(progressPanelSource).contains("ClipData.newPlainText(\"${'$'}{server.name} MC-GO logs\", consoleText)")
+        assertThat(progressPanelSource).doesNotContain("?.let(::File)")
+        assertThat(progressPanelSource).doesNotContain("?.readText()")
     }
 
     @Test
