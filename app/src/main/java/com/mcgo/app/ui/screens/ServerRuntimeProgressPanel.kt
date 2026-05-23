@@ -81,7 +81,7 @@ internal fun RuntimeProgressPanel(server: ServerCardState, modpackImportInProgre
             modifier = Modifier.fillMaxWidth(),
             color = progressColor,
         )
-        server.runtimeLogs.takeLast(6).forEach { log ->
+        visibleRuntimeProgressLogs(server.runtimeLogs).forEach { log ->
             Text(
                 text = "• $log",
                 style = MaterialTheme.typography.bodySmall,
@@ -98,6 +98,9 @@ internal fun isModpackImportProgressActive(
     latestRuntimeLog.contains("导入整合包") ||
     latestRuntimeLog.contains("解压整合包") ||
     latestRuntimeLog.contains("整合包导入")
+
+internal fun visibleRuntimeProgressLogs(runtimeLogs: List<String>): List<String> =
+    runtimeLogs.takeLast(1)
 
 internal fun runtimeProgressTitle(
     launchStatus: ServerLaunchStatus,

@@ -20,6 +20,14 @@ class ServerRuntimeProgressPanelTest {
     }
 
     @Test
+    fun visibleRuntimeProgressLogs_keepsOnlyLatestLineToAvoidTallCards() {
+        assertThat(visibleRuntimeProgressLogs(emptyList())).isEmpty()
+        assertThat(visibleRuntimeProgressLogs(listOf("启动中"))).containsExactly("启动中")
+        assertThat(visibleRuntimeProgressLogs(listOf("准备目录", "下载中", "启动完成")))
+            .containsExactly("启动完成")
+    }
+
+    @Test
     fun runtimeProgressTitle_prefersStoppingThenImportThenLaunch() {
         assertThat(runtimeProgressTitle(ServerLaunchStatus.Stopping, importProgressActive = true))
             .isEqualTo("停止进度")
