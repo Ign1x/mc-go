@@ -354,19 +354,44 @@ class PaperServerRuntimeTest {
     }
 
     @Test
-    fun managedServerArchiveExtractionSummary_reportsUnzipRate() {
+    fun countingInputStream_countsSingleAndBulkReads() {
+        val input = CountingInputStream("abcdef".byteInputStream())
+        val buffer = ByteArray(3)
+
+        assertThat(input.read()).isEqualTo('a'.code)
+        assertThat(input.bytesRead).isEqualTo(1L)
+        assertThat(input.read(buffer, 0, buffer.size)).isEqualTo(3)
+        assertThat(String(buffer)).isEqualTo("bcd")
+        assertThat(input.bytesRead).isEqualTo(4L)
+        assertThat(input.read(ByteArray(8), 0, 8)).isEqualTo(2)
+        assertThat(input.bytesRead).isEqualTo(6L)
+        assertThat(input.read()).isEqualTo(-1)
+        assertThat(input.bytesRead).isEqualTo(6L)
+    }
+
+    @Test
+    fun managedServerArchiveExtractionSummary_reportsArchiveReadProgressAndRate() {
         val message = ManagedServerArchiveExtractionSummary(
             fileCount = 1,
             directoryCount = 0,
-            totalBytes = 10L * 1024L * 1024L,
+            totalBytes = 5L * 1024L * 1024L,
             skippedReservedEntryCount = 0,
             elapsedMillis = 2_000L,
+            archiveBytesRead = 512L * 1024L * 1024L,
+            archiveTotalBytes = 1L * 1024L * 1024L * 1024L,
         ).toDiagnosticExtractionProgressMessage()
 
         assertThat(message).contains("正在解压整合包文件")
-        assertThat(message).contains("bytes=10485760")
-        assertThat(message).contains("速率=5.0 MB/s")
+        assertThat(message).contains("读取=512.0 MB/1.0 GB (50%)")
+        assertThat(message).contains("解压=5.0 MB")
+        assertThat(message).contains("速率=256.0 MB/s")
         assertThat(formatModpackExtractionRate(10L * 1024L, 2_000L)).isEqualTo("5.0 KB/s")
+        assertThat(
+            ManagedServerArchiveExtractionSummary(
+                archiveBytesRead = 512L * 1024L * 1024L,
+                archiveTotalBytes = 1L * 1024L * 1024L * 1024L,
+            ).toImportProgress(start = 6, end = 70),
+        ).isEqualTo(38)
     }
 
     @Test

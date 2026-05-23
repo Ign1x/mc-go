@@ -270,6 +270,16 @@ internal fun Uri.displayName(context: Context): String {
     return lastPathSegment.orEmpty()
 }
 
+internal fun Uri.openableSizeBytes(context: Context): Long? {
+    context.contentResolver.query(this, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+        val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+        if (sizeIndex >= 0 && cursor.moveToFirst() && !cursor.isNull(sizeIndex)) {
+            return cursor.getLong(sizeIndex).takeIf { it > 0L }
+        }
+    }
+    return null
+}
+
 internal fun Throwable.userFacingInstallMessage(majorVersion: Int): String {
     val baseMessage = message ?: "安装失败"
     return if (this is JavaRuntimeInstallException) {

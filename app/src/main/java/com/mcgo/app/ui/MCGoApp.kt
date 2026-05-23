@@ -809,6 +809,7 @@ private fun MCGoAppScaffold(
                         val filesDir = appContext.filesDir.toPath()
                         updateImportProgress(8, "正在读取整合包文件")
                         archiveDisplayName = archiveUri.displayName(appContext).ifBlank { "modpack.zip" }
+                        val archiveTotalBytes = archiveUri.openableSizeBytes(appContext)
                         appendMcGoAppDebugLog(
                             filesDir = filesDir,
                             message = "开始导入整合包",
@@ -816,6 +817,7 @@ private fun MCGoAppScaffold(
                                 "serverId" to server.id,
                                 "serverName" to server.name,
                                 "archiveDisplayName" to archiveDisplayName,
+                                "archiveBytes" to (archiveTotalBytes ?: -1L),
                                 "hasServerDirectoryUri" to (serverDirectoryUriTextAtImportStart != null),
                             ),
                         )
@@ -836,6 +838,7 @@ private fun MCGoAppScaffold(
                                     authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
                                     serverId = server.id,
                                     archiveInput = input,
+                                    archiveTotalBytes = archiveTotalBytes,
                                     onProgress = { progress, message ->
                                         val mapped = 16 + ((progress.coerceIn(0, 100) * 66) / 100)
                                         runBlocking { updateImportProgress(mapped, message) }

@@ -24,6 +24,7 @@ private const val NeoForgeMavenMetadataUrl = "https://maven.neoforged.net/releas
 private const val VanillaVersionManifestUrl = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
 private const val DefaultProvisionablePaperVersion = "1.21.11"
 internal const val ManagedServerImportCopyProgressIntervalBytes = 16L * 1024L * 1024L
+internal const val ManagedServerImportBufferBytes = 256 * 1024
 val PaperDownloadUserAgent: String = McGoUserAgent
 
 data class PreparedPaperServerFiles(
@@ -47,22 +48,73 @@ internal data class ManagedServerArchiveExtractionSummary(
     val totalBytes: Long = 0L,
     val skippedReservedEntryCount: Int = 0,
     val elapsedMillis: Long = 0L,
+    val archiveBytesRead: Long = 0L,
+    val archiveTotalBytes: Long? = null,
 ) {
     fun toDiagnosticExtractionProgressMessage(): String =
-        "正在解压整合包文件 · files=$fileCount directories=$directoryCount bytes=$totalBytes skippedReserved=$skippedReservedEntryCount 速率=${formatModpackExtractionRate(totalBytes, elapsedMillis)}"
+        "正在解压整合包文件 · 读取=${formatModpackImportBytes(archiveBytesRead)}${formatArchiveTotalProgress()} · 解压=${formatModpackImportBytes(totalBytes)} · files=$fileCount directories=$directoryCount skippedReserved=$skippedReservedEntryCount · 速率=${formatModpackExtractionRate(archiveBytesRead, elapsedMillis)}"
 
     fun toDiagnosticProgressMessage(): String =
         "整合包导入摘要 | files=$fileCount directories=$directoryCount bytes=$totalBytes skippedReserved=$skippedReservedEntryCount"
+
+    fun toImportProgress(start: Int, end: Int): Int {
+        val safeStart = start.coerceIn(1, 100)
+        val safeEnd = end.coerceIn(safeStart, 100)
+        val total = archiveTotalBytes?.takeIf { it > 0L } ?: return safeStart
+        val normalizedBytes = archiveBytesRead.coerceIn(0L, total)
+        return (safeStart + (((safeEnd - safeStart).toLong() * normalizedBytes) / total).toInt()).coerceIn(safeStart, safeEnd)
+    }
+
+    private fun formatArchiveTotalProgress(): String {
+        val total = archiveTotalBytes?.takeIf { it > 0L } ?: return ""
+        val normalizedBytes = archiveBytesRead.coerceIn(0L, total)
+        val percent = ((normalizedBytes * 100L) / total).coerceIn(0L, 100L)
+        return "/${formatModpackImportBytes(total)} ($percent%)"
+    }
 }
 
-internal fun formatModpackExtractionRate(totalBytes: Long, elapsedMillis: Long): String {
-    if (totalBytes <= 0L || elapsedMillis <= 0L) return "计算中"
-    val bytesPerSecond = (totalBytes.toDouble() * 1_000.0) / elapsedMillis.toDouble()
+internal fun formatModpackImportBytes(bytes: Long): String {
+    val safeBytes = bytes.coerceAtLeast(0L).toDouble()
+    val kib = safeBytes / 1024.0
+    val mib = kib / 1024.0
+    val gib = mib / 1024.0
+    return when {
+        gib >= 1.0 -> String.format(Locale.US, "%.1f GB", gib)
+        mib >= 1.0 -> String.format(Locale.US, "%.1f MB", mib)
+        kib >= 1.0 -> String.format(Locale.US, "%.1f KB", kib)
+        else -> "${bytes.coerceAtLeast(0L)} B"
+    }
+}
+
+internal fun formatModpackExtractionRate(bytesRead: Long, elapsedMillis: Long): String {
+    if (bytesRead <= 0L || elapsedMillis <= 0L) return "计算中"
+    val bytesPerSecond = (bytesRead.toDouble() * 1_000.0) / elapsedMillis.toDouble()
     val kibibytesPerSecond = bytesPerSecond / 1024.0
     if (kibibytesPerSecond < 1024.0) {
         return String.format(Locale.US, "%.1f KB/s", kibibytesPerSecond)
     }
     return String.format(Locale.US, "%.1f MB/s", kibibytesPerSecond / 1024.0)
+}
+
+internal class CountingInputStream(private val delegate: InputStream) : InputStream() {
+    var bytesRead: Long = 0L
+        private set
+
+    override fun read(): Int {
+        val value = delegate.read()
+        if (value >= 0) bytesRead += 1L
+        return value
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        val read = delegate.read(buffer, offset, length)
+        if (read > 0) bytesRead += read.toLong()
+        return read
+    }
+
+    override fun close() {
+        delegate.close()
+    }
 }
 
 
@@ -657,7 +709,7 @@ fun importManagedServerModpackArchive(
             reportProgress(4, "目标目录为空，直接导入整合包")
             reportProgress(5, "正在解压整合包到目标目录")
             val summary = unzipManagedServerArchive(archiveFile, serverWorkDir) { progress ->
-                reportProgress(6, progress.toDiagnosticExtractionProgressMessage())
+                reportProgress(progress.toImportProgress(start = 6, end = 90), progress.toDiagnosticExtractionProgressMessage())
             }
             writeManagedServerPayloadSha(serverWorkDir, targetJar)
             reportProgress(98, summary.toDiagnosticProgressMessage())
@@ -675,7 +727,7 @@ fun importManagedServerModpackArchive(
     try {
         reportProgress(5, "正在解压整合包")
         val summary = unzipManagedServerArchive(archiveFile, stagingDir) { progress ->
-            reportProgress(6, progress.toDiagnosticExtractionProgressMessage())
+            reportProgress(progress.toImportProgress(start = 6, end = 34), progress.toDiagnosticExtractionProgressMessage())
         }
         reportProgress(34, summary.toDiagnosticProgressMessage())
         reportProgress(35, "整合包解压完成，正在准备目标目录")
@@ -755,7 +807,7 @@ internal fun copyManagedServerImportStreamToTempFile(
         }
     }
     Files.newOutputStream(targetFile).use { output ->
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val buffer = ByteArray(ManagedServerImportBufferBytes)
         var copiedBytes = 0L
         var lastProgressBytes = 0L
         reportProgress(1, copiedBytes)
@@ -865,31 +917,45 @@ private fun unzipManagedServerArchive(
     var hasReportedExtractionProgress = false
     var lastReportedBytes = 0L
     var lastReportedEntryCount = 0
+    var lastReportedArchiveBytes = 0L
+    var archiveBytesRead = 0L
+    var countingInput: CountingInputStream? = null
+    val archiveTotalBytes = Files.size(archiveFile).takeIf { it > 0L }
     val extractionStartedAtNanos = System.nanoTime()
     fun elapsedExtractionMillis(): Long = ((System.nanoTime() - extractionStartedAtNanos) / 1_000_000L).coerceAtLeast(1L)
+    fun refreshArchiveBytesRead() {
+        countingInput?.bytesRead?.let { archiveBytesRead = maxOf(archiveBytesRead, it) }
+    }
     fun currentSummary(): ManagedServerArchiveExtractionSummary = ManagedServerArchiveExtractionSummary(
         fileCount = fileCount,
         directoryCount = directoryCount,
         totalBytes = totalBytes,
         skippedReservedEntryCount = skippedReservedEntryCount,
         elapsedMillis = elapsedExtractionMillis(),
+        archiveBytesRead = archiveBytesRead,
+        archiveTotalBytes = archiveTotalBytes,
     )
     fun reportExtractionProgress() {
+        refreshArchiveBytesRead()
         val entryCount = fileCount + directoryCount + skippedReservedEntryCount
-        if (entryCount == 0 && totalBytes == lastReportedBytes) return
+        if (entryCount == 0 && totalBytes == lastReportedBytes && archiveBytesRead == lastReportedArchiveBytes) return
         val shouldReport = !hasReportedExtractionProgress ||
             (entryCount > 0 && lastReportedEntryCount == 0) ||
             entryCount - lastReportedEntryCount >= 25 ||
-            totalBytes - lastReportedBytes >= ManagedServerImportCopyProgressIntervalBytes
+            totalBytes - lastReportedBytes >= ManagedServerImportCopyProgressIntervalBytes ||
+            archiveBytesRead - lastReportedArchiveBytes >= ManagedServerImportCopyProgressIntervalBytes
         if (shouldReport) {
             hasReportedExtractionProgress = true
             lastReportedEntryCount = entryCount
             lastReportedBytes = totalBytes
+            lastReportedArchiveBytes = archiveBytesRead
             onProgress?.invoke(currentSummary())
         }
     }
     Files.newInputStream(archiveFile).use { input ->
-        ZipInputStream(BufferedInputStream(input)).use { zip ->
+        val counting = CountingInputStream(input)
+        countingInput = counting
+        ZipInputStream(BufferedInputStream(counting, ManagedServerImportBufferBytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 try {
@@ -909,7 +975,7 @@ private fun unzipManagedServerArchive(
                     } else {
                         Files.createDirectories(target.parent)
                         Files.newOutputStream(target).use { output ->
-                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            val buffer = ByteArray(ManagedServerImportBufferBytes)
                             while (true) {
                                 val read = zip.read(buffer)
                                 if (read < 0) break
@@ -930,12 +996,15 @@ private fun unzipManagedServerArchive(
             }
         }
     }
+    refreshArchiveBytesRead()
     return ManagedServerArchiveExtractionSummary(
         fileCount = fileCount,
         directoryCount = directoryCount,
         totalBytes = totalBytes,
         skippedReservedEntryCount = skippedReservedEntryCount,
         elapsedMillis = elapsedExtractionMillis(),
+        archiveBytesRead = archiveBytesRead,
+        archiveTotalBytes = archiveTotalBytes,
     )
 }
 
