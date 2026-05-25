@@ -12,7 +12,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.Locale
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 
 private const val PaperApiBase = "https://api.papermc.io/v2/projects/paper"
 private const val PaperDownloadsPageUrl = "https://papermc.io/downloads/paper"
@@ -911,103 +911,146 @@ private fun unzipManagedServerArchive(
     onProgress: ((ManagedServerArchiveExtractionSummary) -> Unit)? = null,
 ): ManagedServerArchiveExtractionSummary {
     Files.createDirectories(targetDir)
+    val archiveTotalBytes = Files.size(archiveFile).takeIf { it > 0L }
+    val extractionStartedAtNanos = System.nanoTime()
+    var lastReportedBytes = 0L
+    var lastReportedEntryCount = 0
+    var lastReportedArchiveBytes = 0L
+    var hasReportedExtractionProgress = false
+    fun elapsedExtractionMillis(): Long = ((System.nanoTime() - extractionStartedAtNanos) / 1_000_000L).coerceAtLeast(1L)
+    fun shouldReport(summary: ManagedServerArchiveExtractionSummary): Boolean {
+        val entryCount = summary.fileCount + summary.directoryCount + summary.skippedReservedEntryCount
+        if (entryCount == 0 && summary.totalBytes == lastReportedBytes && summary.archiveBytesRead == lastReportedArchiveBytes) return false
+        return !hasReportedExtractionProgress ||
+            (entryCount > 0 && lastReportedEntryCount == 0) ||
+            entryCount - lastReportedEntryCount >= ManagedServerImportProgressEntryInterval ||
+            summary.totalBytes - lastReportedBytes >= ManagedServerImportCopyProgressIntervalBytes ||
+            summary.archiveBytesRead - lastReportedArchiveBytes >= ManagedServerImportCopyProgressIntervalBytes
+    }
+    fun reportExtractionProgress(summary: ManagedServerArchiveExtractionSummary) {
+        if (!shouldReport(summary)) return
+        val entryCount = summary.fileCount + summary.directoryCount + summary.skippedReservedEntryCount
+        hasReportedExtractionProgress = true
+        lastReportedEntryCount = entryCount
+        lastReportedBytes = summary.totalBytes
+        lastReportedArchiveBytes = summary.archiveBytesRead
+        onProgress?.invoke(summary)
+    }
+    return ZipFile(archiveFile.toFile()).use { zipFile ->
+        extractManagedServerZipFileEntries(
+            zipFile = zipFile,
+            targetDir = targetDir,
+            archiveTotalBytes = archiveTotalBytes,
+            elapsedMillis = ::elapsedExtractionMillis,
+            onProgress = ::reportExtractionProgress,
+        )
+    }
+}
+
+private fun extractManagedServerZipFileEntries(
+    zipFile: ZipFile,
+    targetDir: Path,
+    archiveTotalBytes: Long?,
+    elapsedMillis: () -> Long,
+    onProgress: (ManagedServerArchiveExtractionSummary) -> Unit,
+): ManagedServerArchiveExtractionSummary {
     var fileCount = 0
     var directoryCount = 0
     var totalBytes = 0L
     var skippedReservedEntryCount = 0
-    var hasReportedExtractionProgress = false
-    var lastReportedBytes = 0L
-    var lastReportedEntryCount = 0
-    var lastReportedArchiveBytes = 0L
+    var completedArchiveBytes = 0L
     var archiveBytesRead = 0L
-    var countingInput: CountingInputStream? = null
-    val archiveTotalBytes = Files.size(archiveFile).takeIf { it > 0L }
-    val extractionStartedAtNanos = System.nanoTime()
-    fun elapsedExtractionMillis(): Long = ((System.nanoTime() - extractionStartedAtNanos) / 1_000_000L).coerceAtLeast(1L)
-    fun refreshArchiveBytesRead() {
-        countingInput?.bytesRead?.let { archiveBytesRead = maxOf(archiveBytesRead, it) }
-    }
     fun currentSummary(): ManagedServerArchiveExtractionSummary = ManagedServerArchiveExtractionSummary(
         fileCount = fileCount,
         directoryCount = directoryCount,
         totalBytes = totalBytes,
         skippedReservedEntryCount = skippedReservedEntryCount,
-        elapsedMillis = elapsedExtractionMillis(),
+        elapsedMillis = elapsedMillis(),
         archiveBytesRead = archiveBytesRead,
         archiveTotalBytes = archiveTotalBytes,
     )
-    fun reportExtractionProgress() {
-        refreshArchiveBytesRead()
-        val entryCount = fileCount + directoryCount + skippedReservedEntryCount
-        if (entryCount == 0 && totalBytes == lastReportedBytes && archiveBytesRead == lastReportedArchiveBytes) return
-        val shouldReport = !hasReportedExtractionProgress ||
-            (entryCount > 0 && lastReportedEntryCount == 0) ||
-            entryCount - lastReportedEntryCount >= ManagedServerImportProgressEntryInterval ||
-            totalBytes - lastReportedBytes >= ManagedServerImportCopyProgressIntervalBytes ||
-            archiveBytesRead - lastReportedArchiveBytes >= ManagedServerImportCopyProgressIntervalBytes
-        if (shouldReport) {
-            hasReportedExtractionProgress = true
-            lastReportedEntryCount = entryCount
-            lastReportedBytes = totalBytes
-            lastReportedArchiveBytes = archiveBytesRead
-            onProgress?.invoke(currentSummary())
-        }
+    fun entryCompressedBytes(entryCompressedSize: Long): Long =
+        entryCompressedSize.takeIf { it > 0L } ?: 0L
+    fun completeArchiveEntry(entryCompressedSize: Long) {
+        completedArchiveBytes += entryCompressedBytes(entryCompressedSize)
+        archiveBytesRead = maxOf(archiveBytesRead, completedArchiveBytes)
+        archiveBytesRead = archiveBytesRead.coerceAtMost(archiveTotalBytes ?: Long.MAX_VALUE)
     }
-    Files.newInputStream(archiveFile).use { input ->
-        val bufferedArchiveInput = BufferedInputStream(input, ManagedServerImportBufferBytes)
-        val counting = CountingInputStream(bufferedArchiveInput)
-        countingInput = counting
-        ZipInputStream(counting).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                try {
-                    val normalized = entry.name.replace('\\', '/').trimStart('/')
-                    if (normalized.isBlank()) continue
-                    val target = targetDir.resolve(normalized).normalize()
-                    require(target.startsWith(targetDir)) { "整合包包含越界路径：${entry.name}" }
-                    if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) {
-                        skippedReservedEntryCount += 1
-                        reportExtractionProgress()
-                        continue
+    fun updateArchiveEntryProgress(entryCompressedSize: Long, entryUncompressedSize: Long, entryUncompressedBytesCopied: Long) {
+        archiveBytesRead = estimateZipFileEntryArchiveBytesRead(
+            completedArchiveBytes = completedArchiveBytes,
+            entryCompressedSize = entryCompressedSize,
+            entryUncompressedSize = entryUncompressedSize,
+            entryUncompressedBytesCopied = entryUncompressedBytesCopied,
+            archiveTotalBytes = archiveTotalBytes,
+        )
+    }
+    val targetRoot = targetDir.toAbsolutePath().normalize()
+    val entries = zipFile.entries().asSequence().toList()
+    entries.forEach { entry ->
+        val normalized = entry.name.replace('\\', '/').trimStart('/')
+        if (normalized.isBlank()) return@forEach
+        val target = targetRoot.resolve(normalized).normalize()
+        require(target.startsWith(targetRoot)) { "整合包包含越界路径：${entry.name}" }
+        val compressedSize = entry.compressedSize
+        if (normalized.substringAfterLast('/') in ReservedManagedServerImportEntries) {
+            skippedReservedEntryCount += 1
+            completeArchiveEntry(compressedSize)
+            onProgress(currentSummary())
+            return@forEach
+        }
+        if (entry.isDirectory) {
+            Files.createDirectories(target)
+            directoryCount += 1
+            completeArchiveEntry(compressedSize)
+            onProgress(currentSummary())
+            return@forEach
+        }
+        Files.createDirectories(target.parent)
+        var entryBytesCopied = 0L
+        zipFile.getInputStream(entry).use { input ->
+            BufferedInputStream(input, ManagedServerImportBufferBytes).use { bufferedInput ->
+                Files.newOutputStream(target).use { output ->
+                    val buffer = ByteArray(ManagedServerImportBufferBytes)
+                    while (true) {
+                        val read = bufferedInput.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        entryBytesCopied += read.toLong()
+                        totalBytes += read.toLong()
+                        updateArchiveEntryProgress(compressedSize, entry.size, entryBytesCopied)
+                        onProgress(currentSummary())
                     }
-                    if (entry.isDirectory) {
-                        Files.createDirectories(target)
-                        directoryCount += 1
-                        reportExtractionProgress()
-                    } else {
-                        Files.createDirectories(target.parent)
-                        Files.newOutputStream(target).use { output ->
-                            val buffer = ByteArray(ManagedServerImportBufferBytes)
-                            while (true) {
-                                val read = zip.read(buffer)
-                                if (read < 0) break
-                                output.write(buffer, 0, read)
-                                totalBytes += read.toLong()
-                                reportExtractionProgress()
-                            }
-                        }
-                        if (normalized.endsWith(".sh", ignoreCase = true)) {
-                            target.toFile().setExecutable(true, false)
-                        }
-                        fileCount += 1
-                        reportExtractionProgress()
-                    }
-                } finally {
-                    zip.closeEntry()
                 }
             }
         }
+        completeArchiveEntry(compressedSize)
+        if (normalized.endsWith(".sh", ignoreCase = true)) {
+            target.toFile().setExecutable(true, false)
+        }
+        fileCount += 1
+        onProgress(currentSummary())
     }
-    refreshArchiveBytesRead()
-    return ManagedServerArchiveExtractionSummary(
-        fileCount = fileCount,
-        directoryCount = directoryCount,
-        totalBytes = totalBytes,
-        skippedReservedEntryCount = skippedReservedEntryCount,
-        elapsedMillis = elapsedExtractionMillis(),
-        archiveBytesRead = archiveBytesRead,
-        archiveTotalBytes = archiveTotalBytes,
-    )
+    archiveBytesRead = archiveTotalBytes ?: archiveBytesRead
+    return currentSummary()
+}
+
+internal fun estimateZipFileEntryArchiveBytesRead(
+    completedArchiveBytes: Long,
+    entryCompressedSize: Long,
+    entryUncompressedSize: Long,
+    entryUncompressedBytesCopied: Long,
+    archiveTotalBytes: Long?,
+): Long {
+    val safeCompleted = completedArchiveBytes.coerceAtLeast(0L)
+    val safeCopied = entryUncompressedBytesCopied.coerceAtLeast(0L)
+    val estimatedEntryBytes = if (entryCompressedSize > 0L && entryUncompressedSize > 0L) {
+        ((entryCompressedSize.toDouble() * safeCopied.toDouble()) / entryUncompressedSize.toDouble()).toLong()
+            .coerceIn(0L, entryCompressedSize)
+    } else {
+        safeCopied
+    }
+    return (safeCompleted + estimatedEntryBytes).coerceAtMost(archiveTotalBytes ?: Long.MAX_VALUE)
 }
 
 internal fun resolveNeoForgeMinecraftVersions(

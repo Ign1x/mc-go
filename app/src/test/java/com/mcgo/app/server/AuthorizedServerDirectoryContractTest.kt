@@ -83,7 +83,7 @@ class AuthorizedServerDirectoryContractTest {
     }
 
     @Test
-    fun modpackImport_usesSafDirectExtractionForAuthorizedDocumentTreeInsteadOfPrivateMirrorCopy() {
+    fun modpackImport_usesCachedFastLocalExtractionInsteadOfSlowSafStreamImport() {
         val importSlice = appSource.substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
             .substringBefore("fun startServerNow(request: PendingStartRequest)")
         val callbackSlice = appSource.substringAfter("onCreateServerFromModpack = { server, archiveUri ->")
@@ -98,9 +98,9 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(authorizedUnzipSlice).contains("val countingInput = CountingInputStream(bufferedArchiveInput)")
         assertThat(authorizedUnzipSlice).contains("ZipInputStream(countingInput)")
         assertThat(authorizedUnzipSlice).doesNotContain("ZipInputStream(BufferedInputStream(countingInput")
-        assertThat(runtimeUnzipSlice).contains("val bufferedArchiveInput = BufferedInputStream(input, ManagedServerImportBufferBytes)")
-        assertThat(runtimeUnzipSlice).contains("val counting = CountingInputStream(bufferedArchiveInput)")
-        assertThat(runtimeUnzipSlice).contains("ZipInputStream(counting)")
+        assertThat(runtimeUnzipSlice).contains("ZipFile(archiveFile.toFile()).use")
+        assertThat(runtimeUnzipSlice).contains("extractManagedServerZipFileEntries(")
+        assertThat(runtimeUnzipSlice).doesNotContain("ZipInputStream(counting)")
         assertThat(authorizedSyncSource).contains("createFile(\"application/octet-stream\"")
         assertThat(authorizedSyncSource).contains("writeAuthorizedManagedServerWorkspaceReady(")
         assertThat(authorizedSyncSource).contains("deleteManagedServerWorkspaceFromAuthorizedDirectory(")
@@ -108,18 +108,23 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(authorizedUnzipSlice).doesNotContain("resolveOrCreateDocumentDirectory(targetServerDir")
         assertThat(authorizedUnzipSlice).doesNotContain("replaceOrCreateDocumentFile(parent, fileName)")
         assertThat(importSlice).contains("val serverDirectoryUriTextAtImportStart = serverDirectoryUriText")
-        assertThat(importSlice).contains("resolveAuthorizedServersRootPath(appContext, serverDirectoryUriTextAtImportStart) == null")
-        assertThat(importSlice).contains("appContext.contentResolver.openInputStream(archiveUri)?.use { input ->")
-        assertThat(importSlice).contains("importManagedServerModpackArchiveToAuthorizedDirectory(")
-        assertThat(importSlice).contains("importedWorkspaceMode = ManagedServerWorkspaceMode.DirectExternal")
-        assertThat(importSlice).doesNotContain("importedWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror\n                                            val directImport")
+        assertThat(importSlice).contains("val tempPack = Files.createTempFile(\"mcgo-modpack-\", \".zip\")")
+        assertThat(importSlice).contains("copyManagedServerImportStreamToTempFile(")
+        assertThat(importSlice).contains("prepareManagedServerWorkspaceAccess(")
+        assertThat(importSlice).contains("importManagedServerModpackArchive(")
+        assertThat(importSlice).contains("if (workspaceAccess.mode.shouldSyncBack) {")
+        assertThat(importSlice).doesNotContain("importManagedServerModpackArchiveToAuthorizedDirectory(")
+        assertThat(importSlice).doesNotContain("importedWorkspaceMode = ManagedServerWorkspaceMode.DirectExternal\n                            appendMcGoAppDebugLog")
         assertThat(callbackSlice).contains("createServerFromModpackNow(server, archiveUri)")
         assertThat(authorizedSyncSource).contains("正在解压整合包到授权目录")
         assertThat(authorizedSyncSource).contains("progress.toDiagnosticExtractionProgressMessage()")
         assertThat(runtimeSource).contains("正在解压整合包文件 · 读取=")
         assertThat(runtimeSource).contains("速率=")
-        assertThat(importSlice.indexOf("importManagedServerModpackArchiveToAuthorizedDirectory(")).isLessThan(
-            importSlice.indexOf("Files.createTempFile(\"mcgo-modpack-\", \".zip\")"),
+        assertThat(importSlice.indexOf("copyManagedServerImportStreamToTempFile(")).isLessThan(
+            importSlice.indexOf("prepareManagedServerWorkspaceAccess("),
+        )
+        assertThat(importSlice.indexOf("prepareManagedServerWorkspaceAccess(")).isLessThan(
+            importSlice.indexOf("importManagedServerModpackArchive("),
         )
     }
 

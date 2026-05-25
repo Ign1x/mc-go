@@ -15,6 +15,7 @@ import com.mcgo.app.ui.model.createVanillaServer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
@@ -387,11 +388,32 @@ class PaperServerRuntimeTest {
         assertThat(message).contains("速率=256.0 MB/s")
         assertThat(formatModpackExtractionRate(10L * 1024L, 2_000L)).isEqualTo("5.0 KB/s")
         assertThat(
+            estimateZipFileEntryArchiveBytesRead(
+                completedArchiveBytes = 128L,
+                entryCompressedSize = 1024L,
+                entryUncompressedSize = 1024L * 1024L,
+                entryUncompressedBytesCopied = 1024L,
+                archiveTotalBytes = 4096L,
+            ),
+        ).isEqualTo(129L)
+        assertThat(
             ManagedServerArchiveExtractionSummary(
                 archiveBytesRead = 512L * 1024L * 1024L,
                 archiveTotalBytes = 1L * 1024L * 1024L * 1024L,
             ).toImportProgress(start = 6, end = 70),
         ).isEqualTo(38)
+    }
+
+    @Test
+    fun importManagedServerModpackArchive_usesZipFileRandomAccessForCachedArchive() {
+        val runtimeSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
+        val unzipSlice = runtimeSource.substringAfter("private fun unzipManagedServerArchive(")
+            .substringBefore("internal fun resolveNeoForgeMinecraftVersions(")
+
+        assertThat(unzipSlice).contains("ZipFile(archiveFile.toFile()).use")
+        assertThat(unzipSlice).contains("zipFile.getInputStream(entry)")
+        assertThat(unzipSlice).contains("BufferedInputStream(input, ManagedServerImportBufferBytes)")
+        assertThat(unzipSlice).doesNotContain("ZipInputStream(counting)")
     }
 
     @Test

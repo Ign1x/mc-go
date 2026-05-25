@@ -111,7 +111,7 @@ class MCGoServerFileManagementContractTest {
         assertThat(createFromModpackSource).contains("message = \"整合包导入失败\"")
         assertThat(createFromModpackSource).contains("archiveDisplayName")
         assertThat(createFromModpackSource).contains("val archiveTotalBytes = archiveUri.openableSizeBytes(appContext)")
-        assertThat(createFromModpackSource).contains("archiveTotalBytes = archiveTotalBytes")
+        assertThat(createFromModpackSource).contains("\"archiveTotalBytes\" to (archiveTotalBytes ?: -1L)")
         assertThat(createFromModpackSource).contains("workspaceMode")
         assertThat(createFromModpackSource).contains("copyManagedServerImportStreamToTempFile(")
         assertThat(runtimeSource).contains("正在缓存整合包文件")

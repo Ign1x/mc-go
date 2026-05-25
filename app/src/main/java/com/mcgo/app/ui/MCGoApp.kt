@@ -65,7 +65,6 @@ import com.mcgo.app.server.managedPaperServerIconFile
 import com.mcgo.app.server.deleteJavaRuntime
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromAuthorizedDirectory
 import com.mcgo.app.server.hasAuthorizedManagedServerWorkspaceReady
-import com.mcgo.app.server.importManagedServerModpackArchiveToAuthorizedDirectory
 import com.mcgo.app.server.deleteManagedServerWorkspaceFromPrivateDirectory
 import com.mcgo.app.server.exportManagedServerWorldArchive
 import com.mcgo.app.server.fallbackPaperVersions
@@ -817,143 +816,104 @@ private fun MCGoAppScaffold(
                                 "hasServerDirectoryUri" to (serverDirectoryUriTextAtImportStart != null),
                             ),
                         )
-                        if (serverDirectoryUriTextAtImportStart != null && resolveAuthorizedServersRootPath(appContext, serverDirectoryUriTextAtImportStart) == null) {
-                            importedWorkspaceMode = ManagedServerWorkspaceMode.DirectExternal
+                        val tempPack = Files.createTempFile("mcgo-modpack-", ".zip")
+                        try {
+                            appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
+                                copyManagedServerImportStreamToTempFile(
+                                    input = input,
+                                    targetFile = tempPack,
+                                    onProgress = { progress, message ->
+                                        val mapped = 8 + ((progress.coerceIn(0, 100) * 8) / 100)
+                                        runBlocking { updateImportProgress(mapped, message) }
+                                    },
+                                )
+                            } ?: error("无法读取整合包文件")
+                            appendMcGoAppDebugLog(
+                                filesDir = filesDir,
+                                message = "整合包已复制到本地高速缓存",
+                                details = mapOf(
+                                    "serverId" to server.id,
+                                    "archiveDisplayName" to archiveDisplayName,
+                                    "tempBytes" to Files.size(tempPack),
+                                    "archiveTotalBytes" to (archiveTotalBytes ?: -1L),
+                                    "canUseDirectPath" to (resolveAuthorizedServersRootPath(appContext, serverDirectoryUriTextAtImportStart) != null),
+                                ),
+                            )
+                            val workspaceAccess = prepareManagedServerWorkspaceAccess(
+                                context = appContext,
+                                authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
+                                filesDir = filesDir,
+                                serverId = server.id,
+                            )
+                            updateImportProgress(16, "正在准备整合包目标目录")
+                            importedWorkspaceMode = workspaceAccess.mode
+                            val workDir = workspaceAccess.path
                             appendMcGoAppDebugLog(
                                 filesDir = filesDir,
                                 message = "整合包导入路径已选择",
                                 details = mapOf(
                                     "serverId" to server.id,
                                     "workspaceMode" to importedWorkspaceMode.name,
-                                    "archiveDisplayName" to archiveDisplayName,
+                                    "workspaceDirectoryName" to workDir.fileName,
                                 ),
                             )
-                            val directImport = appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
-                                importManagedServerModpackArchiveToAuthorizedDirectory(
-                                    context = appContext,
-                                    authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
-                                    serverId = server.id,
-                                    archiveInput = input,
-                                    archiveTotalBytes = archiveTotalBytes,
+                            var operationSucceeded = false
+                            try {
+                                importManagedServerModpackArchive(
+                                    archiveFile = tempPack,
+                                    serverWorkDir = workDir,
                                     onProgress = { progress, message ->
-                                        val mapped = 16 + ((progress.coerceIn(0, 100) * 66) / 100)
+                                        val mapped = 20 + ((progress.coerceIn(0, 100) * 55) / 100)
                                         runBlocking { updateImportProgress(mapped, message) }
                                     },
                                 )
-                            } ?: error("无法读取整合包文件")
-                            importCompleted = true
-                            updateImportProgress(82, "正在识别整合包元数据")
-                            val metadata = directImport.metadata
-                            val setupScriptNames = directImport.setupScriptNames
-                            val updatedServer = server.copy(
-                                edition = "${metadata.serverType.label} ${metadata.minecraftVersion}",
-                                serverType = metadata.serverType,
-                                minecraftVersion = metadata.minecraftVersion,
-                                javaMajorVersion = metadata.javaMajorVersion,
-                                javaSelectionMode = JavaSelectionMode.Recommended,
-                            ).markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
-                            updateImportProgress(90, "正在写入整合包识别结果")
-                            recoveredImportedServer = updatedServer
-                            updateImportProgress(100, "整合包导入完成")
-                            Pair(updatedServer, setupScriptNames)
-                        } else {
-                            val tempPack = Files.createTempFile("mcgo-modpack-", ".zip")
-                            try {
-                                appContext.contentResolver.openInputStream(archiveUri)?.use { input ->
-                                    copyManagedServerImportStreamToTempFile(
-                                        input = input,
-                                        targetFile = tempPack,
-                                        onProgress = { progress, message ->
-                                            val mapped = 8 + ((progress.coerceIn(0, 100) * 8) / 100)
-                                            runBlocking { updateImportProgress(mapped, message) }
-                                        },
-                                    )
-                                } ?: error("无法读取整合包文件")
-                                appendMcGoAppDebugLog(
-                                    filesDir = filesDir,
-                                    message = "整合包已复制到临时文件",
-                                    details = mapOf(
-                                        "serverId" to server.id,
-                                        "archiveDisplayName" to archiveDisplayName,
-                                        "tempBytes" to Files.size(tempPack),
-                                    ),
+                                importCompleted = true
+                                updateImportProgress(82, "正在识别整合包元数据")
+                                val metadata = detectImportedModpackServerMetadata(workDir)
+                                val detectedTargetJar = managedServerTargetJarPath(
+                                    serverWorkDir = workDir,
+                                    serverTypeName = metadata.serverType.name,
+                                    minecraftVersion = metadata.minecraftVersion,
                                 )
-                                val workspaceAccess = prepareManagedServerWorkspaceAccess(
-                                    context = appContext,
-                                    authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
-                                    filesDir = filesDir,
-                                    serverId = server.id,
-                                )
-                                updateImportProgress(16, "正在准备整合包目标目录")
-                                importedWorkspaceMode = workspaceAccess.mode
-                                val workDir = workspaceAccess.path
-                                appendMcGoAppDebugLog(
-                                    filesDir = filesDir,
-                                    message = "整合包导入路径已选择",
-                                    details = mapOf(
-                                        "serverId" to server.id,
-                                        "workspaceMode" to importedWorkspaceMode.name,
-                                        "workspaceDirectoryName" to workDir.fileName,
-                                    ),
-                                )
-                                var operationSucceeded = false
-                                try {
-                                    importManagedServerModpackArchive(
-                                        archiveFile = tempPack,
-                                        serverWorkDir = workDir,
-                                        onProgress = { progress, message ->
-                                            val mapped = 20 + ((progress.coerceIn(0, 100) * 55) / 100)
-                                            runBlocking { updateImportProgress(mapped, message) }
-                                        },
-                                    )
-                                    importCompleted = true
-                                    updateImportProgress(82, "正在识别整合包元数据")
-                                    val metadata = detectImportedModpackServerMetadata(workDir)
-                                    val detectedTargetJar = managedServerTargetJarPath(
-                                        serverWorkDir = workDir,
-                                        serverTypeName = metadata.serverType.name,
-                                        minecraftVersion = metadata.minecraftVersion,
-                                    )
-                                    writeManagedServerPayloadSha(workDir, detectedTargetJar)
-                                    val setupScriptNames = discoverManagedServerSetupScripts(workDir)
-                                        .map { script -> managedSetupScriptRelativePath(workDir, script) }
-                                    val updatedServer = server.copy(
-                                        edition = "${metadata.serverType.label} ${metadata.minecraftVersion}",
-                                        serverType = metadata.serverType,
-                                        minecraftVersion = metadata.minecraftVersion,
-                                        javaMajorVersion = metadata.javaMajorVersion,
-                                        javaSelectionMode = JavaSelectionMode.Recommended,
-                                    ).markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
-                                    updateImportProgress(90, "正在写入整合包识别结果")
-                                    recoveredImportedServer = updatedServer
-                                    operationSucceeded = true
-                                    if (workspaceAccess.mode.shouldSyncBack) {
-                                        updateImportProgress(96, "正在同步整合包到已授权目录")
-                                        check(
-                                            releaseManagedServerWorkspaceAfterForegroundAccess(
-                                                context = appContext,
-                                                authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
-                                                filesDir = filesDir,
-                                                serverId = server.id,
-                                                workspaceMode = workspaceAccess.mode,
-                                                onProgress = { progress ->
-                                                    val mapped = 96 + ((progress.fileCount.coerceAtMost(progress.totalFileCount.coerceAtLeast(1)) * 3) /
-                                                        progress.totalFileCount.coerceAtLeast(1))
-                                                    runBlocking { updateImportProgress(mapped.coerceIn(96, 99), progress.toDiagnosticSyncProgressMessage()) }
-                                                },
-                                            ),
-                                        ) { "同步服务器目录到已授权位置失败" }
-                                    }
-                                    updateImportProgress(100, "整合包导入完成")
-                                    Pair(updatedServer, setupScriptNames)
-                                } finally {
-                                    if (!operationSucceeded && workspaceAccess.mode.shouldSyncBack && !importCompleted) {
-                                        deleteManagedServerWorkspaceFromPrivateDirectory(filesDir, server.id)
-                                    }
+                                writeManagedServerPayloadSha(workDir, detectedTargetJar)
+                                val setupScriptNames = discoverManagedServerSetupScripts(workDir)
+                                    .map { script -> managedSetupScriptRelativePath(workDir, script) }
+                                val updatedServer = server.copy(
+                                    edition = "${metadata.serverType.label} ${metadata.minecraftVersion}",
+                                    serverType = metadata.serverType,
+                                    minecraftVersion = metadata.minecraftVersion,
+                                    javaMajorVersion = metadata.javaMajorVersion,
+                                    javaSelectionMode = JavaSelectionMode.Recommended,
+                                ).markUnsupportedManagedRuntime(supportedProvisionableJavaVersions)
+                                updateImportProgress(90, "正在写入整合包识别结果")
+                                recoveredImportedServer = updatedServer
+                                if (workspaceAccess.mode.shouldSyncBack) {
+                                    updateImportProgress(96, "正在同步整合包到已授权目录")
+                                    check(
+                                        releaseManagedServerWorkspaceAfterForegroundAccess(
+                                            context = appContext,
+                                            authorizedDirectoryUri = serverDirectoryUriTextAtImportStart,
+                                            filesDir = filesDir,
+                                            serverId = server.id,
+                                            workspaceMode = workspaceAccess.mode,
+                                            onProgress = { progress ->
+                                                val mapped = 96 + ((progress.fileCount.coerceAtMost(progress.totalFileCount.coerceAtLeast(1)) * 3) /
+                                                    progress.totalFileCount.coerceAtLeast(1))
+                                                runBlocking { updateImportProgress(mapped.coerceIn(96, 99), progress.toDiagnosticSyncProgressMessage()) }
+                                            },
+                                        ),
+                                    ) { "同步服务器目录到已授权位置失败" }
                                 }
+                                operationSucceeded = true
+                                updateImportProgress(100, "整合包导入完成")
+                                Pair(updatedServer, setupScriptNames)
                             } finally {
-                                Files.deleteIfExists(tempPack)
+                                if (!operationSucceeded && workspaceAccess.mode.shouldSyncBack && !importCompleted) {
+                                    deleteManagedServerWorkspaceFromPrivateDirectory(filesDir, server.id)
+                                }
                             }
+                        } finally {
+                            Files.deleteIfExists(tempPack)
                         }
                     }
                 }.onSuccess { (updatedServer, setupScriptNames) ->
