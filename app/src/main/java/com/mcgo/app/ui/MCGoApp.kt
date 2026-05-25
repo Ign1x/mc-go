@@ -657,9 +657,6 @@ private fun MCGoAppScaffold(
         }
     }
     fun <T> withPreparedManagedServerWorkspace(serverId: String, block: (Path) -> T): T {
-        // syncManagedServerWorkspaceToAuthorizedDirectory( ... ) now goes through
-        // releaseManagedServerWorkspaceAfterForegroundAccess(...) so source-contract
-        // tests still see the explicit sync call path.
         val filesDir = appContext.filesDir.toPath()
         val workspaceAccess = prepareManagedServerWorkspaceAccess(
             context = appContext,
@@ -896,6 +893,7 @@ private fun MCGoAppScaffold(
                                             filesDir = filesDir,
                                             serverId = server.id,
                                             workspaceMode = workspaceAccess.mode,
+                                            replaceAuthorizedWorkspace = true,
                                             onProgress = { progress ->
                                                 val mapped = 96 + ((progress.fileCount.coerceAtMost(progress.totalFileCount.coerceAtLeast(1)) * 3) /
                                                     progress.totalFileCount.coerceAtLeast(1))

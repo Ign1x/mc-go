@@ -164,15 +164,30 @@ class AuthorizedServerDirectoryWorkspaceRoutingTest {
     }
 
     @Test
-    fun resolveAuthorizedDirectoryPathFromTreeDocumentId_rejectsGeneralPrimaryFoldersThatCannotBeDirectlyMounted() {
+    fun resolveAuthorizedDirectoryPathFromTreeDocumentId_rejectsGeneralPrimaryFoldersWithoutAllFilesAccess() {
         val externalRoot = Files.createTempDirectory("mcgo-primary-root-general")
 
         val rootPath = resolveAuthorizedDirectoryPathFromTreeDocumentId(
             treeDocumentId = "primary:Download/mcgo",
             externalRoot = externalRoot,
+            allFilesAccessGranted = false,
         )
 
         assertThat(rootPath).isNull()
+    }
+
+    @Test
+    fun resolveAuthorizedDirectoryPathFromTreeDocumentId_allowsMcgoPrimaryFolderWithAllFilesAccess() {
+        val externalRoot = Files.createTempDirectory("mcgo-primary-root-all-files")
+
+        val rootPath = resolveAuthorizedDirectoryPathFromTreeDocumentId(
+            treeDocumentId = "primary:MCGO",
+            externalRoot = externalRoot,
+            allFilesAccessGranted = true,
+        )
+
+        assertThat(rootPath).isNotNull()
+        assertThat(rootPath).isEqualTo(externalRoot.resolve("MCGO"))
     }
 
     @Test

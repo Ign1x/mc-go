@@ -2,12 +2,14 @@ package com.mcgo.app.server
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.mcgo.app.ui.storage.ServerProfileStoreGlobalLock
 import java.io.BufferedInputStream
 import java.io.InputStream
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -501,16 +503,29 @@ internal fun resolveAuthorizedDirectoryPathFromTreeDocumentId(treeDocumentId: St
     resolveAuthorizedDirectoryPathFromTreeDocumentId(
         treeDocumentId = treeDocumentId,
         externalRoot = Environment.getExternalStorageDirectory().toPath(),
+        allFilesAccessGranted = canManageAllFilesDirectly(),
     )
 }.getOrNull()
 
-internal fun resolveAuthorizedDirectoryPathFromTreeDocumentId(treeDocumentId: String, externalRoot: Path): Path? {
+private fun canManageAllFilesDirectly(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
+
+internal fun resolveAuthorizedDirectoryPathFromTreeDocumentId(
+    treeDocumentId: String,
+    externalRoot: Path,
+    allFilesAccessGranted: Boolean = false,
+): Path? {
     val externalRelativePath = when {
         treeDocumentId == "primary:" || treeDocumentId == "primary" -> ""
         treeDocumentId.startsWith("primary:") -> treeDocumentId.removePrefix("primary:")
         else -> return null
     }
     val segments = externalRelativePath.split('/').filter { it.isNotBlank() }
+    if (segments.any { segment -> segment == "." || segment == ".." || '/' in segment || '\\' in segment }) return null
+    if (allFilesAccessGranted) {
+        if (segments.isEmpty()) return null
+        return externalRoot.resolve(segments.joinToString("/"))
+    }
     if (segments.size < 2) return null
     val isAllowedRoot = segments[0] == "Android" && segments[1] in setOf("data", "media", "obb")
     if (!isAllowedRoot) return null
@@ -521,7 +536,12 @@ fun resolveAuthorizedServersRootPath(context: Context, authorizedDirectoryUri: S
     val uri = authorizedDirectoryUri?.let(Uri::parse) ?: return null
     val root = authorizedDirectoryRoot(context, authorizedDirectoryUri) ?: return null
     val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
-    val targetRoot = resolveAuthorizedDirectoryPathFromTreeDocumentId(treeDocumentId) ?: return null
+    val allFilesAccessGranted = canManageAllFilesDirectly()
+    val targetRoot = resolveAuthorizedDirectoryPathFromTreeDocumentId(
+        treeDocumentId = treeDocumentId,
+        externalRoot = Environment.getExternalStorageDirectory().toPath(),
+        allFilesAccessGranted = allFilesAccessGranted,
+    ) ?: return null
     if (!runCatching { root.exists() && root.isDirectory }.getOrDefault(false)) return null
     return targetRoot.resolve(AuthorizedServersDirectoryName)
 }
@@ -681,6 +701,7 @@ fun releaseManagedServerWorkspaceAfterForegroundAccess(
     filesDir: Path,
     serverId: String,
     workspaceMode: ManagedServerWorkspaceMode = ManagedServerWorkspaceMode.PrivateEphemeralMirror,
+    replaceAuthorizedWorkspace: Boolean = false,
     onProgress: ((ManagedServerWorkspaceSyncProgress) -> Unit)? = null,
 ): Boolean {
     if (!workspaceMode.shouldSyncBack) return true
@@ -691,6 +712,7 @@ fun releaseManagedServerWorkspaceAfterForegroundAccess(
         authorizedDirectoryUri = authorizedDirectoryUri,
         serverId = serverId,
         sourceWorkspaceDir = privateWorkspaceDir,
+        replaceExistingTarget = replaceAuthorizedWorkspace,
         onProgress = onProgress,
     )
     if (synced && workspaceMode.shouldClearPrivateWorkspaceOnSuccessfulSync) {
@@ -762,6 +784,13 @@ private fun writeAuthorizedManagedServerWorkspaceReady(
     val targetServerDir = serversDir.findFile(sanitizeManagedServerId(serverId))
         ?: serversDir.createDirectory(sanitizeManagedServerId(serverId))
         ?: return false
+    return writeAuthorizedManagedServerWorkspaceReady(context, targetServerDir)
+}
+
+private fun writeAuthorizedManagedServerWorkspaceReady(
+    context: Context,
+    targetServerDir: DocumentFile,
+): Boolean {
     val markerFile = targetServerDir.findFile(ManagedServerWorkspaceReadyMarkerName)
         ?: targetServerDir.createFile("application/octet-stream", ManagedServerWorkspaceReadyMarkerName)
         ?: return false
@@ -794,35 +823,53 @@ fun syncManagedServerWorkspaceToAuthorizedDirectory(
     authorizedDirectoryUri: String?,
     serverId: String,
     sourceWorkspaceDir: Path,
+    replaceExistingTarget: Boolean = false,
     onProgress: ((ManagedServerWorkspaceSyncProgress) -> Unit)? = null,
 ): Boolean {
     if (!Files.isDirectory(sourceWorkspaceDir, LinkOption.NOFOLLOW_LINKS)) return false
     val directAuthorizedWorkspace = resolveAuthorizedServersRootPath(context, authorizedDirectoryUri)
         ?.takeIf(::canAccessAuthorizedServersRootDirectly)
         ?.resolve(sanitizeManagedServerId(serverId))
-    if (directAuthorizedWorkspace != null && sourceWorkspaceDir.normalize() == directAuthorizedWorkspace.normalize()) {
-        writeManagedServerWorkspaceReadyMarker(directAuthorizedWorkspace)
-        return true
+    if (directAuthorizedWorkspace != null) {
+        if (sourceWorkspaceDir.normalize() == directAuthorizedWorkspace.normalize()) {
+            writeManagedServerWorkspaceReadyMarker(directAuthorizedWorkspace)
+            return true
+        }
+        return runCatching {
+            if (replaceExistingTarget && !Files.exists(directAuthorizedWorkspace, LinkOption.NOFOLLOW_LINKS)) {
+                replaceManagedServerWorkspaceDirectPath(sourceWorkspaceDir, directAuthorizedWorkspace)
+            } else {
+                copyPathToPath(sourceWorkspaceDir, directAuthorizedWorkspace)
+                writeManagedServerWorkspaceReadyMarker(directAuthorizedWorkspace)
+            }
+            true
+        }.getOrDefault(false)
     }
     val root = authorizedDirectoryRoot(context, authorizedDirectoryUri) ?: return false
     val serversDir = root.findFile(AuthorizedServersDirectoryName)
         ?: root.createDirectory(AuthorizedServersDirectoryName)
         ?: return false
-    val targetServerDir = serversDir.findFile(sanitizeManagedServerId(serverId))
-        ?: serversDir.createDirectory(sanitizeManagedServerId(serverId))
-        ?: return false
-    clearAuthorizedManagedServerWorkspaceReady(context, authorizedDirectoryUri, serverId)
+    val targetServerName = sanitizeManagedServerId(serverId)
+    val existingTargetServerDir = serversDir.findFile(targetServerName)
+    val targetServerDir = existingTargetServerDir
+        ?: if (replaceExistingTarget) null else serversDir.createDirectory(targetServerName)
+        ?: if (replaceExistingTarget) null else return false
     return runCatching {
         val progressReporter = onProgress?.let { ManagedServerWorkspaceSyncProgressReporter(sourceWorkspaceDir, it) }
         progressReporter?.report(force = true)
-        copyPathToDocumentTree(context, sourceWorkspaceDir, targetServerDir, progressReporter)
-        val directAuthorizedWorkspace = resolveAuthorizedServersRootPath(context, authorizedDirectoryUri)
-            ?.takeIf(::canAccessAuthorizedServersRootDirectly)
-            ?.resolve(sanitizeManagedServerId(serverId))
-        if (directAuthorizedWorkspace != null) {
-            writeManagedServerWorkspaceReadyMarker(directAuthorizedWorkspace)
+        if (replaceExistingTarget && existingTargetServerDir == null) {
+            replaceDocumentWorkspaceFromSource(
+                context = context,
+                serversDir = serversDir,
+                targetServerName = targetServerName,
+                sourceWorkspaceDir = sourceWorkspaceDir,
+                progressReporter = progressReporter,
+            )
         } else {
-            check(writeAuthorizedManagedServerWorkspaceReady(context, authorizedDirectoryUri, serverId))
+            val target = targetServerDir ?: serversDir.createDirectory(targetServerName) ?: return@runCatching false
+            clearAuthorizedManagedServerWorkspaceReady(context, authorizedDirectoryUri, serverId)
+            copyPathToDocumentTree(context, sourceWorkspaceDir, target, progressReporter)
+            check(writeAuthorizedManagedServerWorkspaceReady(context, target))
         }
         true
     }.getOrDefault(false)
@@ -1217,12 +1264,46 @@ private class ManagedServerWorkspaceSyncProgressReporter(
         fileCount += 1
         report(force = true)
     }
+
+    fun recordRegularFileAlreadySynced(sourceFile: Path) {
+        totalBytes += Files.size(sourceFile)
+        fileCount += 1
+        report(force = true)
+    }
 }
 
 private fun countManagedWorkspaceRegularFiles(sourceDir: Path): Int {
     if (!Files.isDirectory(sourceDir, LinkOption.NOFOLLOW_LINKS)) return 0
     Files.walk(sourceDir).use { paths ->
         return paths.filter { path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) }.count().toInt()
+    }
+}
+
+private fun replaceDocumentWorkspaceFromSource(
+    context: Context,
+    serversDir: DocumentFile,
+    targetServerName: String,
+    sourceWorkspaceDir: Path,
+    progressReporter: ManagedServerWorkspaceSyncProgressReporter?,
+) {
+    val tempName = ".$targetServerName.mcgo-sync-${System.nanoTime()}"
+    val tempDir = serversDir.createDirectory(tempName)
+        ?: error("创建授权目录临时工作区失败：$targetServerName")
+    var promoted = false
+    try {
+        copyPathToFreshDocumentTree(context, sourceWorkspaceDir, tempDir, progressReporter)
+        check(writeAuthorizedManagedServerWorkspaceReady(context, tempDir)) { "写入授权目录临时就绪标记失败" }
+        check(serversDir.findFile(targetServerName) == null) { "授权目录工作区已存在：$targetServerName" }
+        val renamed = tempDir.renameTo(targetServerName)
+        if (renamed) {
+            promoted = true
+        }
+        check(renamed) { "启用授权目录新工作区失败：$targetServerName" }
+    } catch (error: Throwable) {
+        if (!promoted) {
+            runCatching { serversDir.findFile(tempName)?.delete() }
+        }
+        throw error
     }
 }
 
@@ -1234,29 +1315,68 @@ private fun copyPathToDocumentTree(
 ) {
     val sourceChildren = listManagedWorkspacePlainChildren(sourceDir)
     val sourceNames = sourceChildren.map { it.fileName.toString() }.toSet()
-    targetDir.listFiles().forEach { existing ->
-        val existingName = existing.name ?: return@forEach
+    val existingByName = targetDir.listFiles()
+        .mapNotNull { existing -> existing.name?.let { name -> name to existing } }
+        .toMap()
+    existingByName.forEach { (existingName, existing) ->
         if (existingName !in sourceNames) {
             check(existing.delete()) { "删除授权目录旧文件失败：$existingName" }
         }
     }
     sourceChildren.forEach { child ->
+        val childName = child.fileName.toString()
+        val existingEntry = existingByName[childName]
         if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
-            val existingEntry = targetDir.findFile(child.fileName.toString())
             if (existingEntry?.isFile == true) {
                 check(existingEntry.delete()) { "删除授权目录冲突文件失败：${child.fileName}" }
             }
-            val directory = targetDir.findFile(child.fileName.toString())
-                ?: targetDir.createDirectory(child.fileName.toString())
+            val directory = existingEntry?.takeIf { it.isDirectory }
+                ?: targetDir.createDirectory(childName)
                 ?: error("创建授权目录失败：${child.fileName}")
             copyPathToDocumentTree(context, child, directory, progressReporter)
         } else if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)) {
-            val existingFile = targetDir.findFile(child.fileName.toString())
-            if (existingFile?.isDirectory == true) {
-                check(existingFile.delete()) { "删除授权目录冲突目录失败：${child.fileName}" }
+            if (existingEntry != null && isDocumentFileCurrentForSource(existingEntry, child)) {
+                progressReporter?.recordRegularFileAlreadySynced(child)
+                return@forEach
             }
-            val targetFile = targetDir.findFile(child.fileName.toString())
-                ?: targetDir.createFile("application/octet-stream", child.fileName.toString())
+            if (existingEntry != null) {
+                check(existingEntry.delete()) { "删除授权目录旧文件失败：${child.fileName}" }
+            }
+            val targetFile = targetDir.createFile("application/octet-stream", childName)
+                ?: error("创建授权文件失败：${child.fileName}")
+            if (progressReporter != null) {
+                progressReporter.copyRegularFile(context, child, targetFile)
+            } else {
+                context.contentResolver.openOutputStream(targetFile.uri, "wt")?.use { output ->
+                    Files.newInputStream(child).use { input -> input.copyTo(output, ManagedServerImportBufferBytes) }
+                } ?: error("打开授权文件输出流失败：${child.fileName}")
+            }
+        }
+    }
+}
+
+private fun isDocumentFileCurrentForSource(document: DocumentFile, sourceFile: Path): Boolean {
+    if (!document.isFile) return false
+    val sourceSize = Files.size(sourceFile)
+    val sourceLastModifiedMillis = Files.getLastModifiedTime(sourceFile, LinkOption.NOFOLLOW_LINKS).toMillis()
+    val targetLastModifiedMillis = document.lastModified()
+    return document.length() == sourceSize && targetLastModifiedMillis > 0L && targetLastModifiedMillis >= sourceLastModifiedMillis
+}
+
+private fun copyPathToFreshDocumentTree(
+    context: Context,
+    sourceDir: Path,
+    targetDir: DocumentFile,
+    progressReporter: ManagedServerWorkspaceSyncProgressReporter? = null,
+) {
+    listManagedWorkspacePlainChildren(sourceDir).forEach { child ->
+        val childName = child.fileName.toString()
+        if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
+            val directory = targetDir.createDirectory(childName)
+                ?: error("创建授权目录失败：${child.fileName}")
+            copyPathToFreshDocumentTree(context, child, directory, progressReporter)
+        } else if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)) {
+            val targetFile = targetDir.createFile("application/octet-stream", childName)
                 ?: error("创建授权文件失败：${child.fileName}")
             if (progressReporter != null) {
                 progressReporter.copyRegularFile(context, child, targetFile)
@@ -1285,6 +1405,34 @@ private fun copyDocumentTreeToPath(
                 Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING)
             } ?: error("打开授权目录输入流失败：${child.name}")
         }
+    }
+}
+
+private fun replaceManagedServerWorkspaceDirectPath(sourceDir: Path, targetDir: Path) {
+    val parent = targetDir.parent ?: error("授权服务器目录缺失")
+    Files.createDirectories(parent)
+    check(!Files.exists(targetDir, LinkOption.NOFOLLOW_LINKS)) { "授权目录工作区已存在：${targetDir.fileName}" }
+    val tempDir = Files.createTempDirectory(parent, ".${targetDir.fileName}.mcgo-sync-")
+    try {
+        copyPathToPath(sourceDir, tempDir)
+        writeManagedServerWorkspaceReadyMarker(tempDir)
+        moveManagedWorkspacePath(tempDir, targetDir)
+    } catch (error: Throwable) {
+        if (Files.exists(tempDir, LinkOption.NOFOLLOW_LINKS)) {
+            runCatching {
+                clearManagedServerWorkspace(tempDir)
+                Files.deleteIfExists(tempDir)
+            }
+        }
+        throw error
+    }
+}
+
+private fun moveManagedWorkspacePath(source: Path, target: Path) {
+    try {
+        Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
+    } catch (_: AtomicMoveNotSupportedException) {
+        Files.move(source, target)
     }
 }
 

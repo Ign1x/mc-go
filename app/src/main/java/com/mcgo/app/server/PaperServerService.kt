@@ -421,16 +421,6 @@ open class PaperServerService : Service() {
                         .firstOrNull { persisted -> persisted.id == server.id }
                     val serverPendingDeletion = persistedServer?.pendingDeletion == true
                     if (!serverPendingDeletion && shouldPersistManagedServerWorkspaceAfterLaunchAttempt(currentWorkspaceMode, runtimeLaunchSubmitted, completedInstallerBootstrapOnly)) {
-                        currentWorkspacePath?.let { workspacePath ->
-                            check(
-                                syncManagedServerWorkspaceToAuthorizedDirectory(
-                                    context = this@PaperServerService,
-                                    authorizedDirectoryUri = runtimePrefsServerDirectoryUri(this@PaperServerService),
-                                    serverId = server.id,
-                                    sourceWorkspaceDir = workspacePath,
-                                ),
-                            ) { "停止时同步服务器目录失败" }
-                        }
                         check(
                             releaseManagedServerWorkspaceAfterForegroundAccess(
                                 context = this@PaperServerService,

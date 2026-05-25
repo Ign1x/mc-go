@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
@@ -78,6 +79,25 @@ private fun Context.isIgnoringBatteryOptimizations(): Boolean {
     }
 }
 
+private fun canManageAllFilesDirectly(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
+
+private fun Context.startAllFilesAccessSettings() {
+    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))
+    } else {
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+    }
+    runCatching { startActivity(intent) }.onFailure {
+        val fallback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+        }
+        startActivity(fallback)
+    }
+}
+
 @Composable
 fun SettingsScreen(
     appearancePreferences: AppearancePreferences,
@@ -122,6 +142,7 @@ fun SettingsScreen(
         )
     }
     var batteryOptimizationIgnored by remember { mutableStateOf(context.isIgnoringBatteryOptimizations()) }
+    var allFilesAccessGranted by remember { mutableStateOf(canManageAllFilesDirectly()) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -151,6 +172,8 @@ fun SettingsScreen(
         } else {
             true
         },
+        allFilesAccessGranted = allFilesAccessGranted,
+        allFilesAccessRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R,
         serverDirectorySelected = serverDirectoryUri != null && context.contentResolver.persistedUriPermissions.any { permission ->
             permission.uri.toString() == serverDirectoryUri && permission.isReadPermission && permission.isWritePermission
         },
@@ -161,6 +184,10 @@ fun SettingsScreen(
         when (item.id) {
             "post-notifications" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            "all-files-access" -> {
+                context.startAllFilesAccessSettings()
+                allFilesAccessGranted = canManageAllFilesDirectly()
             }
             "server-directory" -> onRequestServerDirectory()
             "battery-optimization" -> {

@@ -12,6 +12,8 @@ class AuthorizedServerDirectoryContractTest {
     private val authorizedSyncSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/AuthorizedServerDirectorySync.kt")))
     private val runtimeSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerRuntime.kt")))
     private val runtimePermissionModelsSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/model/RuntimePermissionModels.kt")))
+    private val settingsScreenSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/ui/screens/SettingsScreen.kt")))
+    private val manifestSource: String = String(Files.readAllBytes(projectRoot().resolve("app/src/main/AndroidManifest.xml")))
 
     @Test
     fun authorizedServerDirectory_becomesDurableSourceOfTruthForServerData() {
@@ -26,7 +28,6 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(appSource).contains("releaseManagedServerWorkspaceAfterForegroundAccess(")
 
         assertThat(serviceSource).contains("prepareManagedServerWorkspaceForForegroundAccess(")
-        assertThat(serviceSource).contains("syncManagedServerWorkspaceToAuthorizedDirectory(")
         assertThat(serviceSource).contains("releaseManagedServerWorkspaceAfterForegroundAccess(")
         assertThat(appSource).contains("restoreManagedServerIconFromAuthorizedDirectory(")
         assertThat(authorizedSyncSource).contains("fun restoreManagedServerIconFromAuthorizedDirectory(")
@@ -163,6 +164,91 @@ class AuthorizedServerDirectoryContractTest {
         assertThat(syncBackSlice).contains("onProgress = { progress ->")
         assertThat(syncBackSlice).contains("progress.toDiagnosticSyncProgressMessage()")
         assertThat(syncBackSlice).contains("正在同步整合包到已授权目录")
+    }
+
+    @Test
+    fun modpackImport_replacesAuthorizedWorkspaceDuringFinalSyncAndDeletesPrivateExtractionAfterSuccess() {
+        val importSlice = appSource.substringAfter("fun createServerFromModpackNow(server: ServerCardState, archiveUri: Uri) {")
+            .substringBefore("fun startServerNow(request: PendingStartRequest)")
+        val syncBackSlice = importSlice.substringAfter("if (workspaceAccess.mode.shouldSyncBack) {")
+            .substringBefore("updateImportProgress(100, \"整合包导入完成\")")
+        val releaseSource = authorizedSyncSource.substringAfter("fun releaseManagedServerWorkspaceAfterForegroundAccess(\n    context: Context,")
+            .substringBefore("fun discardManagedServerWorkspaceAfterForegroundAccess(\n    context: Context,")
+        val syncSource = authorizedSyncSource.substringAfter("fun syncManagedServerWorkspaceToAuthorizedDirectory(")
+            .substringBefore("fun migratePrivateServerDataToAuthorizedDirectory(")
+
+        assertThat(syncBackSlice).contains("replaceAuthorizedWorkspace = true")
+        assertThat(releaseSource).contains("replaceAuthorizedWorkspace: Boolean = false")
+        assertThat(releaseSource).contains("replaceExistingTarget = replaceAuthorizedWorkspace")
+        assertThat(releaseSource.indexOf("val synced = syncManagedServerWorkspaceToAuthorizedDirectory(")).isLessThan(
+            releaseSource.indexOf("clearManagedServerWorkspace(privateWorkspaceDir)"),
+        )
+        assertThat(syncSource).contains("replaceExistingTarget: Boolean = false")
+        assertThat(syncSource).contains("if (replaceExistingTarget && !Files.exists(directAuthorizedWorkspace, LinkOption.NOFOLLOW_LINKS))")
+        assertThat(syncSource).contains("replaceManagedServerWorkspaceDirectPath(sourceWorkspaceDir, directAuthorizedWorkspace)")
+        assertThat(syncSource).doesNotContain("clearManagedServerWorkspace(directAuthorizedWorkspace)")
+        assertThat(syncSource).contains("if (replaceExistingTarget && existingTargetServerDir == null) {")
+        assertThat(syncSource).contains("replaceDocumentWorkspaceFromSource(")
+        assertThat(syncSource).doesNotContain("clearDocumentFileChildren(targetServerDir)")
+        assertThat(authorizedSyncSource).contains("copyPathToFreshDocumentTree(")
+    }
+
+    @Test
+    fun authorizedSync_usesCachedDocumentMapsAndFreshCopyPathInsteadOfRepeatedFindFileLoops() {
+        val syncSource = authorizedSyncSource.substringAfter("fun syncManagedServerWorkspaceToAuthorizedDirectory(")
+            .substringBefore("fun migratePrivateServerDataToAuthorizedDirectory(")
+        val copySource = authorizedSyncSource.substringAfter("private fun copyPathToDocumentTree(")
+            .substringBefore("private fun copyPathToFreshDocumentTree(")
+        val freshCopySource = authorizedSyncSource.substringAfter("private fun copyPathToFreshDocumentTree(")
+            .substringBefore("private fun copyDocumentTreeToPath(")
+
+        assertThat(syncSource).contains("replaceDocumentWorkspaceFromSource(")
+        assertThat(copySource).contains("val existingByName = targetDir.listFiles()")
+        assertThat(copySource).doesNotContain("targetDir.findFile(")
+        assertThat(copySource).contains("isDocumentFileCurrentForSource(")
+        assertThat(copySource).contains("recordRegularFileAlreadySynced(")
+        assertThat(freshCopySource).doesNotContain("findFile(")
+        assertThat(freshCopySource).doesNotContain("listFiles()")
+    }
+
+    @Test
+    fun authorizedSync_requestsAllFilesAccessAndUsesItForDirectPrimaryDirectoryWrites() {
+        val resolveSource = authorizedSyncSource.substringAfter("fun resolveAuthorizedServersRootPath(")
+            .substringBefore("private fun managedServerWorkspaceHasRecoverableData(")
+        val permissionModelSource = runtimePermissionModelsSource.substringAfter("fun defaultRuntimePermissionState(")
+
+        assertThat(manifestSource).contains("android.permission.MANAGE_EXTERNAL_STORAGE")
+        assertThat(permissionModelSource).contains("allFilesAccessGranted: Boolean")
+        assertThat(permissionModelSource).contains("allFilesAccessRequired: Boolean = true")
+        assertThat(settingsScreenSource).contains("allFilesAccessRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R")
+        assertThat(permissionModelSource).contains("id = \"all-files-access\"")
+        assertThat(permissionModelSource).contains("android.permission.MANAGE_EXTERNAL_STORAGE")
+        assertThat(authorizedSyncSource).contains("Environment.isExternalStorageManager()")
+        assertThat(resolveSource).contains("allFilesAccessGranted = canManageAllFilesDirectly()")
+        assertThat(resolveSource).contains("resolveAuthorizedDirectoryPathFromTreeDocumentId(")
+        assertThat(resolveSource).contains("allFilesAccessGranted = allFilesAccessGranted")
+    }
+
+    @Test
+    fun authorizedFreshDocumentReplaceRechecksTargetAndDoesNotDeletePromotedDirectory() {
+        val replaceSource = authorizedSyncSource.substringAfter("private fun replaceDocumentWorkspaceFromSource(")
+            .substringBefore("private fun copyPathToDocumentTree(")
+
+        assertThat(replaceSource).contains("check(serversDir.findFile(targetServerName) == null)")
+        assertThat(replaceSource).contains("val renamed = tempDir.renameTo(targetServerName)")
+        assertThat(replaceSource).contains("if (renamed) {")
+        assertThat(replaceSource).contains("promoted = true")
+        assertThat(replaceSource).contains("serversDir.findFile(tempName)?.delete()")
+        assertThat(replaceSource).doesNotContain("tempDir.delete()")
+    }
+
+    @Test
+    fun serviceStopFinalSync_usesReleaseOnceSoStopDoesNotCopyAuthorizedWorkspaceTwice() {
+        val stopFinallySlice = serviceSource.substringAfter("} finally {\n                runCatching {")
+            .substringBefore("                }.onFailure { error ->")
+
+        assertThat(stopFinallySlice).doesNotContain("syncManagedServerWorkspaceToAuthorizedDirectory(")
+        assertThat(stopFinallySlice).contains("releaseManagedServerWorkspaceAfterForegroundAccess(")
     }
 
     private fun projectRoot(): Path =
