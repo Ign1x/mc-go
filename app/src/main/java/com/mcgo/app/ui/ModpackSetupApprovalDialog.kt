@@ -27,18 +27,21 @@ internal fun ModpackSetupApprovalDialog(
         serverName,
         defaultScriptRelativePath,
     ) { mutableStateOf("") }
-    val candidateScriptSummary = scriptCandidates
-        .take(6)
-        .joinToString("、")
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("输入整合包启动脚本") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("$serverName 包含可执行脚本。MC-GO 不再猜测脚本名称，请输入要执行的服务器目录相对路径。")
-                if (candidateScriptSummary.isNotBlank()) {
-                    Text("可选脚本：$candidateScriptSummary")
+                if (scriptCandidates.isNotEmpty()) {
+                    Text("可选脚本：点击后会自动填入输入框")
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        scriptCandidates.take(6).forEach { scriptCandidate ->
+                            TextButton(onClick = { setupScriptInput = scriptCandidate }) {
+                                Text(scriptCandidate)
+                            }
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = setupScriptInput,

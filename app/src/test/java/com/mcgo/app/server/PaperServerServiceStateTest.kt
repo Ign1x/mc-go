@@ -358,21 +358,25 @@ class PaperServerServiceStateTest {
     }
 
     @Test
-    fun installerBootstrapSetupCompletedEvent_reportsStoppedAndPromptsSecondStart() {
-        val event = installerBootstrapSetupCompletedEvent("survival")
+    fun installerBootstrapSetupCompletion_hasNoStoppedSecondStartEventHelper() {
+        val stateSource = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerServiceRuntimeState.kt")))
 
-        assertThat(event.serverId).isEqualTo("survival")
-        assertThat(event.status).isEqualTo(PaperServerEventStatus.Stopped)
-        assertThat(event.message).contains("请再次点击启动")
+        assertThat(stateSource).doesNotContain("fun installerBootstrapSetupCompletedEvent(")
+        assertThat(stateSource).doesNotContain("再次点击启动")
     }
 
     @Test
-    fun installerBootstrapSetupCompletion_shortCircuitsJvmLaunchUntilUserStartsAgain() {
+    fun installerBootstrapSetupCompletion_continuesJvmLaunchInSameStartAttempt() {
         val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/PaperServerService.kt")))
+        val setupHandlingSource = source
+            .substringAfter("if (setupScriptExecuted) {")
+            .substringBefore("if (!shouldReuseInstalledServerPayload")
 
-        assertThat(source).contains("installerBootstrapSetupCompletedEvent(server.id)")
-        assertThat(source).contains("return@runCatching")
-        assertThat(source.indexOf("installerBootstrapSetupCompletedEvent(server.id)")).isLessThan(source.indexOf("val launchConfig = buildManagedPaperLaunchConfig("))
+        assertThat(setupHandlingSource).doesNotContain("installerBootstrapSetupCompletedEvent(server.id)")
+        assertThat(setupHandlingSource).doesNotContain("return@runCatching")
+        assertThat(setupHandlingSource).contains("completedInstallerBootstrapOnly = true")
+        assertThat(setupHandlingSource).contains("已执行整合包安装脚本，继续准备")
+        assertThat(source.indexOf("已执行整合包安装脚本，继续准备")).isLessThan(source.indexOf("val launchConfig = buildManagedPaperLaunchConfig("))
     }
 
     @Test

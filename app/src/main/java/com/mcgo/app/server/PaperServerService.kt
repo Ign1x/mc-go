@@ -254,8 +254,6 @@ open class PaperServerService : Service() {
                             } == true
                         ) {
                             completedInstallerBootstrapOnly = true
-                            publishEvent(installerBootstrapSetupCompletedEvent(server.id))
-                            return@runCatching
                         }
                         publish(server.id, PaperServerEventStatus.Launching, 34, "已执行整合包安装脚本，继续准备 ${serverFlavorLabel}")
                     }

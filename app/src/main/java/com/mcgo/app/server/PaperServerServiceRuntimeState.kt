@@ -105,13 +105,6 @@ fun launchCancelledEvent(serverId: String): PaperServerEvent = PaperServerEvent(
     message = "已取消启动；内置 Paper 进程尚未启动",
 )
 
-fun installerBootstrapSetupCompletedEvent(serverId: String): PaperServerEvent = PaperServerEvent(
-    serverId = serverId,
-    status = PaperServerEventStatus.Stopped,
-    progress = 0,
-    message = "整合包安装脚本已执行完成，请再次点击启动继续拉起服务器",
-)
-
 fun noActiveRuntimeStopEvent(serverId: String): PaperServerEvent = PaperServerEvent(
     serverId = serverId,
     status = PaperServerEventStatus.Stopped,
