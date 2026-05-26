@@ -342,6 +342,8 @@ private fun rewriteManagedInstallerBootstrapScriptForAndroid(
     val javaHome = environment["MCGO_JAVA_HOME"]?.takeIf { it.isNotBlank() } ?: return null
     val launcherLib = environment["MCGO_JAVA_NATIVE_LAUNCHER_LIB"]?.takeIf { it.isNotBlank() } ?: return null
     val original = readManagedServerSetupFileBounded(script, MaxManagedServerSetupScriptRewriteBytes) ?: return null
+    val tmpDir = environment["TMPDIR"]?.takeIf { it.isNotBlank() }
+    val userHome = environment["HOME"]?.takeIf { it.isNotBlank() }
     val managedJavaCommand = buildString {
         append("CLASSPATH=")
         append(shellSingleQuote(classpath))
@@ -349,6 +351,14 @@ private fun rewriteManagedInstallerBootstrapScriptForAndroid(
         append(shellSingleQuote(appProcess))
         append(" -Dmcgo.paperJvmLauncher.absoluteLibPath=")
         append(shellSingleQuote(launcherLib))
+        tmpDir?.let { value ->
+            append(" -Djava.io.tmpdir=")
+            append(shellSingleQuote(value))
+        }
+        userHome?.let { value ->
+            append(" -Duser.home=")
+            append(shellSingleQuote(value))
+        }
         append(" /system/bin ")
         append(shellSingleQuote(mainClass))
         append(' ')

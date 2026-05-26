@@ -26,6 +26,8 @@ object ManagedJavaCli {
             ?.takeIf { it.isNotBlank() }
             ?: throw JavaRuntimeInstallException("托管 JRE 缺少 JAVA_VERSION：$javaHome/release")
         val launcherDotVersion = if (launcherFullVersion.startsWith("1.8")) "1.8" else launcherFullVersion.substringBefore('.')
+        val tmpDir = System.getProperty("java.io.tmpdir")
+        val userHome = System.getProperty("user.home")
         val exitCode = PaperJvmLauncher.launch(
             ManagedPaperLaunchConfig(
                 workingDirectory = Paths.get(System.getProperty("user.dir")),
@@ -33,6 +35,12 @@ object ManagedJavaCli {
                 logFile = Paths.get(""),
                 arguments = buildList {
                     add(runtimeLayout.javaBinary.toString())
+                    if (!tmpDir.isNullOrBlank()) {
+                        add("-Djava.io.tmpdir=$tmpDir")
+                    }
+                    if (!userHome.isNullOrBlank()) {
+                        add("-Duser.home=$userHome")
+                    }
                     addAll(forwardedArgs)
                 },
                 environment = buildList {

@@ -281,6 +281,12 @@ internal fun buildManagedJavaProcessCommand(
         buildList {
             add(appProcess)
             add("-Dmcgo.paperJvmLauncher.absoluteLibPath=$launcherLib")
+            env["TMPDIR"]?.takeIf { it.isNotBlank() }?.let { tmpDir ->
+                add("-Djava.io.tmpdir=$tmpDir")
+            }
+            env["HOME"]?.takeIf { it.isNotBlank() }?.let { userHome ->
+                add("-Duser.home=$userHome")
+            }
             add("/system/bin")
             add(mainClass)
             add(javaHome)

@@ -7,6 +7,7 @@ import com.mcgo.app.ui.model.createNeoForgeServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.createQuiltServer
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 
 class PaperJvmLaunchConfigTest {
@@ -561,6 +562,49 @@ class PaperJvmLaunchConfigTest {
         assertThat(context.environment).contains("MCGO_JAVA_NATIVE_LAUNCHER_LIB=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so")
         assertThat(context.environment.joinToString("\n")).doesNotContain("MCGO_JAVA_WRAPPER=")
         assertThat(context.environment.single { it.startsWith("PATH=") }).doesNotContain("runtime-tools/java-wrapper")
+    }
+
+    @Test
+    fun buildManagedJavaProcessCommand_setsJvmTmpdirAndUserHomeForInstallerSubprocesses() {
+        val command = buildManagedJavaProcessCommand(
+            fallbackJavaBinary = "/data/user/0/com.mcgo.app/files/jre/java-21/bin/java",
+            environment = listOf(
+                "HOME=/storage/emulated/0/MCGO/servers/neoforge-pack",
+                "TMPDIR=/data/user/0/com.mcgo.app/cache",
+                "MCGO_JAVA_APP_PROCESS=/system/bin/app_process",
+                "MCGO_JAVA_MAIN_CLASS=com.mcgo.app.server.ManagedJavaCli",
+                "MCGO_JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21",
+                "MCGO_JAVA_NATIVE_LAUNCHER_LIB=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so",
+            ),
+            javaArguments = listOf("-jar", "neoforge-installer.jar", "-installServer"),
+        )
+
+        assertThat(command).contains("-Djava.io.tmpdir=/data/user/0/com.mcgo.app/cache")
+        assertThat(command).contains("-Duser.home=/storage/emulated/0/MCGO/servers/neoforge-pack")
+        assertThat(command.indexOf("-Djava.io.tmpdir=/data/user/0/com.mcgo.app/cache"))
+            .isLessThan(command.indexOf("com.mcgo.app.server.ManagedJavaCli"))
+        assertThat(command.indexOf("-Duser.home=/storage/emulated/0/MCGO/servers/neoforge-pack"))
+            .isLessThan(command.indexOf("com.mcgo.app.server.ManagedJavaCli"))
+    }
+
+    @Test
+    fun managedJavaCli_forwardsJvmTmpdirAndUserHomeToNestedHotspotLaunch() {
+        val source = String(Files.readAllBytes(projectRoot().resolve("app/src/main/java/com/mcgo/app/server/ManagedJavaCli.kt")))
+
+        assertThat(source).contains("val tmpDir = System.getProperty(\"java.io.tmpdir\")")
+        assertThat(source).contains("val userHome = System.getProperty(\"user.home\")")
+        assertThat(source).contains("add(\"-Djava.io.tmpdir=${'$'}tmpDir\")")
+        assertThat(source).contains("add(\"-Duser.home=${'$'}userHome\")")
+        assertThat(source.indexOf("add(\"-Djava.io.tmpdir=${'$'}tmpDir\")"))
+            .isLessThan(source.indexOf("addAll(forwardedArgs)"))
+    }
+
+    private fun projectRoot(): Path {
+        var current = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()
+        while (!Files.isRegularFile(current.resolve("settings.gradle.kts"))) {
+            current = current.parent ?: error("Unable to locate project root")
+        }
+        return current
     }
 
     private fun createRuntime(

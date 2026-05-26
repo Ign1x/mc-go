@@ -928,6 +928,8 @@ exit 0
             environment = listOf(
                 "CLASSPATH=/data/app/com.mcgo.app/base.apk",
                 "JAVA_HOME=/data/user/0/com.mcgo.app/files/jre/java-21",
+                "HOME=/storage/emulated/0/MCGO/servers/neoforge-pack",
+                "TMPDIR=/data/user/0/com.mcgo.app/cache",
                 "MCGO_JAVA_APP_PROCESS=/bin/echo",
                 "MCGO_JAVA_MAIN_CLASS=com.mcgo.app.server.ManagedJavaCli",
                 "MCGO_JAVA_CLASSPATH=/data/app/com.mcgo.app/base.apk",
@@ -939,6 +941,8 @@ exit 0
 
         val envText = String(Files.readAllBytes(targetDir.resolve("install-java.txt")))
         assertThat(envText).contains("-Dmcgo.paperJvmLauncher.absoluteLibPath=/data/app/com.mcgo.app/lib/arm64/libpaper_jli_launcher.so")
+        assertThat(envText).contains("-Djava.io.tmpdir=/data/user/0/com.mcgo.app/cache")
+        assertThat(envText).contains("-Duser.home=/storage/emulated/0/MCGO/servers/neoforge-pack")
         assertThat(envText).contains("/system/bin com.mcgo.app.server.ManagedJavaCli /data/user/0/com.mcgo.app/files/jre/java-21 -jar neoforge-21.1.224-installer.jar -installServer")
         assertThat(envText).doesNotContain("missing-java")
         val generatedBootstrapScripts = Files.list(targetDir).use { children ->
