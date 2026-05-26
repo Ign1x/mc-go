@@ -22,7 +22,6 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.mcgo.app.ui.components.McGoCardDialog
 import com.mcgo.app.ui.model.ConsoleErrorColor
 import com.mcgo.app.ui.model.ConsoleInfoColor
 import com.mcgo.app.ui.model.ConsoleTimestampColor
@@ -72,12 +72,8 @@ internal fun ServerConsoleDialog(
         scrollState.scrollTo(scrollState.maxValue)
     }
 
-    AlertDialog(
+    McGoCardDialog(
         onDismissRequest = onDismiss,
-        confirmButton = {},
-        dismissButton = {},
-        containerColor = Color(0xFF1F1F1F),
-        tonalElevation = 0.dp,
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -88,7 +84,7 @@ internal fun ServerConsoleDialog(
                     Text(
                         text = server.name,
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -111,7 +107,7 @@ internal fun ServerConsoleDialog(
                         Text(
                             text = server.launchStatus.label,
                             style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFFD0D7DE),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -157,7 +153,7 @@ internal fun ServerConsoleDialog(
                         Text(
                             text = "在线玩家",
                             style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFD0D7DE),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -167,7 +163,7 @@ internal fun ServerConsoleDialog(
                                 Text(
                                     text = "当前无人在线",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF8B949E),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             } else {
                                 server.onlinePlayerNames.forEach { playerName ->

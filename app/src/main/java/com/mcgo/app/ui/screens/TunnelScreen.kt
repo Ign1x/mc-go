@@ -26,7 +26,6 @@ import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material.icons.outlined.Router
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -49,6 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.network.parseTcpEndpoint
 import com.mcgo.app.ui.components.GlassCard
+import com.mcgo.app.ui.components.McGoCardDialog
 import com.mcgo.app.ui.model.TunnelKind
 import com.mcgo.app.ui.model.TunnelProfile
 import com.mcgo.app.ui.model.TunnelSource
@@ -148,7 +148,7 @@ private fun DeleteTunnelDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    McGoCardDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = onConfirm) { Text("删除") }
@@ -372,7 +372,7 @@ private fun TunnelComposerDialog(
     val canSaveManual = manualEndpoint != null && manualCredential.isNotBlank() && manualPortRange.isNotBlank()
     val canSaveImport = importPreview != null
 
-    AlertDialog(
+    McGoCardDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(

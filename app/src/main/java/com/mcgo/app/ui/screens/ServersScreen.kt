@@ -43,7 +43,6 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +73,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.R
 import com.mcgo.app.ui.components.GlassCard
+import com.mcgo.app.ui.components.McGoCardDialog
 import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
@@ -456,7 +456,7 @@ private fun DeleteServerDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    McGoCardDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = onConfirm) { Text("确认删除") }
@@ -545,7 +545,7 @@ private fun StartServerDialog(
         )
     }
 
-    AlertDialog(
+    McGoCardDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = { onConfirm(resolvedPort, tunnelSelections) }, enabled = runtimeTunnelSupported) {
