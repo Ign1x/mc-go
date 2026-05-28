@@ -873,6 +873,46 @@ exit 0
     }
 
     @Test
+    fun runManagedServerSetupScriptIfNeeded_summarizesNoisyMinecraftClassListingsInsteadOfFloodingCallbacksOrLogs() {
+        val targetDir = Files.createTempDirectory("mcgo-modpack-setup-class-listing")
+        val script = targetDir.resolve("setup.sh")
+        Files.write(
+            script,
+            """#!/bin/sh
+echo setup-started
+echo '  net/minecraft/world/entity/monster/EnderMan.class'
+echo 'net/minecraft/world/entity/monster/Slime.class'
+echo setup-finished
+echo payload > server.jar
+""".toByteArray(),
+        )
+        script.toFile().setExecutable(true, false)
+        approveManagedServerSetupScript(targetDir, script.fileName.toString())
+        val logFile = targetDir.resolve("logs/mcgo-setup.log")
+        val observedLines = mutableListOf<String>()
+
+        val executed = runManagedServerSetupScriptIfNeeded(
+            serverWorkDir = targetDir,
+            shellBinary = "/bin/sh",
+            logFile = logFile,
+            onOutputLine = { line -> observedLines += line },
+        )
+
+        assertThat(executed).isTrue()
+        val logText = String(Files.readAllBytes(logFile))
+        assertThat(logText).contains("setup-started")
+        assertThat(logText).contains("已省略 2 行 Minecraft class 清单输出")
+        assertThat(logText).contains("setup-finished")
+        assertThat(logText).doesNotContain("EnderMan.class")
+        assertThat(logText).doesNotContain("Slime.class")
+        assertThat(observedLines).containsExactly(
+            "setup-started",
+            "[MC-GO] 已省略 2 行 Minecraft class 清单输出（完整启动失败请看后续错误行）",
+            "setup-finished",
+        ).inOrder()
+    }
+
+    @Test
     fun runManagedServerSetupScriptIfNeeded_doesNotInjectNonExecutableBinJavaIntoInstallerBootstrapEnv() {
         val targetDir = Files.createTempDirectory("mcgo-modpack-setup-java-env")
         val script = targetDir.resolve("startserver.sh")

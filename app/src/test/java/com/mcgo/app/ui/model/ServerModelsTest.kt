@@ -1028,6 +1028,36 @@ class ServerModelsTest {
     }
 
     @Test
+    fun resolveServerConsoleText_keepsDebugMarkersWhenTailIsFullOfMinecraftClassListingNoise() {
+        val logFile = Files.createTempFile("mcgo-console-class-listing", ".log")
+        val classLine = "net/minecraft/world/entity/monster/Slime.class\n"
+        Files.write(
+            logFile,
+            buildString {
+                append("[debug] 2026-05-28 09:30:00 JVM 启动参数已生成\n")
+                append(classLine.repeat((MaxServerConsoleLogReadBytes / classLine.length) + 32))
+                append("[debug] 2026-05-28 09:30:12 运行时已退出 | exitCode:1\n")
+            }.toByteArray(),
+        )
+        val server = createPaperServer(
+            name = "ATM10",
+            minecraftVersion = "1.21.1",
+            maxPlayers = 20,
+            memoryMb = 4096,
+        ).copy(
+            runtimeLogs = listOf("fallback-1", "fallback-2"),
+            runtimeLogPath = logFile.toString(),
+        )
+
+        val consoleText = resolveServerConsoleText(server)
+
+        assertThat(consoleText).contains("===== 已过滤 Minecraft class 清单噪声")
+        assertThat(consoleText).contains("JVM 启动参数已生成")
+        assertThat(consoleText).contains("运行时已退出")
+        assertThat(consoleText).doesNotContain("Slime.class")
+    }
+
+    @Test
     fun resolveServerConsoleText_fallsBackWhenRuntimeLogPathIsInvalid() {
         val server = createPaperServer(
             name = "生存服",

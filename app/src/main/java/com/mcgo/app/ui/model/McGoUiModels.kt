@@ -1,5 +1,7 @@
 package com.mcgo.app.ui.model
 
+import com.mcgo.app.server.isMinecraftClassListingLogNoise
+import com.mcgo.app.server.minecraftClassListingSummaryLine
 import java.nio.channels.Channels
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -761,12 +763,65 @@ private fun readServerConsoleRuntimeLogTextOrNull(path: Path): String? = runCatc
         }
         if (startOffset > 0L) {
             val trimmed = text.substringAfter('\n', missingDelimiterValue = text)
-            "===== 仅显示最后 ${MaxServerConsoleLogReadBytes / 1024} KiB 日志 =====\n$trimmed"
+            summarizeMinecraftClassListingNoise(
+                fullPath = path,
+                tailText = trimmed,
+                marker = "===== 仅显示最后 ${MaxServerConsoleLogReadBytes / 1024} KiB 日志 =====",
+            )
         } else {
-            text
+            summarizeMinecraftClassListingNoise(
+                fullPath = path,
+                tailText = text,
+                marker = null,
+            )
         }
     }
 }.getOrNull()
+
+private fun summarizeMinecraftClassListingNoise(fullPath: Path, tailText: String, marker: String?): String {
+    val preservedLines = tailText
+        .lineSequence()
+        .filterNot { isMinecraftClassListingLogNoise(it) }
+        .toMutableList()
+    val removedFromTail = tailText
+        .lineSequence()
+        .count { isMinecraftClassListingLogNoise(it) }
+    if (removedFromTail == 0) {
+        return listOfNotNull(marker, tailText).joinToString(separator = "\n")
+    }
+    val debugMarkers = readManagedConsoleDebugMarkers(fullPath)
+    val bodyLines = buildList {
+        marker?.let(::add)
+        add("===== 已过滤 Minecraft class 清单噪声：${minecraftClassListingSummaryLine(removedFromTail)} =====")
+        debugMarkers.forEach { markerLine ->
+            if (markerLine !in preservedLines) add(markerLine)
+        }
+        addAll(preservedLines)
+    }
+    return bodyLines.joinToString(separator = "\n").trimEnd()
+}
+
+private fun readManagedConsoleDebugMarkers(path: Path): List<String> = runCatching {
+    Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS).use { channel ->
+        val bytesToRead = minOf(channel.size(), MaxServerConsoleDebugMarkerProbeBytes.toLong()).toInt()
+        val buffer = ByteArray(bytesToRead)
+        val input = Channels.newInputStream(channel)
+        var totalRead = 0
+        while (totalRead < bytesToRead) {
+            val read = input.read(buffer, totalRead, bytesToRead - totalRead)
+            if (read <= 0) break
+            totalRead += read
+        }
+        String(buffer, 0, totalRead, Charsets.UTF_8)
+            .lineSequence()
+            .filter { line -> line.startsWith("[debug]") || line.startsWith("[MC-GO]") }
+            .take(MaxServerConsoleDebugMarkerLines)
+            .toList()
+    }
+}.getOrDefault(emptyList())
+
+private const val MaxServerConsoleDebugMarkerLines = 24
+private const val MaxServerConsoleDebugMarkerProbeBytes = 64 * 1024
 
 fun requestServerDeletion(server: ServerCardState): ServerCardState {
     val runtimeBusy = server.isRuntimeBusy()

@@ -18,6 +18,14 @@ private const val MaxManagedServerSetupScriptProbeBytes = 64 * 1024
 private const val MaxManagedServerSetupScriptRewriteBytes = 1024 * 1024
 private const val MaxManagedServerSetupApprovalMarkerBytes = 4 * 1024
 
+private val MinecraftClassListingLineRegex = Regex("^\\s*(?:[a-z][a-z0-9_]*\\/)*net/minecraft/.+\\.class\\s*$", RegexOption.IGNORE_CASE)
+
+internal fun isMinecraftClassListingLogNoise(line: String): Boolean =
+    MinecraftClassListingLineRegex.matches(line)
+
+internal fun minecraftClassListingSummaryLine(count: Int): String =
+    "[MC-GO] 已省略 $count 行 Minecraft class 清单输出（完整启动失败请看后续错误行）"
+
 private fun isManagedServerRegularFile(path: Path): Boolean =
     Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path)
 
@@ -299,15 +307,30 @@ fun runManagedServerSetupScriptIfNeeded(
             java.nio.file.StandardOpenOption.CREATE,
             java.nio.file.StandardOpenOption.APPEND,
         ).bufferedWriter().use { logWriter ->
+            var suppressedMinecraftClassListingLines = 0
+            fun flushSuppressedMinecraftClassListingLines() {
+                if (suppressedMinecraftClassListingLines == 0) return
+                val summary = minecraftClassListingSummaryLine(suppressedMinecraftClassListingLines)
+                suppressedMinecraftClassListingLines = 0
+                logWriter.appendLine(summary)
+                logWriter.flush()
+                onOutputLine?.invoke(summary)
+            }
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { rawLine ->
                     val line = rawLine.trimEnd()
                     if (line.isBlank()) return@forEach
+                    if (isMinecraftClassListingLogNoise(line)) {
+                        suppressedMinecraftClassListingLines += 1
+                        return@forEach
+                    }
+                    flushSuppressedMinecraftClassListingLines()
                     logWriter.appendLine(line)
                     logWriter.flush()
                     onOutputLine?.invoke(line)
                 }
             }
+            flushSuppressedMinecraftClassListingLines()
         }
         val exitCode = process.waitFor()
         appendSetupDebugLine(
