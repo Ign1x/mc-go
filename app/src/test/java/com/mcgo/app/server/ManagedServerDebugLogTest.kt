@@ -69,6 +69,32 @@ class ManagedServerDebugLogTest {
     }
 
     @Test
+    fun recentDebugLogPreview_summarizesMinecraftClassListingNoise() {
+        val filesDir = Files.createTempDirectory("mcgo-recent-debug-preview-class-listing")
+        val serverLog = managedPaperServerLogFile(filesDir, "atm10")
+        Files.createDirectories(serverLog.parent)
+        Files.write(
+            serverLog,
+            listOf(
+                "[debug] JVM 启动参数已生成",
+                "net/minecraft/world/level/block/piston/PistonMath$1.class",
+                "  net/minecraft/world/level/block/state/BlockBehaviour.class",
+                "net/minecraft/world/level/block/state/properties/",
+                "[debug] 运行时已退出 | exitCode:1",
+            ).joinToString(separator = "\n", postfix = "\n").toByteArray(),
+        )
+
+        val preview = readRecentDebugLogPreview(filesDir = filesDir, maxLinesPerFile = 10)
+
+        assertThat(preview).contains("[debug] JVM 启动参数已生成")
+        assertThat(preview).contains("[debug] 运行时已退出")
+        assertThat(preview).contains("已省略 3 行 Minecraft class 清单输出")
+        assertThat(preview).doesNotContain("PistonMath")
+        assertThat(preview).doesNotContain("BlockBehaviour.class")
+        assertThat(preview).doesNotContain("state/properties/")
+    }
+
+    @Test
     fun recentDebugLogPreview_ignoresSymlinkedLogFiles() {
         val filesDir = Files.createTempDirectory("mcgo-recent-debug-preview-link")
         val serverLog = managedPaperServerLogFile(filesDir, "survival")

@@ -172,6 +172,34 @@ class MCGoSettingsHelpContractTest {
     }
 
     @Test
+    fun logExportFileReadability_summarizesMinecraftClassListingNoise() {
+        val logFile = Files.createTempFile("mcgo-class-list-log-export", ".log")
+        try {
+            Files.write(
+                logFile,
+                listOf(
+                    "[debug] JVM 启动参数已生成",
+                    "net/minecraft/world/level/block/piston/PistonMovingBlockEntity.class",
+                    "  net/minecraft/world/level/chunk/PalettedContainerRO\$Unpacker.class",
+                    "net/minecraft/world/level/levelgen/",
+                    "[debug] 运行时已退出 | exitCode:1",
+                ).joinToString(separator = "\n", postfix = "\n").toByteArray(),
+            )
+
+            val exported = readNoFollowLogExportTailText(logFile, maxBytes = 4096)
+
+            assertThat(exported).contains("JVM 启动参数已生成")
+            assertThat(exported).contains("运行时已退出")
+            assertThat(exported).contains("已省略 3 行 Minecraft class 清单输出")
+            assertThat(exported).doesNotContain("PistonMovingBlockEntity.class")
+            assertThat(exported).doesNotContain("PalettedContainerRO")
+            assertThat(exported).doesNotContain("levelgen/")
+        } finally {
+            Files.deleteIfExists(logFile)
+        }
+    }
+
+    @Test
     fun logExportRedaction_hidesCredentialsRawFrpConfigAndCommonSecretKeysOnly() {
         val redacted = redactSensitiveLogExportText(
             """

@@ -8,6 +8,7 @@ import androidx.core.content.FileProvider
 import com.mcgo.app.server.appendMcGoAppDebugLog
 import com.mcgo.app.server.buildManagedServerDebugLogLine
 import com.mcgo.app.server.mcGoAppDebugLogFile
+import com.mcgo.app.server.summarizeMinecraftClassListingLogLines
 import java.io.ByteArrayOutputStream
 import java.nio.channels.Channels
 import java.nio.file.Files
@@ -99,11 +100,20 @@ internal fun readNoFollowLogExportTailText(
         readUpToByteCount(input, bytesToRead).toString(Charsets.UTF_8)
     }
     if (startOffset <= 0L) {
-        tailText
+        summarizeLogExportClassListingNoise(tailText)
     } else {
         val body = if (startsAtLineBoundary) tailText else tailText.substringAfter('\n', missingDelimiterValue = "")
-        "<truncated to last $bytesToRead bytes>\n" + body
+        "<truncated to last $bytesToRead bytes>\n" + summarizeLogExportClassListingNoise(body)
     }
+}
+
+private fun summarizeLogExportClassListingNoise(text: String): String {
+    val hasTrailingNewline = text.endsWith('\n')
+    val lines = if (hasTrailingNewline) text.dropLast(1).lines() else text.lines()
+    val summarizedLines = summarizeMinecraftClassListingLogLines(lines)
+    if (summarizedLines == lines) return text
+    val summarized = summarizedLines.joinToString(separator = "\n")
+    return if (hasTrailingNewline && summarized.isNotEmpty()) "$summarized\n" else summarized
 }
 
 private fun readUpToByteCount(input: java.io.InputStream, byteCount: Int): ByteArray {

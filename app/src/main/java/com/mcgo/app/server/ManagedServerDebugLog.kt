@@ -125,10 +125,11 @@ private fun readLastDebugLogLines(path: Path, maxLines: Int): List<String> {
 
         val text = String(bytes.toByteArray(), StandardCharsets.UTF_8).trimEnd('\r', '\n')
         if (text.isEmpty()) return emptyList()
-        return text.lines()
+        val rawTailLines = text.lines()
             .filterIndexed { index, _ -> index != 0 || newlineCount <= lineLimit }
             .takeLast(lineLimit)
             .toList()
+        return summarizeMinecraftClassListingLogLines(rawTailLines)
     }
 }
 
