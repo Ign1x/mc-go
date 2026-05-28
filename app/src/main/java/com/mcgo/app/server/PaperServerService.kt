@@ -568,7 +568,7 @@ open class PaperServerService : Service() {
             while (isActive) {
                 val tail = readAppendedNonBlankLinesWithOffset(logFile, logOffset)
                 logOffset = tail.nextOffset
-                tail.lines.forEach { line ->
+                forEachSummarizedMinecraftClassListingLogLine(tail.lines) { line ->
                     val updatedOnlinePlayers = updatedOnlinePlayersFromLogLine(onlinePlayers, line)
                     if (updatedOnlinePlayers != null) {
                         onlinePlayers = updatedOnlinePlayers

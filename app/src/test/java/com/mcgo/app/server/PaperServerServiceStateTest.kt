@@ -145,8 +145,34 @@ class PaperServerServiceStateTest {
 
         assertThat(source).contains("val tail = readAppendedNonBlankLinesWithOffset(logFile, logOffset)")
         assertThat(source).contains("logOffset = tail.nextOffset")
-        assertThat(source).contains("tail.lines.forEach { line ->")
+        assertThat(source).contains("forEachSummarizedMinecraftClassListingLogLine(tail.lines) { line ->")
+        assertThat(source).doesNotContain("tail.lines.forEach { line ->")
         assertThat(source).doesNotContain("Files.size(logFile)")
+    }
+
+    @Test
+    fun minecraftClassListingNoiseRecognizer_matchesDirectoryEntriesAndNestedClassEntries() {
+        assertThat(isMinecraftClassListingLogNoise("  net/minecraft/world/entity/monster/Slime.class")).isTrue()
+        assertThat(isMinecraftClassListingLogNoise("net/minecraft/world/entity/monster/breeze/")).isTrue()
+        assertThat(isMinecraftClassListingLogNoise("net/minecraft/world/item/enchantment/ItemEnchantments.class")).isTrue()
+        assertThat(isMinecraftClassListingLogNoise("[12:00:00 INFO]: net.minecraft.server.Main started")).isFalse()
+    }
+
+    @Test
+    fun runtimeLogNoiseSummarizer_collapsesConsecutiveMinecraftClassAndDirectoryListingLines() {
+        val lines = listOf(
+            "[debug] JVM 启动参数已生成",
+            "  net/minecraft/world/entity/monster/Slime.class",
+            "net/minecraft/world/entity/monster/breeze/",
+            "net/minecraft/world/item/enchantment/ItemEnchantments.class",
+            "[debug] 运行时已退出 | exitCode=1",
+        )
+
+        assertThat(summarizeMinecraftClassListingLogLines(lines)).containsExactly(
+            "[debug] JVM 启动参数已生成",
+            "[MC-GO] 已省略 3 行 Minecraft class 清单输出（完整启动失败请看后续错误行）",
+            "[debug] 运行时已退出 | exitCode=1",
+        ).inOrder()
     }
 
     @Test
