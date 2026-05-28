@@ -302,7 +302,7 @@ fun ServerCardState.stopServer(): ServerCardState = clearTunnelRuntimeBindings()
     runtimeAddress = null,
     launchStatus = ServerLaunchStatus.Stopped,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + "服务器已停止").takeLast(MaxServerRuntimeLogEntries),
+    runtimeLogs = appendRuntimeLogEntries(runtimeLogs, listOf("服务器已停止")),
     runtimeSlot = null,
 )
 

@@ -2,6 +2,7 @@ package com.mcgo.app.ui.model
 
 import com.mcgo.app.server.isMinecraftClassListingLogNoise
 import com.mcgo.app.server.minecraftClassListingSummaryLine
+import com.mcgo.app.server.summarizeMinecraftClassListingLogLines
 import java.nio.channels.Channels
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -488,7 +489,7 @@ fun ServerCardState.withLaunchProgress(
     isOnline = online,
     launchStatus = status,
     launchProgress = progress.coerceIn(0, 100),
-    runtimeLogs = (runtimeLogs + listOfNotNull(logLine)).takeLast(MaxServerRuntimeLogEntries),
+    runtimeLogs = appendRuntimeLogEntries(runtimeLogs, listOfNotNull(logLine)),
 )
 
 fun ServerCardState.markAwaitingManagedRuntimeInstall(majorVersion: Int): ServerCardState =
@@ -541,7 +542,7 @@ fun ServerCardState.markLaunchRunning(logLine: String = "服务端进程已进�
     isOnline = true,
     launchStatus = ServerLaunchStatus.Running,
     launchProgress = 100,
-    runtimeLogs = (runtimeLogs + logLine).takeLast(MaxServerRuntimeLogEntries),
+    runtimeLogs = appendRuntimeLogEntries(runtimeLogs, listOf(logLine)),
 )
 
 fun ServerCardState.markLaunchFailed(error: String): ServerCardState = clearTunnelRuntimeBindings().copy(
@@ -552,7 +553,7 @@ fun ServerCardState.markLaunchFailed(error: String): ServerCardState = clearTunn
     runtimeAddress = null,
     launchStatus = ServerLaunchStatus.Failed,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + "启动失败：$error").takeLast(MaxServerRuntimeLogEntries),
+    runtimeLogs = appendRuntimeLogEntries(runtimeLogs, listOf("启动失败：$error")),
     runtimeSlot = null,
 )
 
@@ -564,7 +565,7 @@ fun ServerCardState.markModpackImportRecoveredAfterSyncFailure(error: String): S
     runtimeAddress = null,
     launchStatus = ServerLaunchStatus.Failed,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + "导入整合包后同步失败：$error").takeLast(MaxServerRuntimeLogEntries),
+    runtimeLogs = appendRuntimeLogEntries(runtimeLogs, listOf("导入整合包后同步失败：$error")),
     runtimeSlot = null,
 )
 
@@ -572,8 +573,14 @@ fun ServerCardState.markModpackImportInProgress(progress: Int, logLine: String):
     isOnline = false,
     launchStatus = ServerLaunchStatus.Launching,
     launchProgress = progress.coerceIn(1, 99),
-    runtimeLogs = (runtimeLogs + logLine).takeLast(MaxServerRuntimeLogEntries),
+    runtimeLogs = appendRuntimeLogEntries(runtimeLogs, listOf(logLine)),
 )
+
+fun sanitizedRuntimeLogEntries(runtimeLogs: List<String>): List<String> =
+    summarizeMinecraftClassListingLogLines(runtimeLogs).takeLast(MaxServerRuntimeLogEntries)
+
+internal fun appendRuntimeLogEntries(existingLogs: List<String>, newLogs: List<String>): List<String> =
+    sanitizedRuntimeLogEntries(existingLogs + newLogs)
 
 fun ServerCardState.isRuntimeBusy(): Boolean =
     isOnline || launchStatus == ServerLaunchStatus.Launching || launchStatus == ServerLaunchStatus.Stopping || launchStatus == ServerLaunchStatus.Running
@@ -738,7 +745,7 @@ fun resolveServerConsoleText(server: ServerCardState): String =
     server.runtimeLogPath
         ?.let(::readServerConsoleRuntimeLogTextOrNull)
         ?.takeIf { it.isNotBlank() }
-        ?: server.runtimeLogs.joinToString(separator = "\n")
+        ?: sanitizedRuntimeLogEntries(server.runtimeLogs).joinToString(separator = "\n")
 
 private fun readServerConsoleRuntimeLogTextOrNull(rawPath: String): String? = runCatching {
     readServerConsoleRuntimeLogTextOrNull(Paths.get(rawPath))
@@ -834,7 +841,7 @@ fun requestServerDeletion(server: ServerCardState): ServerCardState {
         pendingDeletion = true,
         launchStatus = if (runtimeBusy) ServerLaunchStatus.Stopping else server.launchStatus,
         launchProgress = if (runtimeBusy) 1 else server.launchProgress,
-        runtimeLogs = (server.runtimeLogs + deleteMessage).takeLast(MaxServerRuntimeLogEntries),
+        runtimeLogs = appendRuntimeLogEntries(server.runtimeLogs, listOf(deleteMessage)),
     )
 }
 
@@ -861,7 +868,7 @@ fun ServerCardState.markUnsupportedManagedRuntime(supportedProvisionableVersions
             runtimeAddress = null,
             launchStatus = ServerLaunchStatus.Failed,
             launchProgress = 0,
-            runtimeLogs = (runtimeLogs + reason).distinct().takeLast(MaxServerRuntimeLogEntries),
+            runtimeLogs = appendRuntimeLogEntries(runtimeLogs, listOf(reason)).distinct(),
             runtimeSlot = null,
         )
     }

@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
+import com.mcgo.app.ui.model.sanitizedRuntimeLogEntries
 import com.mcgo.app.ui.model.resolveServerConsoleText
 
 @Composable
@@ -100,7 +101,7 @@ internal fun isModpackImportProgressActive(
     latestRuntimeLog.contains("整合包导入")
 
 internal fun visibleRuntimeProgressLogs(runtimeLogs: List<String>): List<String> =
-    runtimeLogs.takeLast(1)
+    sanitizedRuntimeLogEntries(runtimeLogs).takeLast(1)
 
 internal fun runtimeProgressTitle(
     launchStatus: ServerLaunchStatus,

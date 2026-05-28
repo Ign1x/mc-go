@@ -1,7 +1,6 @@
 package com.mcgo.app.server
 
 import android.content.Context
-import com.mcgo.app.ui.model.MaxServerRuntimeLogEntries
 import com.mcgo.app.ui.model.ServerCardState
 import com.mcgo.app.ui.model.ServerLaunchStatus
 import com.mcgo.app.ui.model.clearTunnelRuntimeBindings
@@ -10,6 +9,7 @@ import com.mcgo.app.ui.model.finalizePendingServerDeletion
 import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markLaunchFailed
 import com.mcgo.app.ui.model.markLaunchRunning
+import com.mcgo.app.ui.model.sanitizedRuntimeLogEntries
 import com.mcgo.app.ui.model.withLaunchProgress
 import com.mcgo.app.ui.model.withTunnelBindings
 import com.mcgo.app.ui.storage.ServerProfileStore
@@ -54,7 +54,7 @@ fun reducePaperRuntimeEvent(server: ServerCardState, event: PaperServerEvent): S
         null -> mergedServer.copy(
             onlinePlayers = resolvedOnlinePlayers,
             onlinePlayerNames = resolvedOnlinePlayerNames,
-            runtimeLogs = (mergedServer.runtimeLogs + event.message).takeLast(MaxServerRuntimeLogEntries),
+            runtimeLogs = sanitizedRuntimeLogEntries(mergedServer.runtimeLogs + event.message),
         )
     }
 }
@@ -141,7 +141,7 @@ fun reconcilePersistedRuntimeState(
 private fun ServerCardState.markLaunchStopping(message: String): ServerCardState = copy(
     launchStatus = ServerLaunchStatus.Stopping,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + message).takeLast(MaxServerRuntimeLogEntries),
+    runtimeLogs = sanitizedRuntimeLogEntries(runtimeLogs + message),
 )
 
 private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, message: String): ServerCardState = clearTunnelRuntimeBindings().copy(
@@ -153,6 +153,6 @@ private fun ServerCardState.clearRuntimeState(status: ServerLaunchStatus, messag
     runtimeAddress = null,
     launchStatus = status,
     launchProgress = 0,
-    runtimeLogs = (runtimeLogs + message).takeLast(MaxServerRuntimeLogEntries),
+    runtimeLogs = sanitizedRuntimeLogEntries(runtimeLogs + message),
     runtimeSlot = null,
 )

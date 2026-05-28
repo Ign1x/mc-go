@@ -16,6 +16,7 @@ import com.mcgo.app.ui.model.createQuiltServer
 import com.mcgo.app.ui.model.createVanillaServer
 import com.mcgo.app.ui.model.effectiveTunnelBindings
 import com.mcgo.app.ui.model.recommendedJavaMajorVersion
+import com.mcgo.app.ui.model.sanitizedRuntimeLogEntries
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
@@ -96,9 +97,9 @@ class ServerProfileStore(
             val pendingDeletion = properties.getProperty(prefix + "pendingDeletion")?.toBooleanStrictOrNull() ?: false
             val serverIconVersion = properties.getProperty(prefix + "serverIconVersion")?.toLongOrNull() ?: 0L
             val runtimeLogCount = properties.getProperty(prefix + "runtimeLogCount")?.toIntOrNull() ?: 0
-            val runtimeLogs = (0 until runtimeLogCount).mapNotNull { logIndex ->
+            val runtimeLogs = sanitizedRuntimeLogEntries((0 until runtimeLogCount).mapNotNull { logIndex ->
                 properties.getProperty(prefix + "runtimeLog.$logIndex")
-            }
+            })
 
             when (serverType) {
                 MinecraftServerType.Vanilla -> createVanillaServer(
@@ -420,7 +421,8 @@ class ServerProfileStore(
             properties.setProperty(prefix + "isOnline", server.isOnline.toString())
             properties.setProperty(prefix + "launchStatus", server.launchStatus.name)
             properties.setProperty(prefix + "launchProgress", server.launchProgress.toString())
-            properties.setProperty(prefix + "runtimeLogCount", server.runtimeLogs.size.toString())
+            val sanitizedRuntimeLogs = sanitizedRuntimeLogEntries(server.runtimeLogs)
+            properties.setProperty(prefix + "runtimeLogCount", sanitizedRuntimeLogs.size.toString())
             server.selectedTunnelId?.let { properties.setProperty(prefix + "selectedTunnelId", it) }
             server.activeTunnelLabel?.let { properties.setProperty(prefix + "activeTunnelLabel", it) }
             server.runtimeAddress?.let { properties.setProperty(prefix + "runtimeAddress", it) }
@@ -428,7 +430,7 @@ class ServerProfileStore(
             server.runtimeSlot?.let { properties.setProperty(prefix + "runtimeSlot", it.toString()) }
             properties.setProperty(prefix + "pendingDeletion", server.pendingDeletion.toString())
             server.serverIconVersion.takeIf { it > 0L }?.let { properties.setProperty(prefix + "serverIconVersion", it.toString()) }
-            server.runtimeLogs.forEachIndexed { logIndex, logLine ->
+            sanitizedRuntimeLogs.forEachIndexed { logIndex, logLine ->
                 properties.setProperty(prefix + "runtimeLog.$logIndex", logLine)
             }
         }

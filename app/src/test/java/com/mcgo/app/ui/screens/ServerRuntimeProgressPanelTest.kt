@@ -28,6 +28,20 @@ class ServerRuntimeProgressPanelTest {
     }
 
     @Test
+    fun visibleRuntimeProgressLogs_collapsesPersistedMinecraftClassListingTailBeforeShowingLatestLine() {
+        val noisyLogs = listOf(
+            "[debug] JVM 启动参数已生成",
+            "net/minecraft/world/level/block/entity/SignText.class",
+            "  net/minecraft/world/level/block/entity/SkullBlockEntity.class",
+            "net/minecraft/world/level/block/entity/trialspawner/",
+        )
+
+        assertThat(visibleRuntimeProgressLogs(noisyLogs)).containsExactly(
+            "[MC-GO] 已省略 3 行 Minecraft class 清单输出（完整启动失败请看后续错误行）",
+        )
+    }
+
+    @Test
     fun runtimeProgressTitle_prefersStoppingThenImportThenLaunch() {
         assertThat(runtimeProgressTitle(ServerLaunchStatus.Stopping, importProgressActive = true))
             .isEqualTo("停止进度")

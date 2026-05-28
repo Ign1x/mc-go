@@ -1073,6 +1073,33 @@ class ServerModelsTest {
     }
 
     @Test
+    fun resolveServerConsoleText_summarizesMinecraftClassListingNoiseWhenFallingBackToRuntimeLogs() {
+        val server = createPaperServer(
+            name = "ATM10",
+            minecraftVersion = "1.21.1",
+            maxPlayers = 20,
+            memoryMb = 4096,
+        ).copy(
+            runtimeLogs = listOf(
+                "[debug] JVM 启动参数已生成",
+                "net/minecraft/world/level/block/entity/SignText.class",
+                "  net/minecraft/world/level/block/entity/SkullBlockEntity.class",
+                "net/minecraft/world/level/block/entity/trialspawner/",
+                "[debug] 运行时已退出 | exitCode=1",
+            ),
+            runtimeLogPath = "\u0000invalid-path",
+        )
+
+        val consoleText = resolveServerConsoleText(server)
+
+        assertThat(consoleText).contains("JVM 启动参数已生成")
+        assertThat(consoleText).contains("运行时已退出")
+        assertThat(consoleText).contains("已省略 3 行 Minecraft class 清单输出")
+        assertThat(consoleText).doesNotContain("SignText.class")
+        assertThat(consoleText).doesNotContain("trialspawner/")
+    }
+
+    @Test
     fun serverConsoleRuntimeLogSource_usesBoundedNoFollowReads() {
         val modelSource = readSource("app/src/main/java/com/mcgo/app/ui/model/McGoUiModels.kt")
 

@@ -115,7 +115,6 @@ import com.mcgo.app.ui.components.FluidGradientBackground
 import com.mcgo.app.ui.model.AppearancePreferences
 import com.mcgo.app.ui.model.AppearancePreferencesSaver
 import com.mcgo.app.ui.model.JavaSelectionMode
-import com.mcgo.app.ui.model.MaxServerRuntimeLogEntries
 import com.mcgo.app.ui.model.McGoPageChrome
 import com.mcgo.app.ui.model.SettingsDestination
 import com.mcgo.app.ui.model.ServerCardState
@@ -128,6 +127,7 @@ import com.mcgo.app.ui.model.applyTunnelLatencyResults
 import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.MinecraftServerType.Paper
 
+import com.mcgo.app.ui.model.appendRuntimeLogEntries
 import com.mcgo.app.ui.model.canStartServerFromUi
 import com.mcgo.app.ui.model.defaultJavaManagementState
 import com.mcgo.app.ui.model.detachDeletedTunnel
@@ -1730,7 +1730,7 @@ private fun MCGoAppScaffold(
                                 if (server.id == serverId) {
                                     server.copy(
                                         launchStatus = ServerLaunchStatus.Stopping,
-                                        runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(MaxServerRuntimeLogEntries),
+                                        runtimeLogs = appendRuntimeLogEntries(server.runtimeLogs, listOf(stopRequestMessage())),
                                     )
                                 } else {
                                     server
@@ -1748,7 +1748,7 @@ private fun MCGoAppScaffold(
                                 val updatedServers = finalizePendingServerDeletion(
                                     servers.map { server ->
                                         if (server.id == serverId) requestServerDeletion(server).copy(
-                                            runtimeLogs = (server.runtimeLogs + stopRequestMessage()).takeLast(MaxServerRuntimeLogEntries),
+                                            runtimeLogs = appendRuntimeLogEntries(server.runtimeLogs, listOf(stopRequestMessage())),
                                         ) else server
                                     },
                                 )

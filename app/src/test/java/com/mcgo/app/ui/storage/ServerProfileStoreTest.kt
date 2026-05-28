@@ -2,7 +2,9 @@ package com.mcgo.app.ui.storage
 
 import com.google.common.truth.Truth.assertThat
 import com.mcgo.app.ui.model.JavaSelectionMode
+import com.mcgo.app.ui.model.MinecraftServerType
 import com.mcgo.app.ui.model.ServerTunnelBinding
+import com.mcgo.app.ui.model.createForgeServer
 import com.mcgo.app.ui.model.createPaperServer
 import com.mcgo.app.ui.model.effectiveTunnelBindings
 import com.mcgo.app.ui.model.withTunnelBindings
@@ -99,6 +101,36 @@ class ServerProfileStoreTest {
         assertThat(loaded.runtimeSlot).isEqualTo(2)
         assertThat(loaded.onlineMode).isFalse()
         assertThat(loaded.pvpEnabled).isFalse()
+    }
+
+    @Test
+    fun saveAndLoad_summarizesPersistedMinecraftClassListingRuntimeLogs() {
+        val storeFile = Files.createTempFile("mcgo-server-store-class-list-noise", ".properties")
+        val store = ServerProfileStore(storeFile)
+        val server = createForgeServer(
+            name = "ATM10",
+            minecraftVersion = "1.21.1",
+            maxPlayers = 20,
+            memoryMb = 4096,
+        ).copy(
+            runtimeLogs = listOf(
+                "[debug] JVM 启动参数已生成",
+                "net/minecraft/world/level/block/entity/SignText.class",
+                "  net/minecraft/world/level/block/entity/SkullBlockEntity.class",
+                "net/minecraft/world/level/block/entity/trialspawner/",
+                "[debug] 运行时已退出 | exitCode=1",
+            ),
+        )
+
+        store.save(listOf(server))
+        val loaded = store.load().single()
+
+        assertThat(loaded.serverType).isEqualTo(MinecraftServerType.Forge)
+        assertThat(loaded.runtimeLogs).containsExactly(
+            "[debug] JVM 启动参数已生成",
+            "[MC-GO] 已省略 3 行 Minecraft class 清单输出（完整启动失败请看后续错误行）",
+            "[debug] 运行时已退出 | exitCode=1",
+        ).inOrder()
     }
 
     @Test
