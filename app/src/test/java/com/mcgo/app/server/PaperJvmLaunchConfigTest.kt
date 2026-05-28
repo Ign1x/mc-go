@@ -178,6 +178,8 @@ class PaperJvmLaunchConfigTest {
 
         assertThat(forgeConfig.arguments).contains("@user_jvm_args.txt")
         assertThat(forgeConfig.arguments.any { it.contains("unix_args.txt") }).isTrue()
+        assertThat(forgeConfig.arguments).contains("nogui")
+        assertThat(forgeConfig.arguments.indexOf("nogui")).isGreaterThan(forgeConfig.arguments.indexOfFirst { it.contains("unix_args.txt") })
         assertThat(forgeConfig.arguments).doesNotContain("-jar")
         assertThat(quiltConfig.arguments).contains("-jar")
         assertThat(quiltConfig.arguments).contains(quiltDir.resolve("quilt-server-launch.jar").toString())
@@ -295,6 +297,32 @@ class PaperJvmLaunchConfigTest {
         )
 
         assertThat(config.arguments).contains("@libraries/net/minecraftforge/forge/1.21.4-54.1.8/unix_args.txt")
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_addsNoguiAfterImportedNeoForgeArgfile() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-atm10-nogui")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-atm10-nogui")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createNeoForgeServer("ATM10", "1.21.1", maxPlayers = 20, memoryMb = 4096, port = 25565)
+        val serverDir = managedPaperServerDirectory(filesDir, server.id)
+        val argsRelative = "libraries/net/neoforged/neoforge/21.1.215/unix_args.txt"
+        Files.createDirectories(serverDir.resolve("libraries/net/neoforged/neoforge/21.1.215"))
+        Files.write(serverDir.resolve(argsRelative), "--launchTarget neoforgeserver\n".toByteArray())
+        Files.write(serverDir.resolve("user_jvm_args.txt"), "# user args\n".toByteArray())
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        val argfileIndex = config.arguments.indexOf("@$argsRelative")
+        assertThat(argfileIndex).isAtLeast(0)
+        assertThat(config.arguments).contains("nogui")
+        assertThat(config.arguments.indexOf("nogui")).isGreaterThan(argfileIndex)
     }
 
     @Test

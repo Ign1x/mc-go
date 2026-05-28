@@ -122,12 +122,14 @@ fun buildManagedPaperLaunchConfig(
                 add("@user_jvm_args.txt")
                 val installedArgs = resolveInstalledForgeUnixArgsRelativePath(preparedFiles.workDir, server.minecraftVersion)
                 add("@${installedArgs ?: "libraries/net/minecraftforge/forge/${resolveLatestForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"}")
+                add("nogui")
             }
             com.mcgo.app.ui.model.MinecraftServerType.NeoForge -> {
                 ensureManagedUserJvmArgsFile(preparedFiles.workDir, server)
                 add("@user_jvm_args.txt")
                 val installedArgs = resolveInstalledNeoForgeUnixArgsRelativePath(preparedFiles.workDir, server.minecraftVersion)
                 add("@${installedArgs ?: "libraries/net/neoforged/neoforge/${resolveLatestNeoForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"}")
+                add("nogui")
             }
             com.mcgo.app.ui.model.MinecraftServerType.Quilt -> {
                 val quiltLaunchJar = preparedFiles.workDir.resolve("quilt-server-launch.jar")
