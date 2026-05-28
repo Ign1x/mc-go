@@ -176,10 +176,10 @@ class PaperJvmLaunchConfigTest {
             is64BitProcess = true,
         )
 
-        assertThat(forgeConfig.arguments).contains("@user_jvm_args.txt")
-        assertThat(forgeConfig.arguments.any { it.contains("unix_args.txt") }).isTrue()
-        assertThat(forgeConfig.arguments).contains("nogui")
-        assertThat(forgeConfig.arguments.indexOf("nogui")).isGreaterThan(forgeConfig.arguments.indexOfFirst { it.contains("unix_args.txt") })
+        assertThat(forgeConfig.arguments).doesNotContain("@user_jvm_args.txt")
+        assertThat(forgeConfig.arguments.none { it.contains("unix_args.txt") }).isTrue()
+        assertThat(forgeConfig.arguments).containsAtLeast("-Xms1536M", "-Xmx3072M", "--launchTarget", "forgeserver", "nogui")
+        assertThat(forgeConfig.arguments.indexOf("nogui")).isGreaterThan(forgeConfig.arguments.indexOf("forgeserver"))
         assertThat(forgeConfig.arguments).doesNotContain("-jar")
         assertThat(quiltConfig.arguments).contains("-jar")
         assertThat(quiltConfig.arguments).contains(quiltDir.resolve("quilt-server-launch.jar").toString())
@@ -203,7 +203,7 @@ class PaperJvmLaunchConfigTest {
             is64BitProcess = true,
         )
 
-        assertThat(config.arguments).contains("@user_jvm_args.txt")
+        assertThat(config.arguments).doesNotContain("@user_jvm_args.txt")
         assertThat(Files.isRegularFile(forgeDir.resolve("user_jvm_args.txt"))).isTrue()
         val generatedArgs = String(Files.readAllBytes(forgeDir.resolve("user_jvm_args.txt")))
         assertThat(generatedArgs).contains("-Xms1536M")
@@ -267,7 +267,7 @@ class PaperJvmLaunchConfigTest {
             is64BitProcess = true,
         )
 
-        assertThat(config.arguments).contains("@user_jvm_args.txt")
+        assertThat(config.arguments).doesNotContain("@user_jvm_args.txt")
         val sanitized = String(Files.readAllBytes(serverDir.resolve("user_jvm_args.txt")))
         assertThat(sanitized).contains("-Xms1024M")
         assertThat(sanitized).contains("-Xmx2048M")
@@ -296,7 +296,8 @@ class PaperJvmLaunchConfigTest {
             is64BitProcess = true,
         )
 
-        assertThat(config.arguments).contains("@libraries/net/minecraftforge/forge/1.21.4-54.1.8/unix_args.txt")
+        assertThat(config.arguments).containsAtLeast("--launchTarget", "forgeserver")
+        assertThat(config.arguments).doesNotContain("@libraries/net/minecraftforge/forge/1.21.4-54.1.8/unix_args.txt")
     }
 
     @Test
@@ -319,10 +320,98 @@ class PaperJvmLaunchConfigTest {
             is64BitProcess = true,
         )
 
-        val argfileIndex = config.arguments.indexOf("@$argsRelative")
-        assertThat(argfileIndex).isAtLeast(0)
+        val launchTargetIndex = config.arguments.indexOf("neoforgeserver")
+        assertThat(launchTargetIndex).isAtLeast(0)
+        assertThat(config.arguments).doesNotContain("@$argsRelative")
         assertThat(config.arguments).contains("nogui")
-        assertThat(config.arguments.indexOf("nogui")).isGreaterThan(argfileIndex)
+        assertThat(config.arguments.indexOf("nogui")).isGreaterThan(launchTargetIndex)
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_expandsNeoForgeArgfilesBeforeNativeJliLaunch() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-atm10-expanded-argfiles")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-atm10-expanded-argfiles")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createNeoForgeServer("ATM10", "1.21.1", maxPlayers = 20, memoryMb = 4096, port = 25565)
+        val serverDir = managedPaperServerDirectory(filesDir, server.id)
+        val argsRelative = "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt"
+        Files.createDirectories(serverDir.resolve("libraries/net/neoforged/neoforge/21.1.228"))
+        Files.write(
+            serverDir.resolve("user_jvm_args.txt"),
+            """
+            -Xms1G
+            -Xmx8G
+            -XX:+UseG1GC
+            """.trimIndent().toByteArray(),
+        )
+        Files.write(
+            serverDir.resolve(argsRelative),
+            """
+            --launchTarget
+            neoforgeserver
+            --fml.neoForgeVersion
+            21.1.228
+            cpw.mods.bootstraplauncher.BootstrapLauncher
+            """.trimIndent().toByteArray(),
+        )
+
+        val config = buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        assertThat(config.arguments).doesNotContain("@user_jvm_args.txt")
+        assertThat(config.arguments).doesNotContain("@$argsRelative")
+        assertThat(config.arguments).contains("-Xms2048M")
+        assertThat(config.arguments).contains("-Xmx4096M")
+        assertThat(config.arguments).contains("-XX:+UseG1GC")
+        assertThat(config.arguments).containsAtLeast("--launchTarget", "neoforgeserver", "cpw.mods.bootstraplauncher.BootstrapLauncher", "nogui")
+        assertThat(config.arguments.indexOf("-Xmx4096M")).isLessThan(config.arguments.indexOf("--launchTarget"))
+        assertThat(config.arguments.indexOf("nogui")).isGreaterThan(config.arguments.indexOf("cpw.mods.bootstraplauncher.BootstrapLauncher"))
+    }
+
+    @Test
+    fun buildManagedPaperLaunchConfig_sanitizesExistingSetupScriptClassListingOutput() {
+        val filesDir = Files.createTempDirectory("mcgo-launch-files-sanitize-existing-log")
+        val cacheDir = Files.createTempDirectory("mcgo-launch-cache-sanitize-existing-log")
+        createRuntime(filesDir, majorVersion = 21)
+        val server = createPaperServer("导入服", "1.21.4", maxPlayers = 20, memoryMb = 2048, port = 25565)
+        val serverDir = managedPaperServerDirectory(filesDir, server.id)
+        Files.createDirectories(serverDir)
+        val importedJar = serverDir.resolve("server.jar")
+        Files.write(importedJar, "imported-server".toByteArray())
+        Files.write(paperJarSha256File(importedJar), (sha256Hex(importedJar) + "\n").toByteArray())
+        val logFile = managedPaperServerLogFile(filesDir, server.id)
+        Files.createDirectories(logFile.parent)
+        Files.write(
+            logFile,
+            listOf(
+                "[debug] 整合包安装脚本开始",
+                "net/minecraft/world/level/lighting/SkyLightSectionStorage.class",
+                "  net/minecraft/world/level/storage/loot/functions/SetEnchantmentsFunction\$Builder.class",
+                "net/minecraft/world/level/material/",
+                "The server installed successfully",
+            ).joinToString(separator = "\n", postfix = "\n").toByteArray(),
+        )
+
+        buildManagedPaperLaunchConfig(
+            server = server,
+            filesDir = filesDir,
+            cacheDir = cacheDir,
+            nativeLibraryDir = "/data/app/com.mcgo.app/lib/arm64",
+            is64BitProcess = true,
+        )
+
+        val sanitizedLog = String(Files.readAllBytes(logFile))
+        assertThat(sanitizedLog).contains("[debug] 整合包安装脚本开始")
+        assertThat(sanitizedLog).contains("The server installed successfully")
+        assertThat(sanitizedLog).contains("已省略 3 行 Minecraft class 清单输出")
+        assertThat(sanitizedLog).doesNotContain("SkyLightSectionStorage.class")
+        assertThat(sanitizedLog).doesNotContain("SetEnchantmentsFunction")
+        assertThat(sanitizedLog).doesNotContain("net/minecraft/world/level/material/")
     }
 
     @Test

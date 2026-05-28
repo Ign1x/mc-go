@@ -2,8 +2,11 @@ package com.mcgo.app.server
 
 import com.mcgo.app.ui.model.ServerCardState
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 
 data class ManagedJavaRuntimeLayout(
     val javaHome: Path,
@@ -106,6 +109,8 @@ fun buildManagedPaperLaunchConfig(
     Files.createDirectories(logFile.parent)
     if (!Files.exists(logFile)) {
         Files.write(logFile, byteArrayOf())
+    } else {
+        sanitizeManagedLogFileClassListingNoise(logFile)
     }
     val launcherFullVersion = runtimeReleaseJavaVersion(javaHome)
     val launcherDotVersion = runtimeLauncherDotVersion(launcherFullVersion)
@@ -119,16 +124,16 @@ fun buildManagedPaperLaunchConfig(
         when (server.serverType) {
             com.mcgo.app.ui.model.MinecraftServerType.Forge -> {
                 ensureManagedUserJvmArgsFile(preparedFiles.workDir, server)
-                add("@user_jvm_args.txt")
+                addAll(readManagedJavaArgFile(preparedFiles.workDir, "user_jvm_args.txt"))
                 val installedArgs = resolveInstalledForgeUnixArgsRelativePath(preparedFiles.workDir, server.minecraftVersion)
-                add("@${installedArgs ?: "libraries/net/minecraftforge/forge/${resolveLatestForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"}")
+                addAll(readManagedJavaArgFile(preparedFiles.workDir, installedArgs ?: "libraries/net/minecraftforge/forge/${resolveLatestForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"))
                 add("nogui")
             }
             com.mcgo.app.ui.model.MinecraftServerType.NeoForge -> {
                 ensureManagedUserJvmArgsFile(preparedFiles.workDir, server)
-                add("@user_jvm_args.txt")
+                addAll(readManagedJavaArgFile(preparedFiles.workDir, "user_jvm_args.txt"))
                 val installedArgs = resolveInstalledNeoForgeUnixArgsRelativePath(preparedFiles.workDir, server.minecraftVersion)
-                add("@${installedArgs ?: "libraries/net/neoforged/neoforge/${resolveLatestNeoForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"}")
+                addAll(readManagedJavaArgFile(preparedFiles.workDir, installedArgs ?: "libraries/net/neoforged/neoforge/${resolveLatestNeoForgeArtifactVersion(server.minecraftVersion)}/unix_args.txt"))
                 add("nogui")
             }
             com.mcgo.app.ui.model.MinecraftServerType.Quilt -> {
@@ -239,6 +244,110 @@ private fun ensureManagedUserJvmArgsFile(serverWorkDir: Path, server: ServerCard
         Files.write(userJvmArgsFile, "# user jvm args\n".toByteArray())
     }
     server?.let { sanitizeManagedUserJvmArgsFileForAndroid(userJvmArgsFile, it.memoryMb) }
+}
+
+private fun readManagedJavaArgFile(serverWorkDir: Path, relativePath: String): List<String> {
+    val argFile = resolveManagedJavaArgFilePath(serverWorkDir, relativePath)
+    require(Files.isRegularFile(argFile, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(argFile)) {
+        "托管 Java 启动参数文件不存在或不可读：$relativePath"
+    }
+    return Files.readAllLines(argFile)
+        .flatMap(::parseManagedJavaArgFileLine)
+}
+
+private fun parseManagedJavaArgFileLine(line: String): List<String> {
+    val trimmedLine = line.trim()
+    if (trimmedLine.isEmpty() || trimmedLine.startsWith('#')) return emptyList()
+    val args = mutableListOf<String>()
+    val current = StringBuilder()
+    var quote: Char? = null
+    var escaped = false
+    fun flush() {
+        if (current.isEmpty()) return
+        args += current.toString()
+        current.clear()
+    }
+    trimmedLine.forEach { char ->
+        when {
+            escaped -> {
+                current.append(char)
+                escaped = false
+            }
+            char == '\\' -> escaped = true
+            quote != null -> {
+                if (char == quote) quote = null else current.append(char)
+            }
+            char == '\'' || char == '"' -> quote = char
+            char.isWhitespace() -> flush()
+            else -> current.append(char)
+        }
+    }
+    if (escaped) current.append('\\')
+    flush()
+    return args
+}
+
+private fun resolveManagedJavaArgFilePath(serverWorkDir: Path, relativePath: String): Path {
+    val normalizedWorkDir = serverWorkDir.toAbsolutePath().normalize()
+    val requestedRelativePath = relativePath.trim().removePrefix("@").replace('\\', '/')
+    require(requestedRelativePath.isNotBlank()) { "托管 Java 启动参数文件路径不能为空" }
+    require(!serverWorkDir.fileSystem.getPath(requestedRelativePath).isAbsolute) { "托管 Java 启动参数文件路径必须是服务器目录内的相对路径" }
+    require(
+        requestedRelativePath.split('/').none { segment -> segment.isBlank() || segment == "." || segment == ".." },
+    ) { "托管 Java 启动参数文件路径不能包含空目录、. 或 .." }
+    require(!hasManagedJavaArgFileSymbolicLinkComponent(normalizedWorkDir, requestedRelativePath)) { "托管 Java 启动参数文件路径不能包含符号链接" }
+    val argFile = normalizedWorkDir.resolve(requestedRelativePath).normalize()
+    require(argFile.startsWith(normalizedWorkDir)) { "托管 Java 启动参数文件路径不能越界" }
+    return argFile
+}
+
+private fun hasManagedJavaArgFileSymbolicLinkComponent(baseDir: Path, relativePath: String): Boolean {
+    var current = baseDir
+    relativePath.split('/').forEach { segment ->
+        current = current.resolve(segment).normalize()
+        if (Files.isSymbolicLink(current)) return true
+    }
+    return false
+}
+
+private fun sanitizeManagedLogFileClassListingNoise(logFile: Path) {
+    if (!Files.isRegularFile(logFile, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(logFile)) return
+    val tempLog = logFile.resolveSibling("${logFile.fileName}.mcgo-sanitized")
+    var foundNoise = false
+    var suppressed = 0
+    fun java.io.BufferedWriter.flushSuppressedNoise() {
+        if (suppressed == 0) return
+        appendLine(minecraftClassListingSummaryLine(suppressed))
+        suppressed = 0
+    }
+    Files.newBufferedReader(logFile).use { reader ->
+        Files.newBufferedWriter(
+            tempLog,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE,
+        ).use { writer ->
+            reader.forEachLine { line ->
+                if (isMinecraftClassListingLogNoise(line)) {
+                    foundNoise = true
+                    suppressed += 1
+                } else {
+                    writer.flushSuppressedNoise()
+                    writer.appendLine(line)
+                }
+            }
+            writer.flushSuppressedNoise()
+        }
+    }
+    if (foundNoise) {
+        runCatching {
+            Files.move(tempLog, logFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        }.getOrElse {
+            Files.move(tempLog, logFile, StandardCopyOption.REPLACE_EXISTING)
+        }
+    } else {
+        Files.deleteIfExists(tempLog)
+    }
 }
 
 private fun sanitizeManagedUserJvmArgsFileForAndroid(userJvmArgsFile: Path, memoryMb: Int) {
