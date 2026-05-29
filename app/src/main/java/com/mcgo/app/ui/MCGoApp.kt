@@ -136,6 +136,7 @@ import com.mcgo.app.ui.model.isManagedRuntimeProvisioningAvailable
 import com.mcgo.app.ui.model.isRuntimeBusy
 import com.mcgo.app.ui.model.markAwaitingManagedRuntimeInstall
 import com.mcgo.app.ui.model.markLaunchFailed
+import com.mcgo.app.ui.model.markManagedRuntimeInstallReadyToResume
 import com.mcgo.app.ui.model.markModpackImportInProgress
 import com.mcgo.app.ui.model.markModpackImportRecoveredAfterSyncFailure
 import com.mcgo.app.ui.model.markUnsupportedManagedRuntime
@@ -1269,6 +1270,15 @@ private fun MCGoAppScaffold(
         if (completedPendings.isNotEmpty()) {
             pendingManagedRuntimeStarts = pendingManagedRuntimeStarts.filterNot { it.javaMajorVersion in installedJavaVersions }
             completedPendings.forEach { completedPending ->
+                val serversReadyToResume = latestServers.map { server ->
+                    if (server.id == completedPending.request.serverId) {
+                        server.markManagedRuntimeInstallReadyToResume(completedPending.javaMajorVersion)
+                    } else {
+                        server
+                    }
+                }
+                onServersChange(serversReadyToResume)
+                syncServerProfilesToAuthorizedDirectoryNow(serversReadyToResume)
                 pendingStartRequest = completedPending.request
             }
         }

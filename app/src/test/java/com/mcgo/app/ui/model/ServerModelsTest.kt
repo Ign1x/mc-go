@@ -237,6 +237,24 @@ class ServerModelsTest {
     }
 
     @Test
+    fun markManagedRuntimeInstallReadyToResume_clearsBusyStateSoQueuedLaunchCanContinue() {
+        val server = createPaperServer(
+            name = "整合包服务器",
+            minecraftVersion = "1.21.1",
+            maxPlayers = 20,
+            memoryMb = 4096,
+        ).markAwaitingManagedRuntimeInstall(21)
+
+        val readyToResume = server.markManagedRuntimeInstallReadyToResume(21)
+
+        assertThat(readyToResume.launchStatus).isEqualTo(ServerLaunchStatus.Ready)
+        assertThat(readyToResume.launchProgress).isEqualTo(0)
+        assertThat(readyToResume.runtimeSlot).isNull()
+        assertThat(readyToResume.runtimeLogs.last()).contains("Java 21 已安装，继续启动服务器")
+        assertThat(canStartServerFromUi(readyToResume)).isTrue()
+    }
+
+    @Test
     fun recommendedJavaMajorVersion_matchesPaperCompatibilityTable() {
         assertThat(recommendedJavaMajorVersion("1.11")).isEqualTo(8)
         assertThat(recommendedJavaMajorVersion("1.12.2")).isEqualTo(11)

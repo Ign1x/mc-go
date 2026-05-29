@@ -24,6 +24,9 @@ class MCGoAutoJavaInstallContractTest {
         assertThat(scaffold).contains("未检测到 Java \${targetServer.javaMajorVersion}，已开始自动安装")
         assertThat(scaffold).contains("LaunchedEffect(installedJavaVersions, pendingManagedRuntimeStarts)")
         assertThat(scaffold).contains("pendingManagedRuntimeStarts.filter")
+        assertThat(scaffold).contains("markManagedRuntimeInstallReadyToResume(completedPending.javaMajorVersion)")
+        assertThat(scaffold).contains("onServersChange(serversReadyToResume)")
+        assertThat(scaffold).contains("syncServerProfilesToAuthorizedDirectoryNow(serversReadyToResume)")
         assertThat(scaffold).contains("pendingStartRequest = completedPending.request")
         assertThat(scaffold).doesNotContain("请先安装 Java \${targetServer.javaMajorVersion} 托管 JRE")
     }

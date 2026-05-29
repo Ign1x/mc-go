@@ -498,6 +498,17 @@ fun ServerCardState.markAwaitingManagedRuntimeInstall(majorVersion: Int): Server
         logLine = "未检测到 Java $majorVersion，正在自动安装托管 JRE",
     )
 
+fun ServerCardState.markManagedRuntimeInstallReadyToResume(majorVersion: Int): ServerCardState = clearTunnelRuntimeBindings().copy(
+    isOnline = false,
+    onlinePlayers = 0,
+    onlinePlayerNames = emptyList(),
+    port = defaultPort,
+    launchStatus = ServerLaunchStatus.Ready,
+    launchProgress = 0,
+    runtimeLogs = appendRuntimeLogEntries(runtimeLogs, listOf("Java $majorVersion 已安装，继续启动服务器")),
+    runtimeSlot = null,
+)
+
 fun ServerCardState.effectiveTunnelBindings(): List<ServerTunnelBinding> = when {
     tunnelBindings.isNotEmpty() -> tunnelBindings
     selectedTunnelId != null || tunnelRemotePort != null || activeTunnelLabel != null || runtimeAddress != null -> listOf(
