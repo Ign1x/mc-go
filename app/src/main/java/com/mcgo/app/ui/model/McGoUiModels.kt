@@ -752,11 +752,32 @@ fun applyPaperServerEdits(
 
 const val MaxServerConsoleLogReadBytes = 256 * 1024
 
-fun resolveServerConsoleText(server: ServerCardState): String =
-    server.runtimeLogPath
+fun resolveServerConsoleText(server: ServerCardState): String = mergeServerConsoleText(
+    runtimeLogText = server.runtimeLogPath
         ?.let(::readServerConsoleRuntimeLogTextOrNull)
-        ?.takeIf { it.isNotBlank() }
-        ?: sanitizedRuntimeLogEntries(server.runtimeLogs).joinToString(separator = "\n")
+        ?.takeIf { it.isNotBlank() },
+    runtimeLogs = server.runtimeLogs,
+)
+
+internal fun mergeServerConsoleText(runtimeLogText: String?, runtimeLogs: List<String>): String {
+    val sanitizedRuntimeLines = sanitizedRuntimeLogEntries(runtimeLogs)
+    val normalizedRuntimeLogText = runtimeLogText?.trimEnd()?.takeIf { it.isNotBlank() }
+        ?: return sanitizedRuntimeLines.joinToString(separator = "\n")
+    if (sanitizedRuntimeLines.isEmpty()) return normalizedRuntimeLogText
+    val fileLineSet = normalizedRuntimeLogText
+        .lineSequence()
+        .map { it.trimEnd() }
+        .toSet()
+    val missingRuntimeLines = sanitizedRuntimeLines
+        .map { it.trimEnd() }
+        .filter { it.isNotBlank() && it !in fileLineSet }
+    if (missingRuntimeLines.isEmpty()) return normalizedRuntimeLogText
+    return buildString {
+        append(normalizedRuntimeLogText)
+        append('\n')
+        append(missingRuntimeLines.joinToString(separator = "\n"))
+    }
+}
 
 private fun readServerConsoleRuntimeLogTextOrNull(rawPath: String): String? = runCatching {
     readServerConsoleRuntimeLogTextOrNull(Paths.get(rawPath))

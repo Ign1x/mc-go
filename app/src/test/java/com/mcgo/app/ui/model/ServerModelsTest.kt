@@ -982,7 +982,7 @@ class ServerModelsTest {
     }
 
     @Test
-    fun resolveServerConsoleText_prefersRuntimeLogFileAndFallsBackToInMemoryLogs() {
+    fun resolveServerConsoleText_includesRuntimeLogFileAndFallsBackToInMemoryLogs() {
         val logFile = java.nio.file.Files.createTempFile("mcgo-console", ".log")
         java.nio.file.Files.write(logFile, "line-a\nline-b\n".toByteArray())
         val server = createPaperServer(
@@ -999,6 +999,30 @@ class ServerModelsTest {
 
         val missing = server.copy(runtimeLogPath = logFile.resolveSibling("missing.log").toString())
         assertThat(resolveServerConsoleText(missing)).isEqualTo("fallback-1\nfallback-2")
+    }
+
+    @Test
+    fun resolveServerConsoleText_keepsInMemoryProgressEventsWhenRuntimeLogFileExists() {
+        val logFile = Files.createTempFile("mcgo-console-with-progress", ".log")
+        Files.write(logFile, "server-line-a\nserver-line-b\n".toByteArray())
+        val server = createPaperServer(
+            name = "生存服",
+            minecraftVersion = "1.21.4",
+            maxPlayers = 20,
+            memoryMb = 2048,
+        ).copy(
+            runtimeLogs = listOf(
+                "已提交启动任务，准备使用内置 HotSpot 运行",
+                "正在通过内置 HotSpot 启动 Paper",
+            ),
+            runtimeLogPath = logFile.toString(),
+        )
+
+        val consoleText = resolveServerConsoleText(server)
+
+        assertThat(consoleText).contains("server-line-a")
+        assertThat(consoleText).contains("已提交启动任务，准备使用内置 HotSpot 运行")
+        assertThat(consoleText.trim()).endsWith("正在通过内置 HotSpot 启动 Paper")
     }
 
     @Test
